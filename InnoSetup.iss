@@ -1,10 +1,10 @@
 [Setup]
 AppName=IP-Scanner
-AppVersion=1.3.0
+AppVersion=1.3.2
 VersionInfoVersion=0.0.0.2
 DefaultDirName={autopf}\IPScanner
 OutputDir=E:\Users\Desktop
-OutputBaseFilename=IP-Scanner v1.3.0 For Windows Setup
+OutputBaseFilename=IP-Scanner v1.3.2 For Windows Setup
 SetupIconFile=src\main\resources\icon\IPScannerIcon.ico
 Compression=lzma
 SolidCompression=yes
