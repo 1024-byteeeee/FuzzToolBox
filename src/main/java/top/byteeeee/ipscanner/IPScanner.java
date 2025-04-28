@@ -14,6 +14,8 @@ public class IPScanner extends Application {
     @Override
     public void start(Stage primaryStage) {
         ThemeManager.init();
+        primaryStage.setMinWidth(1244.0D);
+        primaryStage.setMinHeight(666.0D);
         MainController controller = new MainController();
         UIBuilder uiBuilder = new MainWindowUICreator(controller);
         uiBuilder.setupUI(primaryStage);

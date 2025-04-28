@@ -43,7 +43,7 @@ public class MainWindowUICreator implements UIBuilder {
     }
 
     private Scene buildScene(FXMLLoader loader) throws IOException {
-        Scene scene = new Scene(loader.load(), 1222, 600);
+        Scene scene = new Scene(loader.load());
         ThemeManager.applyTheme(scene, ThemeManager.currentTheme);
         return scene;
     }

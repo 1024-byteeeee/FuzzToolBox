@@ -11,13 +11,14 @@ public class ThemeDialogController {
     @FXML private Button oneDarkButton;
     @FXML private Button lightButton;
     @FXML private Button darkButton;
-
     private Scene mainScene;
     private Stage dialogStage;
 
     public void init(Scene mainScene, Stage dialogStage) {
         this.mainScene = mainScene;
         this.dialogStage = dialogStage;
+        dialogStage.setMinHeight(250.0D);
+        dialogStage.setMinWidth(300.0D);
     }
 
     @FXML

@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<?import javafx.geometry.Insets?>
-<?import javafx.scene.control.Label?>
-<?import javafx.scene.layout.VBox?>
+<?import javafx.geometry.*?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
 
-<VBox
-    alignment="CENTER_LEFT"
-    spacing="10"
-    xmlns="http://javafx.com/javafx/17"
-    xmlns:fx="http://javafx.com/fxml/1"
-    fx:controller="top.byteeeee.ipscanner.controller.AboutDialogContentController">
+<VBox alignment="CENTER_LEFT" minHeight="300.0" minWidth="500.0" spacing="10" xmlns="http://javafx.com/javafx/17.0.12" xmlns:fx="http://javafx.com/fxml/1" fx:controller="top.byteeeee.ipscanner.controller.AboutDialogContentController">
 
-    <padding><Insets top="15" right="15" bottom="15" left="15"/></padding>
-    <Label fx:id="versionLabel"/>
-    <Label text="开发者：1024_byteeeee"/>
-    <Label text="© 2025 版权归属 1024_byteeeee"/>
+    <padding><Insets bottom="15" left="15" right="15" top="15" /></padding>
+    <Label fx:id="versionLabel" />
+    <Label text="开发者: 1024_byteeeee" />
+    <Label text="=======================================" />
+    <Label text="本软件著作权归 1024_byteeeee 所有" />
+    <Label text="版权归 常德市浩扬智能科技有限公司 独家所有" />
+    <Label text="依据《中华人民共和国著作权法》登记" />
+    <Label text="未经授权不得复制、修改、反向工程或商业使用" />
+    <Label text="=======================================" />
+    <HBox alignment="CENTER" maxWidth="Infinity">
+        <Label text="© 2025" />
+    </HBox>
 </VBox>
