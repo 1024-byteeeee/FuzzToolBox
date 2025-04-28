@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.cell.PropertyValueFactory?>
+
+<BorderPane
+    xmlns="http://javafx.com/javafx/17"
+    xmlns:fx="http://javafx.com/fxml/1">
+
+    <top>
+        <VBox>
+            <!-- 菜单栏 -->
+            <MenuBar fx:id="menuBar">
+                <Menu text="设置">
+                    <MenuItem fx:id="themeItem" text="主题"/>
+                </Menu>
+                <Menu text="帮助">
+                    <MenuItem fx:id="aboutItem" text="关于"/>
+                </Menu>
+                <Menu text="工具">
+                    <MenuItem fx:id="vlsmCalculate" text="子网划分计算器"/>
+                </Menu>
+            </MenuBar>
+
+            <!-- 输入区域 -->
+            <HBox spacing="10" alignment="CENTER_LEFT" styleClass="input-box">
+                <padding>
+                    <Insets top="10" right="10" bottom="10" left="10"/>
+                </padding>
+                <Label text="起始IP:"/>
+                <TextField fx:id="startIPField" text="1.1.1.1" styleClass="scan-field"/>
+                <Label text="结束IP:"/>
+                <TextField fx:id="endIPField" text="1.1.1.168" styleClass="scan-field"/>
+                <Label text="线程数:"/>
+                <TextField fx:id="threadsField" styleClass="scan-field"/>
+                <Label text="超时(ms):"/>
+                <TextField fx:id="timeoutField" text="5000" styleClass="scan-field"/>
+                <Button fx:id="startButton" text="开始扫描" styleClass="control-button"/>
+                <Button fx:id="stopButton" text="停止扫描" styleClass="control-button" disable="true"/>
+                <Button fx:id="exportButton" text="导出结果" styleClass="control-button"/>
+            </HBox>
+        </VBox>
+    </top>
+
+    <!-- 表格区域 -->
+    <center>
+        <TableView fx:id="tableView" styleClass="result-table">
+            <columns>
+                <TableColumn text="序号" prefWidth="88" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="index"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+                <TableColumn text="IP地址" prefWidth="168" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="ip"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+                <TableColumn text="状态" prefWidth="100" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="status"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+                <TableColumn text="响应时间" prefWidth="120" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="responseTime"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+                <TableColumn text="MAC地址" prefWidth="266" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="macAddr"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+                <TableColumn text="主机名" prefWidth="266" sortable="false">
+                    <cellValueFactory>
+                        <PropertyValueFactory property="hostname"/>
+                    </cellValueFactory>
+                    <cellFactory>
+                        <top.byteeeee.ipscanner.factory.CenteredTableCellFactory/>
+                    </cellFactory>
+                </TableColumn>
+            </columns>
+            <placeholder>
+                <Label text="暂无扫描结果"/>
+            </placeholder>
+        </TableView>
+    </center>
+
+    <!-- 状态区域 -->
+    <bottom>
+        <HBox fx:id="statusBox">
+            <padding>
+                <Insets top="10" right="10" bottom="10" left="10"/>
+            </padding>
+            <StackPane HBox.hgrow="ALWAYS">
+                <ProgressBar fx:id="progressBar" maxWidth="Infinity" prefHeight="30" progress="0"/>
+                <Label fx:id="statusLabel" text="就绪" styleClass="status-label" StackPane.alignment="CENTER"/>
+            </StackPane>
+        </HBox>
+    </bottom>
+</BorderPane>

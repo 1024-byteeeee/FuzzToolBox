@@ -1,0 +1,139 @@
+/* 根节点样式 */
+.root {
+    -fx-font-family: system;        /* 系统字体 */
+    -fx-font-size: 16px;            /* 文字大小 */
+    -fx-base: #14141d;              /* 基础颜色：深空黑 */
+    -fx-background-color: #14141d;  /* 背景色：深空黑 */
+
+    /* 文本颜色 */
+    -fx-text-base-color: #00FFAA;    /* 基础文本：青色霓虹 */
+    -fx-text-background-color: #00FFAA; /* 组件内文本：青色霓虹 */
+    -fx-text-fill: #00FFAA;          /* 全局文本：青色霓虹 */
+}
+
+/* UI组件直角化 - 移除圆角效果 */
+.text-field, .combo-box, .check-box, .radio-button {
+    -fx-background-radius: 0;  /* 背景直角 */
+    -fx-border-radius: 0;      /* 边框直角 */
+}
+
+/* 数据表格行样式 - 区分奇偶行 */
+.table-row-cell:odd {
+    -fx-background-color: #181824;  /* 奇数行：深灰蓝 */
+}
+
+.table-row-cell:even {
+    -fx-background-color: #1c1c29;  /* 偶数行：暗夜蓝 */
+}
+
+/* 进度条样式 */
+.progress-bar {
+    -fx-background-color: #14141d;  /* 进度条背景 */
+}
+
+.progress-bar .bar {
+    -fx-background-color: #00FFAA;  /* 进度填充：青色霓虹 */
+    -fx-background-insets: 0;       /* 填充无边距 */
+}
+
+.progress-bar .track {
+    -fx-background-color: #1c1c29;  /* 轨道颜色：暗夜蓝 */
+    -fx-background-radius: 0;       /* 轨道直角 */
+}
+
+/* 菜单栏样式 */
+.menu-bar {
+    -fx-background-color: #14141d;   /* 背景色：深空黑 */
+    -fx-border-color: #00FFAA;       /* 边框：青色霓虹 */
+    -fx-border-width: 0 0 2px 0;      /* 仅底部2px边框 */
+}
+
+/* 数据表格样式 */
+.result-table {
+    -fx-background-color: #1c1c29;           /* 背景色：暗夜蓝 */
+    -fx-table-cell-border-color: #00FFFF33;  /* 单元格分隔线：淡青色 */
+}
+
+/* 表格单元格居中 */
+.table-cell.centered {
+    -fx-alignment: CENTER;
+}
+
+/* 状态标签 */
+.status-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #333333; /* 深灰 */
+}
+
+/* 输入框样式 */
+.scan-field {
+    -fx-pref-width: 144px;     /* 宽度：144px */
+    -fx-max-width: 144px;      /* 最大宽度限制 */
+    -fx-background-color: rgb(20, 20, 29);  /* 背景色：暗灰 */
+    -fx-border-color: #00FFAA80;    /* 底部边框：青色霓虹，80%透明 */
+    -fx-border-width: 0 0 1px 0;   /* 1px底部边框 */
+    -fx-text-fill: #00FFAA;          /* 输入文字：青色霓虹 */
+    -fx-prompt-text-fill: #00FFAA40; /* 提示文字：浅青色 */
+}
+
+/* 按钮样式 */
+.control-button {
+    -fx-padding: 6 16;         /* 内边距：垂直6px，水平16px */
+    -fx-min-width: 80px;       /* 最小宽度：80px */
+    -fx-background-color: rgb(20, 20, 29);  /* 背景色：暗灰 */
+    -fx-border-color: #00FFAA;    /* 边框：青色霓虹 */
+    -fx-border-width: 1px;     /* 边框宽度：1px */
+    -fx-text-fill: #00FFAA;         /* 文字颜色：青色霓虹 */
+}
+
+/* 全局直角控件 */
+.scan-field,
+.progress-bar,
+.progress-bar .bar,
+.control-button {
+    -fx-background-radius: 0;  /* 背景直角 */
+    -fx-border-radius: 0;      /* 边框直角 */
+}
+
+/* 输入框细节 */
+.scan-field {
+    -fx-background-insets: 0;  /* 移除内边距 */
+    -fx-border-insets: 0;      /* 精确定位边框 */
+}
+
+/* 进度条优化 */
+.progress-bar .track {
+    -fx-background-color: #37836c !important; /* 轨道颜色：深青绿 */
+    -fx-background-radius: 0; /* 轨道直角 */
+}
+
+/* 表格单元格 */
+.table-cell {
+    -fx-border-radius: 0;  /* 单元格直角 */
+}
+
+/* 按钮交互效果 */
+.control-button:hover {
+    -fx-background-color: #1a1a24; /* 悬停背景：稍亮暗灰 */
+}
+
+.control-button:pressed {
+    -fx-background-color: #242434; /* 按下背景：更亮暗灰 */
+}
+
+.menu-bar .menu:hover, .menu-bar .menu-item:hover {
+    -fx-background-color: #696969 !important; /* 菜单悬停背景 */
+}
+.menu-bar .menu:showing, .menu-bar .menu-item:pressed {
+    -fx-background-color: #696969 !important; /* 菜单显示背景 */
+}
+.menu-bar .menu:focused, .menu-bar .menu-item:focused {
+    -fx-background-color: #008B8B !important; /* 聚焦背景：深青绿 */
+}
+
+.dialog-pane > .header-panel {
+    -fx-font-size: 22px;
+    -fx-background-color: #14141d; /* 头部背景：深空黑 */
+    -fx-border-color: #00FFAA;     /* 头部边框：青色霓虹 */
+    -fx-border-width: 0 0 1px 0;  /* 仅底部1px边框 */
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.control.Button?>
+
+<VBox
+    alignment="CENTER"
+    spacing="10"
+    prefWidth="300"
+    prefHeight="150"
+    xmlns="http://javafx.com/javafx"
+    xmlns:fx="http://javafx.com/fxml"
+    fx:controller="top.byteeeee.ipscanner.controller.ThemeDialogController">
+
+    <padding>
+        <Insets top="15" right="15" bottom="15" left="15"/>
+    </padding>
+    <Button fx:id="lightButton" text="浅色主题" styleClass="control-button" prefWidth="300" onAction="#applyLightTheme"/>
+    <Button fx:id="darkButton" text="深色主题" styleClass="control-button" prefWidth="300" onAction="#applyDarkTheme"/>
+</VBox>

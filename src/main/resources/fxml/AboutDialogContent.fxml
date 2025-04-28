@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox
+    alignment="CENTER_LEFT"
+    spacing="10"
+    xmlns="http://javafx.com/javafx/17"
+    xmlns:fx="http://javafx.com/fxml/1"
+    fx:controller="top.byteeeee.ipscanner.controller.AboutDialogContentController">
+
+    <padding><Insets top="15" right="15" bottom="15" left="15"/></padding>
+    <Label fx:id="versionLabel"/>
+    <Label text="开发者：1024_byteeeee"/>
+    <Label text="© 2025 版权归属 1024_byteeeee"/>
+</VBox>
