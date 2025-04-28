@@ -15,7 +15,7 @@ import java.util.Objects;
 public class Setting {
     public static final Font DEFAULT_FONT = new Font("Microsoft YaHei", Font.PLAIN, 24);
     private static Font currentFont = DEFAULT_FONT;
-    private static String currentTheme = "Solarized Dark";
+    private static String currentTheme = "One Dark";
 
     public static void showSettingScreen(Component parentComponent) {
         JFrame settingsFrame = new JFrame("软件设置");
@@ -165,7 +165,7 @@ public class Setting {
         String fontName = Config.loadSetting("currentFont", DEFAULT_FONT.getFontName());
         int fontStyle = Integer.parseInt(Config.loadSetting("currentFontStyle", Integer.toString(DEFAULT_FONT.getStyle())));
         currentFont = new Font(fontName, fontStyle, DEFAULT_FONT.getSize());
-        currentTheme = Config.loadSetting("currentTheme", "Solarized Dark");
+        currentTheme = Config.loadSetting("currentTheme", "One Dark");
         setTheme(currentTheme);
         setUIFont(new FontUIResource(currentFont), component);
         SwingUtilities.updateComponentTreeUI(component);

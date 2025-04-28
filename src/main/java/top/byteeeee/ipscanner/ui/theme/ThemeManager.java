@@ -9,7 +9,7 @@ import java.util.Objects;
 
 public class ThemeManager {
     public static final String THEME_KEY = "app.theme";
-    public static final String DEFAULT_THEME = "dark-theme";
+    public static final String DEFAULT_THEME = "one-dark-theme";
     public static String currentTheme = null;
 
     public static void init() {

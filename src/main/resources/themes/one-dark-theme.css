@@ -1,0 +1,146 @@
+/* 根节点样式 - One Dark主题 */
+.root {
+    -fx-font-family: system;
+    -fx-font-size: 16px;
+    -fx-base: #282c34;               /* One Dark基础色 */
+    -fx-background-color: #282c34;    /* 背景色 */
+
+    /* 文本颜色 */
+    -fx-text-base-color: #c8cad6;     /* 基础文本色 */
+    -fx-text-background-color: #c8cad6;
+    -fx-text-fill: #c8cad6;
+}
+
+/* UI组件直角化 */
+.text-field, .combo-box, .check-box, .radio-button {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+/* 数据表格行样式 */
+.table-row-cell:odd {
+    -fx-background-color: #2c323c;    /* 奇数行颜色 */
+}
+
+.table-row-cell:even {
+    -fx-background-color: #282c34;    /* 偶数行颜色 */
+}
+
+/* 进度条样式 */
+.progress-bar {
+    -fx-background-color: #282c34;
+}
+
+.progress-bar .bar {
+    -fx-background-color: #98c379;    /* One Dark绿色 */
+    -fx-background-insets: 0;
+}
+
+.progress-bar .track {
+    -fx-background-color: #3e4451;    /* 轨道颜色 */
+    -fx-background-radius: 0;
+}
+
+/* 菜单栏样式 */
+.menu-bar {
+    -fx-background-color: #282c34;
+    -fx-border-color: #4269b9;        /* One Dark蓝色 */
+    -fx-border-width: 0 0 2px 0;
+}
+
+/* 数据表格样式 */
+.result-table {
+    -fx-background-color: #282c34;
+    -fx-table-cell-border-color: #5c6370;  /* 单元格分隔线 */
+}
+
+/* 状态标签 */
+.status-label {
+    -fx-font-weight: bold;
+    -fx-text-fill: #e06c75;           /* One Dark红色 */
+}
+
+/* 输入框样式 */
+.scan-field {
+    -fx-pref-width: 144px;
+    -fx-max-width: 144px;
+    -fx-background-color: #282c34;
+    -fx-border-color: #4269b9;        /* One Dark蓝色 */
+    -fx-border-width: 0 0 1px 0;
+    -fx-text-fill: #abb2bf;
+    -fx-prompt-text-fill: #5c6370;    /* 提示文字颜色 */
+}
+
+/* 按钮样式 */
+.control-button {
+    -fx-padding: 6 16;
+    -fx-min-width: 80px;
+    -fx-background-color: #3e4451;    /* 按钮背景色 */
+    -fx-border-color: #4269b9;
+    -fx-border-width: 1px;
+    -fx-text-fill: #abb2bf;
+}
+
+/* 全局直角控件 */
+.scan-field,
+.progress-bar,
+.progress-bar .bar,
+.control-button {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+/* 按钮交互效果 */
+.control-button:hover {
+    -fx-background-color: #434852;    /* 悬停状态 */
+}
+
+.control-button:pressed {
+    -fx-background-color: #4b5263;    /* 按下状态 */
+}
+
+/* 菜单交互效果 */
+.menu-bar .menu:hover,
+.menu-bar .menu-item:hover {
+    -fx-background-color: #3e4451 !important;
+}
+
+.menu-bar .menu:showing,
+.menu-bar .menu-item:pressed {
+    -fx-background-color: #434852 !important;
+}
+
+.menu-bar .menu:focused,
+.menu-bar .menu-item:focused {
+    -fx-background-color: #4269b9 !important;  /* 聚焦颜色 */
+}
+
+/* 对话框样式 */
+.dialog-pane > .header-panel {
+    -fx-font-size: 22px;
+    -fx-background-color: #282c34;
+    -fx-border-color: #4269b9;
+    -fx-border-width: 0 0 1px 0;
+}
+
+/* 表格单元格颜色 */
+.table-cell {
+    -fx-text-fill: #abb2bf;
+    -fx-border-color: #3e4451;
+}
+
+/* 表格单元格居中 */
+.table-cell.centered {
+    -fx-alignment: CENTER;
+}
+
+/* 复选框和单选按钮颜色 */
+.check-box > .box,
+.radio-button > .radio {
+    -fx-border-color: #4269b9;
+}
+
+.check-box:selected > .box > .mark,
+.radio-button:selected > .radio > .dot {
+    -fx-background-color: #4269b9;
+}

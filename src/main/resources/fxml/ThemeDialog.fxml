@@ -18,4 +18,5 @@
     </padding>
     <Button fx:id="lightButton" text="浅色主题" styleClass="control-button" prefWidth="300" onAction="#applyLightTheme"/>
     <Button fx:id="darkButton" text="深色主题" styleClass="control-button" prefWidth="300" onAction="#applyDarkTheme"/>
+    <Button fx:id="oneDarkButton" text="One Dark 主题" styleClass="control-button" prefWidth="300" onAction="#applyOneDarkTheme"/>
 </VBox>

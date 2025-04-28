@@ -8,6 +8,7 @@ import javafx.stage.Stage;
 import top.byteeeee.ipscanner.ui.theme.ThemeManager;
 
 public class ThemeDialogController {
+    @FXML private Button oneDarkButton;
     @FXML private Button lightButton;
     @FXML private Button darkButton;
 
@@ -28,6 +29,12 @@ public class ThemeDialogController {
     @FXML
     private void applyDarkTheme() {
         ThemeManager.applyTheme(mainScene, "dark-theme");
+        dialogStage.close();
+    }
+
+    @FXML
+    private void applyOneDarkTheme() {
+        ThemeManager.applyTheme(mainScene, "one-dark-theme");
         dialogStage.close();
     }
 }
