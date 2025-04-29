@@ -22,6 +22,16 @@
     -fx-background-color: #181824;  /* 奇数行：深灰蓝 */
 }
 
+.table-row-cell:selected {
+    -fx-background-color: #37836c !important;  /* 使用主题蓝色作为选中背景 */
+    -fx-table-cell-border-color: transparent;  /* 移除单元格边框颜色 */
+}
+
+/* 选中行在失去焦点时的颜色 */
+.table-row-cell:selected:!focused {
+    -fx-background-color: #37836c !important;  /* 稍暗的背景色保持可见 */
+}
+
 .table-row-cell:even {
     -fx-background-color: #1c1c29;  /* 偶数行：暗夜蓝 */
 }

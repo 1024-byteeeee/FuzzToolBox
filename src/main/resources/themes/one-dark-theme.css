@@ -54,6 +54,22 @@
     -fx-table-cell-border-color: #5c6370;  /* 单元格分隔线 */
 }
 
+.table-row-cell:selected {
+    -fx-background-color: #4269b9 !important;  /* 使用主题蓝色作为选中背景 */
+    -fx-table-cell-border-color: #4269b9;
+}
+
+/* 选中行在失去焦点时的颜色 */
+.table-row-cell:selected:!focused {
+    -fx-background-color: #3a3f4b !important;  /* 稍暗的背景色保持可见 */
+}
+
+/* 数据行选中时的文本颜色 */
+.table-row-cell:selected .table-cell,
+.table-view .table-row-cell:selected .table-cell {
+    -fx-text-fill: white !important;            /* 白色文本确保可读性 */
+}
+
 /* 状态标签 */
 .status-label {
     -fx-font-weight: bold;

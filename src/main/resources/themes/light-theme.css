@@ -26,6 +26,22 @@
     -fx-background-color: #FFFFFF;  /* 偶数行：白色 */
 }
 
+.table-row-cell:selected {
+    -fx-background-color: #1E88E5 !important;  /* 使用主题蓝色作为选中背景 */
+    -fx-table-cell-border-color: transparent;  /* 移除单元格边框颜色 */
+}
+
+/* 选中行在失去焦点时的颜色 */
+.table-row-cell:selected:!focused {
+    -fx-background-color: #3a3f4b !important;  /* 稍暗的背景色保持可见 */
+}
+
+/* 数据行选中时的文本颜色 */
+.table-row-cell:selected .table-cell,
+.table-view .table-row-cell:selected .table-cell {
+    -fx-text-fill: white !important;            /* 白色文本确保可读性 */
+}
+
 /* 进度条样式 */
 .progress-bar {
     -fx-background-color: #F5F5F5;  /* 进度条背景 */
