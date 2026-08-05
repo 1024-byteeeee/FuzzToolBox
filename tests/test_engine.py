@@ -85,6 +85,31 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             "router.example.net",
         )
 
+    def test_hostname_parser_handles_windows_ping(self):
+        output = "Pinging OFFICE-PC [192.168.1.20] with 32 bytes of data:"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
+
+    def test_hostname_parser_handles_windows_netbios(self):
+        output = "       OFFICE-PC       <00>  UNIQUE      Registered"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
+
+    def test_hostname_parser_handles_resolvectl(self):
+        output = "192.168.1.20: printer.local"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
+
+    def test_hostname_parser_handles_getent_ahosts(self):
+        output = "192.168.1.20 STREAM printer.local\n192.168.1.20 DGRAM printer.local"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
+
+    async def test_hostname_uses_cross_platform_system_resolver_first(self):
+        scanner = Scanner(ScanConfig())
+        with patch(
+            "ip_scanner.engine.asyncio.to_thread",
+            new_callable=AsyncMock,
+            return_value=("printer.local.", [], ["192.168.1.20"]),
+        ):
+            self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "printer.local")
+
     async def test_worker_exception_becomes_result_instead_of_hanging(self):
         scanner = Scanner(
             ScanConfig(method="ping", concurrency=2, include_dead=True)

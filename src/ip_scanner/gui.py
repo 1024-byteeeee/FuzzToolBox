@@ -506,14 +506,6 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             QMessageBox.warning(self, "输入有误", str(exc))
             return
-        if target.total > 65536:
-            QMessageBox.warning(
-                self,
-                "扫描范围过大",
-                f"目标包含 {target.total:,} 个地址。为保证程序稳定，单次扫描最多支持 65,536 个地址。",
-            )
-            return
-
         self.model.clear()
         self.model.set_scan_method(config.method)
         self.search_input.clear()

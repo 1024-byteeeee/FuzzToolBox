@@ -4,6 +4,7 @@ import ipaddress
 import math
 import platform
 import re
+import socket
 import subprocess
 import time
 from typing import Callable, List, Optional
@@ -30,6 +31,9 @@ class Scanner:
         self.network_info = network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
         self._port_semaphore = asyncio.Semaphore(max(32, min(config.concurrency * 4, 256)))
+        # System resolvers may use blocking OS APIs internally. Keep their concurrency
+        # bounded so a slow DNS server cannot exhaust the process-wide thread pool.
+        self._hostname_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
 
     def cancel(self) -> None:
         self._cancelled.set()
@@ -282,19 +286,42 @@ class Scanner:
             return False
 
     async def _resolve_hostname(self, ip: str) -> Optional[str]:
-        # Use cancellable subprocesses rather than gethostbyaddr in a worker thread;
-        # platform resolver calls can otherwise outlive a stopped scan indefinitely.
+        # gethostbyaddr uses the native resolver stack on every supported platform
+        # (DNS, hosts file and platform-specific local name services). Bound and time
+        # limit it, then fall back to cancellable platform tools for broader LAN support.
+        async with self._hostname_semaphore:
+            try:
+                resolved = await asyncio.wait_for(
+                    asyncio.to_thread(socket.gethostbyaddr, ip), timeout=2.0
+                )
+                hostname = self._clean_hostname(resolved[0], ip)
+                if hostname:
+                    return hostname
+            except (asyncio.TimeoutError, OSError, socket.herror, socket.gaierror):
+                pass
+
         system = platform.system()
         commands = []
         if system == "Darwin":
             commands = [
                 ["/usr/bin/dscacheutil", "-q", "host", "-a", "ip_address", ip],
                 ["/usr/bin/dig", "+short", "-x", ip],
+                ["/usr/bin/host", ip],
             ]
         elif system == "Windows":
-            commands = [["nslookup", ip]]
+            commands = [
+                ["nslookup", ip],
+                ["ping", "-a", "-n", "1", "-w", "1000", ip],
+                ["nbtstat", "-A", ip],
+            ]
         else:
-            commands = [["getent", "hosts", ip], ["host", ip]]
+            commands = [
+                ["getent", "hosts", ip],
+                ["getent", "ahostsv4", ip],
+                ["resolvectl", "query", ip],
+                ["host", ip],
+                ["nslookup", ip],
+            ]
         for command in commands:
             command_result = await self._run_command(command, timeout=1.0)
             if command_result is None:
@@ -308,19 +335,34 @@ class Scanner:
         return None
 
     @staticmethod
+    def _clean_hostname(value: str, ip: str) -> Optional[str]:
+        hostname = value.strip().rstrip(".")
+        if not hostname or hostname.casefold() == "localhost" or hostname == ip:
+            return None
+        try:
+            ipaddress.ip_address(hostname)
+            return None
+        except ValueError:
+            return hostname
+
+    @staticmethod
     def _parse_hostname(text: str, ip: str) -> Optional[str]:
         patterns = [
             r"(?im)^\s*name:\s*(\S+)",
             r"(?im)^\s*name\s*=\s*(\S+)",
             r"(?im)domain name pointer\s+(\S+)",
+            r"(?im)^\s*" + re.escape(ip) + r"\s+\S+\s+(\S+)",
             r"(?im)^\s*" + re.escape(ip) + r"\s+(\S+)",
+            r"(?im)^\s*Pinging\s+(\S+)\s+\[" + re.escape(ip) + r"\]",
+            r"(?im)^\s*(\S+)\s+<00>\s+UNIQUE\b",
+            r"(?im)^" + re.escape(ip) + r"\s*:\s*(\S+)",
             r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+)\.?\s*$",
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                hostname = match.group(1).rstrip(".")
-                if hostname not in {ip, "localhost"}:
+                hostname = Scanner._clean_hostname(match.group(1), ip)
+                if hostname:
                     return hostname
         return None
 
