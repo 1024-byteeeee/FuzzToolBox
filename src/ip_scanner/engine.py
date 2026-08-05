@@ -250,20 +250,18 @@ class Scanner:
             if source_ip:
                 args.extend(["-I", source_ip])
             args.append(ip)
-        started = time.monotonic()
         command_result = await self._run_command(args, effective_timeout + 0.5)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
         return_code, stdout = command_result
         text = stdout.decode(errors="ignore")
         alive = return_code == 0 and self._has_echo_reply(text, ip)
-        match = re.search(r"time[=<]([0-9.]+)\s*ms", text, re.IGNORECASE)
-        measured = float(match.group(1)) if match else (time.monotonic() - started) * 1000
+        measured = self._parse_ping_time(text, ip) if alive else None
         return ScanResult(
             ip=ip,
             is_alive=alive,
             method="ping",
-            response_time_ms=round(measured, 2) if alive else None,
+            response_time_ms=round(measured, 2) if measured is not None else None,
             error=None if alive else "no echo reply from target",
         )
 
@@ -273,6 +271,26 @@ class Scanner:
         ip_pattern = re.compile(rf"(?<![\d.]){address}(?![\d.])")
         ttl_pattern = re.compile(r"\bttl\s*[=:]\s*\d+", re.IGNORECASE)
         return any(ip_pattern.search(line) and ttl_pattern.search(line) for line in text.splitlines())
+
+    @staticmethod
+    def _parse_ping_time(text: str, ip: str) -> Optional[float]:
+        """Extract network RTT only, never subprocess startup/teardown time."""
+        address = re.escape(ip)
+        ip_pattern = re.compile(rf"(?<![\d.]){address}(?![\d.])")
+        ttl_pattern = re.compile(r"\bttl\s*[=:]\s*\d+", re.IGNORECASE)
+        # The label before the comparator is localized on some Windows systems.
+        # Matching the comparator + value + ms sequence works across those locales.
+        time_pattern = re.compile(r"([=<＝＜])\s*([0-9]+(?:[.,][0-9]+)?)\s*ms\b", re.IGNORECASE)
+        for line in text.splitlines():
+            if not (ip_pattern.search(line) and ttl_pattern.search(line)):
+                continue
+            match = time_pattern.search(line)
+            if not match:
+                continue
+            value = float(match.group(2).replace(",", "."))
+            # Ping reports sub-millisecond RTT as "<1ms" without the exact value.
+            return value / 2 if match.group(1) in {"<", "＜"} else value
+        return None
 
     def _is_on_link(self, ip: str) -> bool:
         if not self.network_info.ip or self.network_info.prefix_length is None:

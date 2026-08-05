@@ -201,6 +201,27 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         with patch("ip_scanner.engine.platform.system", return_value="Windows"):
             result = await scanner._ping_probe("192.168.1.99")
         self.assertTrue(result.is_alive)
+        self.assertEqual(result.response_time_ms, 0.5)
+
+    async def test_localized_ping_time_is_real_rtt_not_process_duration(self):
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
+        scanner._run_command = AsyncMock(
+            return_value=(0, "来自 192.168.1.99 的回复: 字节=32 时间=2,7ms TTL=128\r\n".encode())
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Windows"):
+            result = await scanner._ping_probe("192.168.1.99")
+        self.assertTrue(result.is_alive)
+        self.assertEqual(result.response_time_ms, 2.7)
+
+    async def test_unrecognized_ping_time_does_not_report_process_overhead(self):
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
+        scanner._run_command = AsyncMock(
+            return_value=(0, b"64 bytes from 192.168.1.99: ttl=64 latency unknown\n")
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+            result = await scanner._ping_probe("192.168.1.99")
+        self.assertTrue(result.is_alive)
+        self.assertIsNone(result.response_time_ms)
 
     async def test_reply_from_different_ip_is_not_target_echo(self):
         scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
