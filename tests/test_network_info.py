@@ -1,7 +1,13 @@
 import unittest
 from unittest.mock import patch
 
-from ip_scanner.network_info import NetworkInfo, _macos_network_info, _prefix_from_hex_netmask
+from ip_scanner.network_info import (
+    NetworkInfo,
+    _macos_network_info,
+    _prefix_from_hex_netmask,
+    _run,
+    _windows_network_info,
+)
 
 
 class NetworkInfoTests(unittest.TestCase):
@@ -29,6 +35,33 @@ class NetworkInfoTests(unittest.TestCase):
         self.assertIn("IP 10.0.0.2", info.display_text())
         self.assertIn("子网掩码 255.255.255.0", info.display_text())
         self.assertIn("网关 10.0.0.1", info.display_text())
+
+    def test_scan_defaults_come_from_network(self):
+        info = NetworkInfo("Ethernet", "192.168.8.42", 24)
+        self.assertEqual(info.cidr, "192.168.8.0/24")
+        self.assertEqual(info.scan_range, ("192.168.8.1", "192.168.8.254"))
+
+    def test_point_to_point_scan_range(self):
+        self.assertEqual(
+            NetworkInfo(ip="10.0.0.2", prefix_length=31).scan_range,
+            ("10.0.0.2", "10.0.0.3"),
+        )
+
+    def test_windows_network_parsing(self):
+        output = "Ethernet|10.2.2.20|24|10.2.2.1|AA-BB-CC-DD-EE-FF\n"
+        with patch("ip_scanner.network_info._run", return_value=output):
+            info = _windows_network_info()
+        self.assertEqual(info.interface, "Ethernet")
+        self.assertEqual(info.ip, "10.2.2.20")
+        self.assertEqual(info.prefix_length, 24)
+        self.assertEqual(info.mac, "AA:BB:CC:DD:EE:FF")
+
+    @patch("ip_scanner.network_info.platform.system", return_value="Windows")
+    @patch("ip_scanner.network_info.subprocess.run")
+    def test_windows_commands_are_hidden(self, run, _system):
+        run.return_value.stdout = ""
+        _run(["ipconfig"])
+        self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)
 
 
 if __name__ == "__main__":

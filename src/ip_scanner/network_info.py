@@ -25,6 +25,23 @@ class NetworkInfo:
             return None
         return str(ipaddress.IPv4Network(f"0.0.0.0/{self.prefix_length}").netmask)
 
+    @property
+    def cidr(self) -> Optional[str]:
+        if not self.ip or self.prefix_length is None:
+            return None
+        network = ipaddress.IPv4Network(f"{self.ip}/{self.prefix_length}", strict=False)
+        return str(network)
+
+    @property
+    def scan_range(self):
+        """Return the usable host range for the detected IPv4 network."""
+        if not self.ip or self.prefix_length is None:
+            return None
+        network = ipaddress.IPv4Network(f"{self.ip}/{self.prefix_length}", strict=False)
+        if network.prefixlen <= 30:
+            return str(network.network_address + 1), str(network.broadcast_address - 1)
+        return str(network.network_address), str(network.broadcast_address)
+
     def display_text(self) -> str:
         parts = [self.interface or "未知接口", f"IP {self.address}"]
         if self.netmask:
@@ -44,6 +61,11 @@ def _run(args: List[str]) -> str:
             text=True,
             timeout=1.0,
             check=False,
+            creationflags=(
+                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                if platform.system() == "Windows"
+                else 0
+            ),
         )
         return result.stdout
     except (OSError, subprocess.TimeoutExpired):
@@ -100,6 +122,32 @@ def _linux_network_info() -> NetworkInfo:
     )
 
 
+def _windows_network_info() -> NetworkInfo:
+    script = (
+        "$c=Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -and $_.IPv4Address} "
+        "| Select-Object -First 1; if ($c) {$a=$c.IPv4Address | Select-Object -First 1; "
+        "$m=(Get-NetAdapter -InterfaceIndex $c.InterfaceIndex).MacAddress; "
+        "Write-Output ($c.InterfaceAlias+'|'+$a.IPAddress+'|'+$a.PrefixLength+'|'"
+        "+$c.IPv4DefaultGateway.NextHop+'|'+$m)}"
+    )
+    output = _run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]).strip()
+    if output:
+        parts = output.split("|", 4)
+        if len(parts) == 5:
+            try:
+                prefix_length = int(parts[2])
+            except ValueError:
+                prefix_length = None
+            return NetworkInfo(
+                interface=parts[0] or None,
+                ip=parts[1] or None,
+                prefix_length=prefix_length,
+                gateway=parts[3] or None,
+                mac=parts[4].replace("-", ":").upper() or None,
+            )
+    return _socket_fallback()
+
+
 def _socket_fallback() -> NetworkInfo:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -118,4 +166,6 @@ def get_network_info() -> NetworkInfo:
         return _macos_network_info()
     if system == "Linux":
         return _linux_network_info()
+    if system == "Windows":
+        return _windows_network_info()
     return _socket_fallback()

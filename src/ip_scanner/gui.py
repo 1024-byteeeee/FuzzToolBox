@@ -342,6 +342,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
 
         network_info = get_network_info()
+        default_start, default_end = network_info.scan_range or ("192.168.1.1", "192.168.1.254")
+        default_cidr = network_info.cidr or "192.168.1.0/24"
         network_label = QLabel(f"本机网络  {network_info.display_text()}")
         network_label.setObjectName("networkInfo")
         network_label.setStyleSheet(
@@ -359,11 +361,11 @@ class MainWindow(QMainWindow):
         self.range_mode.addItem("CIDR / 单 IP", "cidr")
         configure_combo(self.range_mode)
         self.range_mode.setMinimumWidth(155)
-        self.target = QLineEdit("192.168.1.0/24")
+        self.target = QLineEdit(default_cidr)
         self.target.setPlaceholderText("例如：192.168.1.0/24 或 192.168.1.10")
-        self.start_ip = QLineEdit("192.168.1.1")
+        self.start_ip = QLineEdit(default_start)
         self.start_ip.setPlaceholderText("起始 IP，例如 192.168.1.1")
-        self.end_ip = QLineEdit("192.168.1.254")
+        self.end_ip = QLineEdit(default_end)
         self.end_ip.setPlaceholderText("结束 IP，例如 192.168.1.254")
         self.range_separator = QLabel("至")
         range_controls.addWidget(range_label)

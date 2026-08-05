@@ -4,6 +4,7 @@ import ipaddress
 import platform
 import re
 import socket
+import subprocess
 import time
 from typing import Awaitable, Callable, List, Optional
 
@@ -292,8 +293,16 @@ class Scanner:
     @staticmethod
     async def _run_command(args: List[str], timeout: float):
         try:
+            creationflags = (
+                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                if platform.system() == "Windows"
+                else 0
+            )
             process = await asyncio.create_subprocess_exec(
-                *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                creationflags=creationflags,
             )
         except (FileNotFoundError, OSError):
             return None
