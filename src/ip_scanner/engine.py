@@ -9,6 +9,7 @@ import time
 from typing import Awaitable, Callable, List, Optional
 
 from .models import ScanConfig, ScanProgress, ScanResult
+from .network_info import NetworkInfo
 from .targets import TargetRange
 
 
@@ -23,9 +24,10 @@ class ScanCancelled(Exception):
 class Scanner:
     """Bounded producer/consumer scanner; memory use is independent of target size."""
 
-    def __init__(self, config: ScanConfig):
+    def __init__(self, config: ScanConfig, local_network_info: Optional[NetworkInfo] = None):
         config.validate()
         self.config = config
+        self.local_network_info = local_network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
 
     def cancel(self) -> None:
@@ -129,15 +131,28 @@ class Scanner:
             await asyncio.gather(producer_task, *workers, *watchers, return_exceptions=True)
 
     async def _probe(self, ip: str) -> ScanResult:
+        is_local = ip == self.local_network_info.ip
         last = None
         for attempt in range(self.config.retries + 1):
             if self._cancelled.is_set():
                 return ScanResult(ip=ip, is_alive=False, method=self.config.method, error="cancelled")
             last = await (self._tcp_probe(ip) if self.config.method == "tcp" else self._ping_probe(ip))
+            # The current host is known to be online even when its firewall drops
+            # ICMP or none of the selected TCP ports is listening.
+            if is_local:
+                last.is_alive = True
+                last.error = None
+                if last.response_time_ms is None:
+                    last.response_time_ms = 0.0
             if last.is_alive:
-                last.mac = await self._lookup_mac(ip)
+                last.mac = (
+                    self.local_network_info.mac if is_local else await self._lookup_mac(ip)
+                )
                 if self.config.resolve_hostname:
-                    last.hostname = await self._resolve_hostname(ip)
+                    if is_local:
+                        last.hostname = socket.gethostname().rstrip(".") or None
+                    else:
+                        last.hostname = await self._resolve_hostname(ip)
                 return last
             if attempt < self.config.retries:
                 await asyncio.sleep(0.05)

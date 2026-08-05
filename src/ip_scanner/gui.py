@@ -46,7 +46,7 @@ from . import __version__
 from .engine import ScanCancelled, Scanner
 from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
-from .network_info import get_network_info
+from .network_info import NetworkInfo, get_network_info
 from .targets import parse_ports, parse_target
 
 
@@ -264,10 +264,11 @@ class WorkerSignals(QObject):
 
 
 class ScanWorker(QThread):
-    def __init__(self, target_text: str, config: ScanConfig):
+    def __init__(self, target_text: str, config: ScanConfig, network_info: NetworkInfo):
         super().__init__()
         self.target_text = target_text
         self.config = config
+        self.network_info = network_info
         self.signals = WorkerSignals()
         self.scanner = None
         self.loop = None
@@ -277,7 +278,7 @@ class ScanWorker(QThread):
     def run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.scanner = Scanner(self.config)
+        self.scanner = Scanner(self.config, self.network_info)
         success = False
         message = "扫描已停止"
         try:
@@ -341,10 +342,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        network_info = get_network_info()
-        default_start, default_end = network_info.scan_range or ("192.168.1.1", "192.168.1.254")
-        default_cidr = network_info.cidr or "192.168.1.0/24"
-        network_label = QLabel(f"本机网络  {network_info.display_text()}")
+        self.network_info = get_network_info()
+        default_start, default_end = self.network_info.scan_range or ("192.168.1.1", "192.168.1.254")
+        default_cidr = self.network_info.cidr or "192.168.1.0/24"
+        network_label = QLabel(f"本机网络  {self.network_info.display_text()}")
         network_label.setObjectName("networkInfo")
         network_label.setStyleSheet(
             "QLabel#networkInfo { background: #ecf5ff; color: #406080; "
@@ -515,7 +516,7 @@ class MainWindow(QMainWindow):
         self._accept_updates = True
         self._set_running(True)
 
-        worker = ScanWorker(target_text, config)
+        worker = ScanWorker(target_text, config, self.network_info)
         self.worker = worker
         worker.signals.results.connect(self.receive_results)
         worker.signals.progress.connect(self.update_progress)
