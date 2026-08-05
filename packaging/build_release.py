@@ -71,8 +71,7 @@ def build() -> Path:
             "--windowed",
             "--osx-bundle-identifier",
             "com.github.1024-byteeeee.ip-scanner",
-            "--icon",
-            str(PROJECT_DIR / "packaging" / "IP-Scanner.icns"),
+            f"--icon={PROJECT_DIR / 'packaging' / 'IP-Scanner.icns'}",
         ]
     elif system == "Windows":
         command[3:3] = [
@@ -80,8 +79,7 @@ def build() -> Path:
             "--windowed",
             "--version-file",
             str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
-            "--icon",
-            str(PROJECT_DIR / "packaging" / "IP-Scanner.ico"),
+            f"--icon={PROJECT_DIR / 'packaging' / 'IP-Scanner.ico'}",
             "--exclude-module",
             "PySide6.QtDBus",
             "--exclude-module",
@@ -131,7 +129,9 @@ def build() -> Path:
             )
     else:
         built_path = BUILD_DIR / "IP-Scanner.exe"
-        release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.exe"
+        # Versioned filenames avoid Windows Explorer reusing the icon cache from
+        # an older executable at the same desktop path.
+        release_path = RELEASE_DIR / f"IP-Scanner-v{__version__}-{label}-{arch}.exe"
         if not built_path.is_file():
             raise SystemExit(f"PyInstaller did not create the expected executable: {built_path}")
         if release_path.exists():

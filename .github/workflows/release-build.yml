@@ -51,6 +51,33 @@ jobs:
       - name: Build native application and archive
         run: python packaging/build_release.py
 
+      - name: Verify Windows executable icon
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $exe = (Resolve-Path 'build/IP-Scanner.exe').Path
+          $ico = (Resolve-Path 'packaging/IP-Scanner.ico').Path
+          $actualIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $actualIcon) { throw 'Windows executable has no associated icon' }
+          $expectedIcon = [System.Drawing.Icon]::new($ico, $actualIcon.Width, $actualIcon.Height)
+          $actual = $actualIcon.ToBitmap()
+          $expected = $expectedIcon.ToBitmap()
+          $different = 0
+          for ($x = 0; $x -lt $actual.Width; $x++) {
+            for ($y = 0; $y -lt $actual.Height; $y++) {
+              if ($actual.GetPixel($x, $y).ToArgb() -ne $expected.GetPixel($x, $y).ToArgb()) {
+                $different++
+              }
+            }
+          }
+          $actual.Dispose()
+          $expected.Dispose()
+          $actualIcon.Dispose()
+          $expectedIcon.Dispose()
+          if ($different -ne 0) { throw "Embedded executable icon differs at $different pixels" }
+          Write-Host 'Custom Windows executable icon verified.'
+
       - name: Store workflow artifact
         uses: actions/upload-artifact@v4
         with:

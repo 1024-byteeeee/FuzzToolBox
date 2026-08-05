@@ -59,7 +59,7 @@ sh scripts/build_macos.sh
 .\scripts\build_windows.ps1
 ```
 
-无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖嵌入发布产物。Windows 提供带应用图标的单个 `.exe`；macOS 提供带应用图标的 DMG，打开后将 `IP-Scanner.app` 拖入 `Applications` 即可安装。正式分发 macOS 版本前仍建议使用 Apple Developer ID 签名与公证。
+无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖嵌入发布产物。Windows 提供带应用图标和版本化文件名的单个 `.exe`，避免 Explorer 沿用旧版本图标缓存；macOS 提供带应用图标的 DMG，打开后将 `IP-Scanner.app` 拖入 `Applications` 即可安装。正式分发 macOS 版本前仍建议使用 Apple Developer ID 签名与公证。
 
 ## GitHub Release
 
