@@ -47,12 +47,23 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 2. 按 `Cmd+Shift+P`，运行“Tasks: Run Test Task”执行全部测试。
 3. 如 VS Code 未自动识别解释器，选择 `.venv/bin/python`。
 
-## 构建 macOS 应用
+## 构建原生应用
 
-安装开发依赖后执行：
+PyInstaller 不支持跨系统编译，需要在目标操作系统上分别执行：
 
 ```bash
+# macOS
 sh scripts/build_macos.sh
+
+# Linux
+sh scripts/build_linux.sh
+
+# Windows PowerShell
+.\scripts\build_windows.ps1
 ```
 
-生成的应用位于 `build/IP-Scanner.app`。当前构建为本机 ARM64 架构，并使用临时签名；对外发布前还需要 Apple Developer ID 签名与公证。
+原生程序生成在 `build`，可发布压缩包生成在 `build/releases`。macOS 本机构建使用临时签名；正式分发前仍建议使用 Apple Developer ID 签名与公证。
+
+## GitHub Release
+
+`.github/workflows/release-build.yml` 会在 GitHub Release 发布时自动使用 Windows、Linux 和 macOS 原生 Runner 构建，并把三个平台的压缩包添加到该 Release。工作流也支持在 Actions 页面手动运行，手动运行时产物保存在 Workflow Artifacts 中。
