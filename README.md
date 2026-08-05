@@ -55,15 +55,12 @@ PyInstaller 不支持跨系统编译，需要在目标操作系统上分别执�
 # macOS
 sh scripts/build_macos.sh
 
-# Linux
-sh scripts/build_linux.sh
-
 # Windows PowerShell
 .\scripts\build_windows.ps1
 ```
 
-无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖全部嵌入一个可执行文件；本机程序生成在 `build`，带平台及架构名称的单文件发布程序生成在 `build/releases`。macOS 本机构建使用临时签名；正式分发前仍建议使用 Apple Developer ID 签名与公证。macOS/Linux 文件从浏览器下载后若丢失执行权限，可运行 `chmod +x <文件名>`。
+无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖嵌入发布产物。Windows 提供单个 `.exe`；macOS 提供包含已签名 `.app` 的 ZIP，以保留 Finder 启动所需的应用结构和执行权限。正式分发 macOS 版本前仍建议使用 Apple Developer ID 签名与公证。
 
 ## GitHub Release
 
-`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows、Linux 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。三个系统全部成功后，工作流才会统一替换 Release 中的三个单文件可执行程序，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。
+`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。两个系统全部成功后，工作流才会统一替换 Release 附件，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。

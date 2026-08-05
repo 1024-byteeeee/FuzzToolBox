@@ -2,10 +2,13 @@
 
 import os
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from ip_scanner import __version__
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_DIR / "build"
@@ -25,13 +28,12 @@ def platform_label() -> str:
     return {
         "Darwin": "macOS",
         "Windows": "Windows",
-        "Linux": "Linux",
     }.get(platform.system(), platform.system())
 
 
 def build() -> Path:
     system = platform.system()
-    if system not in {"Darwin", "Windows", "Linux"}:
+    if system not in {"Darwin", "Windows"}:
         raise SystemExit(f"Unsupported build platform: {system}")
 
     BUILD_DIR.mkdir(exist_ok=True)
@@ -46,7 +48,6 @@ def build() -> Path:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
         "--name",
         "IP-Scanner",
         "--distpath",
@@ -62,11 +63,14 @@ def build() -> Path:
         str(entry),
     ]
     if system == "Darwin":
-        # A macOS .app is a directory bundle. Console mode intentionally produces
-        # one Mach-O file; the program itself still opens the PySide GUI.
-        pass
+        command[3:3] = [
+            "--windowed",
+            "--osx-bundle-identifier",
+            "com.github.1024-byteeeee.ip-scanner",
+        ]
     elif system == "Windows":
         command[3:3] = [
+            "--onefile",
             "--windowed",
             "--version-file",
             str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
@@ -75,25 +79,47 @@ def build() -> Path:
 
     label = platform_label()
     arch = normalized_architecture()
-    suffix = ".exe" if system == "Windows" else ""
-    built_path = BUILD_DIR / f"IP-Scanner{suffix}"
-    release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}{suffix}"
-    if not built_path.is_file():
-        raise SystemExit(f"PyInstaller did not create the expected executable: {built_path}")
-
     if system == "Darwin":
+        built_path = BUILD_DIR / "IP-Scanner.app"
+        if not built_path.is_dir():
+            raise SystemExit(f"PyInstaller did not create the expected app: {built_path}")
+        plist_path = built_path / "Contents" / "Info.plist"
+        with plist_path.open("rb") as handle:
+            plist = plistlib.load(handle)
+        plist["CFBundleShortVersionString"] = __version__
+        plist["CFBundleVersion"] = __version__
+        with plist_path.open("wb") as handle:
+            plistlib.dump(plist, handle)
         subprocess.run(
-            ["/usr/bin/codesign", "--force", "--sign", "-", str(built_path)],
+            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(built_path)],
             check=True,
         )
+        release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.zip"
+        if release_path.exists():
+            release_path.unlink()
+        subprocess.run(
+            [
+                "/usr/bin/ditto",
+                "-c",
+                "-k",
+                "--sequesterRsrc",
+                "--keepParent",
+                str(built_path),
+                str(release_path),
+            ],
+            check=True,
+        )
+    else:
+        built_path = BUILD_DIR / "IP-Scanner.exe"
+        release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.exe"
+        if not built_path.is_file():
+            raise SystemExit(f"PyInstaller did not create the expected executable: {built_path}")
+        if release_path.exists():
+            release_path.unlink()
+        shutil.copy2(built_path, release_path)
 
-    if release_path.exists():
-        release_path.unlink()
-    shutil.copy2(built_path, release_path)
-    if system != "Windows":
-        release_path.chmod(release_path.stat().st_mode | 0o111)
-    print(f"Built self-contained executable: {built_path}")
-    print(f"Built release executable: {release_path}")
+    print(f"Built self-contained application: {built_path}")
+    print(f"Built release artifact: {release_path}")
     return release_path
 
 

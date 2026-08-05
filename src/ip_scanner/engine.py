@@ -1,7 +1,6 @@
 import asyncio
 import contextlib
 import ipaddress
-import math
 import platform
 import re
 import socket
@@ -246,10 +245,12 @@ class Scanner:
                 args.extend(["-S", source_ip])
             args.append(ip)
         else:
-            args = ["ping", "-n", "-c", "1", "-W", str(max(1, math.ceil(effective_timeout)))]
-            if source_ip:
-                args.extend(["-I", source_ip])
-            args.append(ip)
+            return ScanResult(
+                ip=ip,
+                is_alive=False,
+                method="ping",
+                error=f"unsupported operating system: {system}",
+            )
         command_result = await self._run_command(args, effective_timeout + 0.5)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
@@ -333,13 +334,7 @@ class Scanner:
                 ["nbtstat", "-A", ip],
             ]
         else:
-            commands = [
-                ["getent", "hosts", ip],
-                ["getent", "ahostsv4", ip],
-                ["resolvectl", "query", ip],
-                ["host", ip],
-                ["nslookup", ip],
-            ]
+            return None
         for command in commands:
             command_result = await self._run_command(command, timeout=1.0)
             if command_result is None:
@@ -391,7 +386,7 @@ class Scanner:
         elif system == "Darwin":
             args = ["/usr/sbin/arp", "-n", ip]
         else:
-            args = ["ip", "neigh", "show", ip]
+            return None
         command_result = await self._run_command(args, timeout=0.8)
         if command_result is None:
             return None

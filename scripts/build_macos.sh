@@ -6,4 +6,4 @@ cd "$PROJECT_DIR"
 
 .venv/bin/python packaging/build_release.py
 
-echo "Built single-file executable: $PROJECT_DIR/build/IP-Scanner"
+echo "Built macOS application: $PROJECT_DIR/build/IP-Scanner.app"

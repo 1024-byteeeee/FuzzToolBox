@@ -93,14 +93,6 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         output = "       OFFICE-PC       <00>  UNIQUE      Registered"
         self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
 
-    def test_hostname_parser_handles_resolvectl(self):
-        output = "192.168.1.20: printer.local"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
-
-    def test_hostname_parser_handles_getent_ahosts(self):
-        output = "192.168.1.20 STREAM printer.local\n192.168.1.20 DGRAM printer.local"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
-
     async def test_hostname_uses_cross_platform_system_resolver_first(self):
         scanner = Scanner(ScanConfig())
         with patch(
@@ -218,7 +210,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         scanner._run_command = AsyncMock(
             return_value=(0, b"64 bytes from 192.168.1.99: ttl=64 latency unknown\n")
         )
-        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
             result = await scanner._ping_probe("192.168.1.99")
         self.assertTrue(result.is_alive)
         self.assertIsNone(result.response_time_ms)
@@ -228,7 +220,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         scanner._run_command = AsyncMock(
             return_value=(0, b"64 bytes from 192.168.1.1: ttl=64 time=0.5 ms\n")
         )
-        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
             result = await scanner._ping_probe("192.168.1.10")
         self.assertFalse(result.is_alive)
 
@@ -238,11 +230,11 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         scanner._run_command = AsyncMock(
             return_value=(0, b"64 bytes from 192.168.1.30: ttl=64 time=0.5 ms\n")
         )
-        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
             result = await scanner._ping_probe("192.168.1.30")
         self.assertTrue(result.is_alive)
         command = scanner._run_command.await_args.args[0]
-        self.assertEqual(command[-3:], ["-I", "192.168.1.20", "192.168.1.30"])
+        self.assertEqual(command[-3:], ["-S", "192.168.1.20", "192.168.1.30"])
 
     async def test_port_checks_have_a_global_concurrency_bound(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=list(range(1, 131)), concurrency=1))

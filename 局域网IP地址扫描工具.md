@@ -12,7 +12,7 @@ IP-Scanner 旨在打造一款**高性能、跨平台、扁平化美观界面**�
 
 1. **大地址段扫描不卡顿**：支持扫描从 /8 到 /32 任意规模的地址段（如 10.0.0.0 - 10.255.255.255，约1600万地址），扫描过程中UI保持流畅响应，无明显卡顿或假死现象。
 2. **扁平化优美界面**：采用现代扁平化设计风格，界面简洁美观，操作直观易用，告别传统工具的生硬感。
-3. **跨平台兼容**：原生支持 Linux、macOS、Windows 7+ 三大主流桌面操作系统，提供一致的用户体验。
+3. **跨平台兼容**：原生支持 macOS 和现代 Windows 桌面操作系统，提供一致的用户体验。
 4. **软件命名**：软件正式名称为 **IP-Scanner**。
 
 ### 1.3 扩展功能需求（推导）
@@ -297,7 +297,7 @@ class BaseScanner(ABC):
 - 使用 `scapy` 发送ARP请求，获取MAC地址
 - 仅适用于同一局域网内（二层可达）
 - 优点：速度极快，几乎所有主机都会响应ARP，准确率高
-- 缺点：只能扫描同一网段，需要raw socket权限（Linux下需root/capability）
+- 缺点：只能扫描同一网段，部分实现需要额外的 raw socket 权限
 
 **3. TCP 端口扫描器（TcpScanner）**
 - 异步TCP半连接扫描（SYN扫描需要root，改用全连接扫描）
@@ -475,7 +475,6 @@ CREATE INDEX idx_results_ip ON scan_results(ip);
 - 配置文件位置：
   - Windows: `%APPDATA%\IP-Scanner\config.json`
   - macOS: `~/Library/Application Support/IP-Scanner/config.json`
-  - Linux: `~/.config/IP-Scanner/config.json`
 
 ---
 
@@ -700,23 +699,7 @@ QProgressBar::chunk {
 5. **打包格式**：`.app` 应用包，可选 `.dmg` 镜像。
 6. **公证与签名**：可选进行代码签名和公证，避免 Gatekeeper 拦截。
 
-#### 6.1.3 Linux 平台
-
-**特殊处理点**：
-
-1. **ICMP权限**：
-   - 大多数 Linux 发行版默认禁止普通用户发送 ICMP
-   - 解决方案1：检测权限，提示使用 `sudo` 运行
-   - 解决方案2：设置 `cap_net_raw` capability（推荐）
-   - 解决方案3：使用 TCP 扫描替代 ICMP
-2. **ARP扫描**：需要 root 权限或 `cap_net_raw` capability。
-3. **发行版兼容**：
-   - 提供 AppImage 格式，兼容所有主流发行版
-   - 可选提供 .deb / .rpm 包
-4. **桌面环境**：适配 GNOME、KDE、XFCE 等常见桌面环境。
-5. **主题集成**：尽量跟随系统主题颜色。
-
-#### 6.1.4 跨平台抽象层
+#### 6.1.3 跨平台抽象层
 
 为了隔离平台差异，设计统一的平台抽象层：
 
@@ -755,8 +738,7 @@ def get_platform_adapter() -> PlatformAdapter:
         return WindowsAdapter()
     elif sys.platform == 'darwin':
         return MacOSAdapter()
-    else:
-        return LinuxAdapter()
+    raise RuntimeError('Unsupported operating system')
 ```
 
 ### 6.2 打包部署方案
@@ -782,11 +764,6 @@ def get_platform_adapter() -> PlatformAdapter:
 - DMG 镜像：使用 `create-dmg` 制作带背景的DMG
 - 代码签名：`codesign` 签名应用
 - 公证：`xcrun notarytool` 提交公证
-
-**Linux**：
-- AppImage：单文件，双击即运行
-- deb 包：Debian/Ubuntu 系列
-- rpm 包：Fedora/CentOS 系列
 
 #### 6.2.3 打包优化
 

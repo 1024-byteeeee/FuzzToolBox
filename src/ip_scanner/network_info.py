@@ -240,11 +240,6 @@ def _gateway_for_interface(interface: str) -> Optional[str]:
         gateway = re.search(r"^\s*gateway:\s*(\d+(?:\.\d+){3})", output, re.MULTILINE)
         if route_interface and route_interface.group(1) == interface and gateway:
             return gateway.group(1)
-    elif system == "Linux":
-        output = _run(["ip", "route", "show", "default", "dev", interface])
-        match = re.search(r"\bvia\s+(\d+(?:\.\d+){3})", output)
-        if match:
-            return match.group(1)
     elif system == "Windows":
         escaped = interface.replace("'", "''")
         script = (
@@ -287,26 +282,6 @@ def _macos_network_info() -> NetworkInfo:
         prefix_length=_prefix_from_hex_netmask(ip_match.group(2)) if ip_match else None,
         gateway=gateway,
         mac=mac_match.group(1).upper() if mac_match else None,
-    )
-
-
-def _linux_network_info() -> NetworkInfo:
-    route = _run(["ip", "route", "show", "default"])
-    interface_match = re.search(r"\bdev\s+(\S+)", route)
-    gateway_match = re.search(r"\bvia\s+(\S+)", route)
-    interface = interface_match.group(1) if interface_match else None
-    if not interface:
-        return _socket_fallback()
-    address_text = _run(["ip", "-o", "-4", "addr", "show", "dev", interface])
-    ip_match = re.search(r"\binet\s+(\d+(?:\.\d+){3})/(\d+)", address_text)
-    mac_text = _run(["cat", f"/sys/class/net/{interface}/address"])
-    mac = mac_text.strip().upper() or None
-    return NetworkInfo(
-        interface=interface,
-        ip=ip_match.group(1) if ip_match else None,
-        prefix_length=int(ip_match.group(2)) if ip_match else None,
-        gateway=gateway_match.group(1) if gateway_match else None,
-        mac=mac,
     )
 
 
@@ -353,8 +328,6 @@ def get_network_info(include_gateway: bool = True) -> NetworkInfo:
     system = platform.system()
     if system == "Darwin":
         return _macos_network_info()
-    if system == "Linux":
-        return _linux_network_info()
     if system == "Windows":
         return _windows_network_info()
     return _socket_fallback()
