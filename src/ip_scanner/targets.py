@@ -54,11 +54,16 @@ def parse_ports(value: str):
         if "-" in item:
             start_text, end_text = item.split("-", 1)
             start, end = int(start_text), int(end_text)
+            if start < 1 or end > 65535:
+                raise ValueError("端口必须在 1 到 65535 之间")
             if start > end:
                 raise ValueError("端口范围起始值不能大于结束值")
             ports.update(range(start, end + 1))
         else:
-            ports.add(int(item))
+            port = int(item)
+            if port < 1 or port > 65535:
+                raise ValueError("端口必须在 1 到 65535 之间")
+            ports.add(port)
     ordered = sorted(ports)
     if not ordered or ordered[0] < 1 or ordered[-1] > 65535:
         raise ValueError("端口必须在 1 到 65535 之间")

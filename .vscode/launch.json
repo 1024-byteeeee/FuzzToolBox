@@ -6,11 +6,9 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/packaging/macos_entry.py",
-      "python": "${workspaceFolder}/.venv/bin/python",
       "cwd": "${workspaceFolder}",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/src",
-        "PYTHONPYCACHEPREFIX": "/tmp/ip-scanner-vscode-pycache"
+        "PYTHONPATH": "${workspaceFolder}/src"
       },
       "console": "integratedTerminal",
       "justMyCode": true
@@ -20,11 +18,9 @@
       "type": "debugpy",
       "request": "launch",
       "module": "ip_scanner.cli",
-      "python": "${workspaceFolder}/.venv/bin/python",
       "cwd": "${workspaceFolder}",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/src",
-        "PYTHONPYCACHEPREFIX": "/tmp/ip-scanner-vscode-pycache"
+        "PYTHONPATH": "${workspaceFolder}/src"
       },
       "args": [
         "127.0.0.1",

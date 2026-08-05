@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -30,11 +34,19 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install build dependencies
-        run: python -m pip install --upgrade pip pyinstaller "PySide6>=6.5,<7"
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
 
-      - name: Install IP-Scanner
-        run: python -m pip install --no-deps .
+      - name: Install IP-Scanner and build dependencies
+        run: python -m pip install ".[gui]" "pyinstaller>=6,<7"
+
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Smoke-test GUI initialization
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -c "from PySide6.QtWidgets import QApplication; from ip_scanner.gui import MainWindow; app = QApplication([]); window = MainWindow(); window.close(); app.processEvents()"
 
       - name: Build native application and archive
         run: python packaging/build_release.py
@@ -46,15 +58,37 @@ jobs:
           path: build/releases/*
           if-no-files-found: error
 
-      - name: Attach archive to GitHub Release
-        if: github.event_name != 'workflow_dispatch'
+
+  publish:
+    name: Publish complete release set
+    if: github.event_name != 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all native archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: IP-Scanner-*
+          path: build/releases
+          merge-multiple: true
+
+      - name: Verify complete platform set
+        shell: bash
+        run: |
+          set -eu
+          test "$(find build/releases -maxdepth 1 -type f | wc -l)" -eq 3
+          ls -lh build/releases
+
+      - name: Replace GitHub Release archives
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -eu
           if [ "${{ github.event_name }}" = "release" ]; then
             tag="${{ github.event.release.tag_name }}"
           else
             tag="${{ github.ref_name }}"
           fi
+          gh release view "$tag" >/dev/null
           gh release upload "$tag" build/releases/* --clobber

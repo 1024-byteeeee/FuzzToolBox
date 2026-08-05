@@ -5,7 +5,7 @@ IP-Scanner 是一个跨平台局域网主机发现工具。首版提供：
 - CIDR、单 IP、起止范围解析，目标地址惰性生成
 - 有界 `asyncio` 工作池，不为大网段一次性创建任务
 - TCP 探测与系统 Ping 探测
-- 可停止的实时扫描、CSV/JSON 导出、SQLite 历史记录
+- 可停止的实时扫描、CSV/JSON 导出
 - PySide6 桌面界面，以及无 GUI 依赖的命令行入口
 
 > 请只扫描你拥有或已获授权的网络。大网段扫描可能触发防火墙、IDS 或网络限速。
@@ -66,4 +66,4 @@ sh scripts/build_linux.sh
 
 ## GitHub Release
 
-`.github/workflows/release-build.yml` 会在 GitHub Release 发布时自动使用 Windows、Linux 和 macOS 原生 Runner 构建，并把三个平台的压缩包添加到该 Release。工作流也支持在 Actions 页面手动运行，手动运行时产物保存在 Workflow Artifacts 中。
+`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows、Linux 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。三个系统全部成功后，工作流才会统一替换 Release 附件，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。

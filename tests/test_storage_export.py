@@ -1,4 +1,5 @@
 import json
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,17 @@ class StorageExportTests(unittest.TestCase):
             export_results(path, [ScanResult("127.0.0.1", True, "tcp", open_ports=[80])])
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data[0]["open_ports"], [80])
+
+    def test_csv_preserves_probe_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "results.csv"
+            export_results(
+                path,
+                [ScanResult("192.0.2.1", False, "ping", error="ping command unavailable")],
+            )
+            with path.open(encoding="utf-8-sig", newline="") as handle:
+                row = next(csv.DictReader(handle))
+            self.assertEqual(row["error"], "ping command unavailable")
 
 
 if __name__ == "__main__":

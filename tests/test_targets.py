@@ -24,7 +24,10 @@ class TargetTests(unittest.TestCase):
     def test_ports(self):
         self.assertEqual(parse_ports("443,80,8000-8002,80"), [80, 443, 8000, 8001, 8002])
 
+    def test_invalid_large_port_range_is_rejected_before_expansion(self):
+        with self.assertRaises(ValueError):
+            parse_ports("1-999999999")
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -2,10 +2,13 @@
 
 import os
 import platform
+import plistlib
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from ip_scanner import __version__
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -62,6 +65,13 @@ def build() -> Path:
         f"{assets}{os.pathsep}ip_scanner/assets",
         str(entry),
     ]
+    if system == "Darwin":
+        command[3:3] = ["--osx-bundle-identifier", "com.github.1024-byteeeee.ip-scanner"]
+    elif system == "Windows":
+        command[3:3] = [
+            "--version-file",
+            str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
+        ]
     subprocess.run(command, cwd=PROJECT_DIR, env=environment, check=True)
 
     label = platform_label()
@@ -69,7 +79,37 @@ def build() -> Path:
     archive_base = RELEASE_DIR / f"IP-Scanner-{label}-{arch}"
     if system == "Darwin":
         source_name = "IP-Scanner.app"
-        archive_format = "zip"
+        app_path = BUILD_DIR / source_name
+        plist_path = app_path / "Contents" / "Info.plist"
+        with plist_path.open("rb") as handle:
+            plist = plistlib.load(handle)
+        plist["CFBundleIdentifier"] = "com.github.1024-byteeeee.ip-scanner"
+        plist["CFBundleShortVersionString"] = __version__
+        plist["CFBundleVersion"] = __version__
+        with plist_path.open("wb") as handle:
+            plistlib.dump(plist, handle)
+        subprocess.run(
+            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_path)],
+            check=True,
+        )
+        archive_path = Path(f"{archive_base}.zip")
+        if archive_path.exists():
+            archive_path.unlink()
+        subprocess.run(
+            [
+                "/usr/bin/ditto",
+                "-c",
+                "-k",
+                "--sequesterRsrc",
+                "--keepParent",
+                str(app_path),
+                str(archive_path),
+            ],
+            check=True,
+        )
+        print(f"Built native bundle: {app_path}")
+        print(f"Built release archive: {archive_path}")
+        return archive_path
     elif system == "Windows":
         source_name = "IP-Scanner"
         archive_format = "zip"

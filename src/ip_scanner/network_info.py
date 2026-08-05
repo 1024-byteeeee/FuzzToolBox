@@ -3,8 +3,42 @@ import platform
 import re
 import socket
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import List, Optional
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover - source-only fallback for incomplete installs
+    psutil = None
+
+
+RFC1918_NETWORKS = tuple(
+    ipaddress.IPv4Network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+CGNAT_NETWORK = ipaddress.IPv4Network("100.64.0.0/10")
+VIRTUAL_INTERFACE_HINTS = (
+    "utun",
+    "tun",
+    "tap",
+    "wireguard",
+    "tailscale",
+    "zerotier",
+    "docker",
+    "bridge",
+    "br-",
+    "br0",
+    "veth",
+    "virbr",
+    "vmnet",
+    "vbox",
+    "vethernet",
+    "hyper-v",
+    "awdl",
+    "llw",
+    "loopback",
+    "hamachi",
+    "ppp",
+)
 
 
 @dataclass(frozen=True)
@@ -53,13 +87,13 @@ class NetworkInfo:
         return "  ·  ".join(parts)
 
 
-def _run(args: List[str]) -> str:
+def _run(args: List[str], timeout: float = 3.0) -> str:
     try:
         result = subprocess.run(
             args,
             capture_output=True,
             text=True,
-            timeout=1.0,
+            timeout=timeout,
             check=False,
             creationflags=(
                 getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
@@ -70,6 +104,160 @@ def _run(args: List[str]) -> str:
         return result.stdout
     except (OSError, subprocess.TimeoutExpired):
         return ""
+
+
+def _socket_source_ip() -> Optional[str]:
+    for remote in (("1.1.1.1", 53), ("8.8.8.8", 53)):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.settimeout(0.2)
+            sock.connect(remote)
+            value = sock.getsockname()[0]
+            address = ipaddress.IPv4Address(value)
+            if not address.is_loopback and not address.is_unspecified:
+                return value
+        except (OSError, ValueError):
+            pass
+        finally:
+            sock.close()
+    return None
+
+
+def _prefix_from_netmask(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    try:
+        return ipaddress.IPv4Network(f"0.0.0.0/{value}").prefixlen
+    except (ValueError, ipaddress.NetmaskValueError):
+        return None
+
+
+def _normalized_mac(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    parts = re.split("[:-]", value.strip())
+    if len(parts) != 6:
+        return None
+    try:
+        normalized = ":".join(f"{int(part, 16):02X}" for part in parts)
+    except ValueError:
+        return None
+    return None if normalized == "00:00:00:00:00:00" else normalized
+
+
+def _is_rfc1918(address: ipaddress.IPv4Address) -> bool:
+    return any(address in network for network in RFC1918_NETWORKS)
+
+
+def _interface_score(
+    name: str,
+    ip: str,
+    prefix_length: Optional[int],
+    is_up: bool,
+    mac: Optional[str],
+    preferred_ip: Optional[str],
+) -> int:
+    address = ipaddress.IPv4Address(ip)
+    normalized_name = name.lower().replace(" ", "")
+    virtual = any(hint in normalized_name for hint in VIRTUAL_INTERFACE_HINTS)
+    score = 30 if is_up else -300
+    if _is_rfc1918(address):
+        score += 50
+    elif address in CGNAT_NETWORK:
+        score += 30
+    elif address.is_link_local:
+        score -= 80
+    elif address.is_global:
+        score += 20
+    if preferred_ip == ip:
+        score += 100 if not virtual else 20
+    if re.match(r"^(?:en\d+|eth\d*|eno\d+|ens\d+|enp\w+|wlan\d*|wlp\w+)$", normalized_name):
+        score += 40
+    elif normalized_name in {"ethernet", "wi-fi", "wifi", "wlan"}:
+        score += 40
+    if virtual:
+        score -= 100
+    if prefix_length in {31, 32}:
+        score -= 20
+    if mac:
+        score += 10
+    return score
+
+
+def _psutil_network_info() -> Optional[NetworkInfo]:
+    if psutil is None:
+        return None
+    preferred_ip = _socket_source_ip()
+    try:
+        addresses_by_interface = psutil.net_if_addrs()
+        stats_by_interface = psutil.net_if_stats()
+    except (OSError, RuntimeError, psutil.Error):
+        return None
+
+    link_families = {
+        family
+        for family in (getattr(psutil, "AF_LINK", None), getattr(socket, "AF_PACKET", None))
+        if family is not None
+    }
+    candidates = []
+    for name, addresses in addresses_by_interface.items():
+        mac = next(
+            (
+                _normalized_mac(item.address)
+                for item in addresses
+                if item.family in link_families and _normalized_mac(item.address)
+            ),
+            None,
+        )
+        stats = stats_by_interface.get(name)
+        is_up = bool(stats.isup) if stats is not None else True
+        for item in addresses:
+            if item.family != socket.AF_INET:
+                continue
+            try:
+                address = ipaddress.IPv4Address(item.address)
+            except ipaddress.AddressValueError:
+                continue
+            if address.is_loopback or address.is_unspecified or address.is_multicast:
+                continue
+            prefix_length = _prefix_from_netmask(item.netmask)
+            score = _interface_score(
+                name, item.address, prefix_length, is_up, mac, preferred_ip
+            )
+            candidates.append((score, name, item.address, prefix_length, mac))
+
+    if not candidates:
+        return None
+    _, name, ip, prefix_length, mac = max(candidates, key=lambda item: (item[0], item[1]))
+    return NetworkInfo(interface=name, ip=ip, prefix_length=prefix_length, mac=mac)
+
+
+def _gateway_for_interface(interface: str) -> Optional[str]:
+    system = platform.system()
+    if system == "Darwin":
+        output = _run(["/sbin/route", "-n", "get", "default"])
+        route_interface = re.search(r"^\s*interface:\s*(\S+)", output, re.MULTILINE)
+        gateway = re.search(r"^\s*gateway:\s*(\d+(?:\.\d+){3})", output, re.MULTILINE)
+        if route_interface and route_interface.group(1) == interface and gateway:
+            return gateway.group(1)
+    elif system == "Linux":
+        output = _run(["ip", "route", "show", "default", "dev", interface])
+        match = re.search(r"\bvia\s+(\d+(?:\.\d+){3})", output)
+        if match:
+            return match.group(1)
+    elif system == "Windows":
+        escaped = interface.replace("'", "''")
+        script = (
+            f"$c=Get-NetIPConfiguration -InterfaceAlias '{escaped}' -ErrorAction SilentlyContinue; "
+            "if ($c.IPv4DefaultGateway) {Write-Output $c.IPv4DefaultGateway.NextHop}"
+        )
+        output = _run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=5.0,
+        ).strip()
+        if re.fullmatch(r"\d+(?:\.\d+){3}", output):
+            return output
+    return None
 
 
 def _prefix_from_hex_netmask(value: str) -> Optional[int]:
@@ -149,18 +337,19 @@ def _windows_network_info() -> NetworkInfo:
 
 
 def _socket_fallback() -> NetworkInfo:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.connect(("8.8.8.8", 53))
-        ip = sock.getsockname()[0]
-    except OSError:
-        ip = None
-    finally:
-        sock.close()
-    return NetworkInfo(ip=ip)
+    return NetworkInfo(ip=_socket_source_ip())
 
 
-def get_network_info() -> NetworkInfo:
+def get_network_info(include_gateway: bool = True) -> NetworkInfo:
+    enumerated = _psutil_network_info()
+    if enumerated is not None:
+        gateway = (
+            _gateway_for_interface(enumerated.interface)
+            if include_gateway and enumerated.interface
+            else None
+        )
+        return replace(enumerated, gateway=gateway)
+
     system = platform.system()
     if system == "Darwin":
         return _macos_network_info()

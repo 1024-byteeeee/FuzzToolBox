@@ -18,13 +18,13 @@ def export_csv(path: Path, results: Iterable[ScanResult]) -> None:
                 "hostname",
                 "mac",
                 "open_ports",
+                "error",
             ],
         )
         writer.writeheader()
         for result in results:
             row = result.to_dict()
             row["open_ports"] = ",".join(str(port) for port in result.open_ports)
-            row.pop("error", None)
             writer.writerow(row)
 
 

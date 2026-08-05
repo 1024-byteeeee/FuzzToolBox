@@ -17,8 +17,8 @@ class ScanConfig:
             raise ValueError("扫描方式必须是 tcp 或 ping")
         if not 0.05 <= self.timeout <= 30:
             raise ValueError("超时时间必须在 0.05 到 30 秒之间")
-        if not 1 <= self.concurrency <= 4096:
-            raise ValueError("并发数必须在 1 到 4096 之间")
+        if not 1 <= self.concurrency <= 512:
+            raise ValueError("并发数必须在 1 到 512 之间")
         if not 0 <= self.retries <= 5:
             raise ValueError("重试次数必须在 0 到 5 之间")
         if self.method == "tcp" and not self.ports:

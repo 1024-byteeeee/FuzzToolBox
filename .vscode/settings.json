@@ -1,5 +1,5 @@
 {
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
   "python.terminal.activateEnvironment": true,
   "python.testing.unittestEnabled": true,
   "python.testing.pytestEnabled": false,
@@ -18,4 +18,3 @@
     "**/*.pyc": true
   }
 }
-

@@ -1,14 +1,15 @@
 import asyncio
 import contextlib
 import ipaddress
+import math
 import platform
 import re
-import socket
 import subprocess
 import time
-from typing import Awaitable, Callable, List, Optional
+from typing import Callable, List, Optional
 
 from .models import ScanConfig, ScanProgress, ScanResult
+from .network_info import NetworkInfo
 from .targets import TargetRange
 
 
@@ -23,10 +24,12 @@ class ScanCancelled(Exception):
 class Scanner:
     """Bounded producer/consumer scanner; memory use is independent of target size."""
 
-    def __init__(self, config: ScanConfig):
+    def __init__(self, config: ScanConfig, network_info: Optional[NetworkInfo] = None):
         config.validate()
         self.config = config
+        self.network_info = network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
+        self._port_semaphore = asyncio.Semaphore(max(32, min(config.concurrency * 4, 256)))
 
     def cancel(self) -> None:
         self._cancelled.set()
@@ -37,10 +40,11 @@ class Scanner:
         on_results: Optional[ResultCallback] = None,
         on_progress: Optional[ProgressCallback] = None,
         batch_size: int = 100,
+        retain_results: bool = True,
     ) -> List[ScanResult]:
         started = time.monotonic()
         queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
-        result_queue: asyncio.Queue = asyncio.Queue()
+        result_queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
         sentinel = object()
 
         async def producer() -> None:
@@ -106,7 +110,8 @@ class Scanner:
                 if result.is_alive:
                     alive += 1
                 if result.is_alive or self.config.include_dead:
-                    retained.append(result)
+                    if retain_results:
+                        retained.append(result)
                     batch.append(result)
                 if len(batch) >= batch_size and on_results:
                     on_results(batch[:])
@@ -152,25 +157,20 @@ class Scanner:
 
     async def _tcp_probe(self, ip: str) -> ScanResult:
         started = time.monotonic()
-        tunnel_route = await self._is_private_tunnel_route(ip)
-        controls = []
-        if tunnel_route:
-            controls = [port for port in (65534, 65533, 65532) if port not in self.config.ports][:2]
-        stability_timeout = 4.0 if tunnel_route else min(0.15, self.config.timeout)
-        ports_to_check = list(self.config.ports) + controls
-        all_checks = await asyncio.gather(
-            *(self._connect_port(ip, port, stability_timeout) for port in ports_to_check)
-        )
-        checks = all_checks[: len(self.config.ports)]
+        stability_timeout = min(0.2, self.config.timeout)
+        checks = await self._check_ports(ip, self.config.ports, stability_timeout)
         open_ports = [port for port, is_open in zip(self.config.ports, checks) if is_open]
 
-        # TUN-style transparent proxies may accept every TCP connection locally.
-        # Probe two unused high ports as controls; if both are also accepted, the
-        # apparent result is interception rather than evidence of target ports.
         intercepted = False
-        if open_ports and tunnel_route:
-            control_results = all_checks[len(self.config.ports) :]
-            intercepted = bool(control_results) and all(control_results)
+        if open_ports:
+            controls = []
+            control_port = 65535
+            while len(controls) < 3 and control_port > 0:
+                if control_port not in self.config.ports:
+                    controls.append(control_port)
+                control_port -= 131
+            control_results = await self._check_ports(ip, controls, stability_timeout)
+            intercepted = len(control_results) == 3 and all(control_results)
             if intercepted:
                 open_ports = []
 
@@ -184,46 +184,75 @@ class Scanner:
             error="transparent TCP interception detected" if intercepted else None,
         )
 
+    async def _check_ports(
+        self, ip: str, ports: List[int], stability_timeout: float, batch_size: int = 64
+    ) -> List[bool]:
+        results = []
+        for start in range(0, len(ports), batch_size):
+            if self._cancelled.is_set():
+                raise asyncio.CancelledError()
+            batch = ports[start : start + batch_size]
+            results.extend(
+                await asyncio.gather(
+                    *(self._bounded_connect_port(ip, port, stability_timeout) for port in batch)
+                )
+            )
+        return results
+
+    async def _bounded_connect_port(self, ip: str, port: int, stability_timeout: float) -> bool:
+        async with self._port_semaphore:
+            return await self._connect_port(ip, port, stability_timeout)
+
     async def _connect_port(self, ip: str, port: int, stability_timeout: float) -> bool:
         writer = None
         try:
-            reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(ip, port), timeout=self.config.timeout
+            local_addr = (
+                (self.network_info.ip, 0)
+                if self.network_info.ip and self._is_on_link(ip)
+                else None
             )
-            # A transparent proxy often accepts and immediately closes a fake
-            # connection. A banner or a connection that remains open is genuine.
-            try:
-                data = await asyncio.wait_for(
-                    reader.read(1), timeout=stability_timeout
-                )
-                return bool(data)
-            except asyncio.TimeoutError:
-                return True
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip, port, local_addr=local_addr),
+                timeout=self.config.timeout,
+            )
+            # A completed TCP handshake is sufficient evidence that the port is
+            # open. Transparent proxies are detected separately with controls.
+            return True
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             return False
         finally:
             if writer is not None:
                 writer.close()
                 with contextlib.suppress(Exception):
-                    await writer.wait_closed()
+                    await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
 
     async def _ping_probe(self, ip: str, timeout: Optional[float] = None) -> ScanResult:
         system = platform.system()
         effective_timeout = self.config.timeout if timeout is None else timeout
         timeout_ms = max(1, int(effective_timeout * 1000))
+        source_ip = self.network_info.ip if self._is_on_link(ip) else None
         if system == "Windows":
-            args = ["ping", "-n", "1", "-w", str(timeout_ms), ip]
+            args = ["ping", "-n", "1", "-w", str(timeout_ms)]
+            if source_ip:
+                args.extend(["-S", source_ip])
+            args.append(ip)
         elif system == "Darwin":
-            args = ["/sbin/ping", "-n", "-c", "1", "-W", str(timeout_ms), ip]
+            args = ["/sbin/ping", "-n", "-c", "1", "-W", str(timeout_ms)]
+            if source_ip:
+                args.extend(["-S", source_ip])
+            args.append(ip)
         else:
-            args = ["ping", "-n", "-c", "1", "-W", str(max(1, int(effective_timeout))), ip]
+            args = ["ping", "-n", "-c", "1", "-W", str(max(1, math.ceil(effective_timeout)))]
+            if source_ip:
+                args.extend(["-I", source_ip])
+            args.append(ip)
         started = time.monotonic()
         command_result = await self._run_command(args, effective_timeout + 0.5)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
         return_code, stdout = command_result
-        alive = return_code == 0
         text = stdout.decode(errors="ignore")
+        alive = return_code == 0 and self._has_echo_reply(text, ip)
         match = re.search(r"time[=<]([0-9.]+)\s*ms", text, re.IGNORECASE)
         measured = float(match.group(1)) if match else (time.monotonic() - started) * 1000
         return ScanResult(
@@ -231,19 +260,30 @@ class Scanner:
             is_alive=alive,
             method="ping",
             response_time_ms=round(measured, 2) if alive else None,
+            error=None if alive else "no echo reply from target",
         )
 
-    async def _resolve_hostname(self, ip: str) -> Optional[str]:
-        loop = asyncio.get_running_loop()
-        try:
-            result = await asyncio.wait_for(loop.run_in_executor(None, socket.gethostbyaddr, ip), 1.0)
-            hostname = result[0].rstrip(".")
-            if hostname and hostname != ip:
-                return hostname
-        except (asyncio.TimeoutError, OSError):
-            pass
+    @staticmethod
+    def _has_echo_reply(text: str, ip: str) -> bool:
+        address = re.escape(ip)
+        ip_pattern = re.compile(rf"(?<![\d.]){address}(?![\d.])")
+        ttl_pattern = re.compile(r"\bttl\s*[=:]\s*\d+", re.IGNORECASE)
+        return any(ip_pattern.search(line) and ttl_pattern.search(line) for line in text.splitlines())
 
-        # System resolvers may know DHCP/mDNS names that Python's resolver misses.
+    def _is_on_link(self, ip: str) -> bool:
+        if not self.network_info.ip or self.network_info.prefix_length is None:
+            return False
+        try:
+            network = ipaddress.IPv4Network(
+                f"{self.network_info.ip}/{self.network_info.prefix_length}", strict=False
+            )
+            return ipaddress.IPv4Address(ip) in network
+        except (ipaddress.AddressValueError, ValueError):
+            return False
+
+    async def _resolve_hostname(self, ip: str) -> Optional[str]:
+        # Use cancellable subprocesses rather than gethostbyaddr in a worker thread;
+        # platform resolver calls can otherwise outlive a stopped scan indefinitely.
         system = platform.system()
         commands = []
         if system == "Darwin":
@@ -344,28 +384,3 @@ class Scanner:
             return None
         parts = re.split("[:-]", match.group(0))
         return ":".join(f"{int(part, 16):02X}" for part in parts)
-
-    async def _is_private_tunnel_route(self, ip: str) -> bool:
-        address = ipaddress.IPv4Address(ip)
-        if not address.is_private or address.is_loopback:
-            return False
-        system = platform.system()
-        if system == "Darwin":
-            command = ["/sbin/route", "-n", "get", ip]
-        elif system == "Linux":
-            command = ["ip", "route", "get", ip]
-        else:
-            return False
-        result = await self._run_command(command, timeout=0.8)
-        if result is None:
-            return False
-        _, stdout = result
-        text = stdout.decode(errors="ignore")
-        if system == "Darwin":
-            match = re.search(r"^\s*interface:\s*(\S+)", text, re.MULTILINE)
-        else:
-            match = re.search(r"\bdev\s+(\S+)", text)
-        if not match:
-            return False
-        interface = match.group(1).lower()
-        return interface.startswith(("utun", "tun", "tap", "wg"))

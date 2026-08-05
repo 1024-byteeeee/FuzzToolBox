@@ -46,7 +46,7 @@ from . import __version__
 from .engine import ScanCancelled, Scanner
 from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
-from .network_info import get_network_info
+from .network_info import NetworkInfo, get_network_info
 from .targets import parse_ports, parse_target
 
 
@@ -182,6 +182,8 @@ class ResultModel(QAbstractTableModel):
         if not index.isValid():
             return None
         result = self.results[index.row()]
+        if role == Qt.ToolTipRole and result.error:
+            return result.error
         if role == Qt.ForegroundRole and index.column() == 1:
             return QColor("#67c23a" if result.is_alive else "#909399")
         if role == Qt.TextAlignmentRole:
@@ -264,10 +266,11 @@ class WorkerSignals(QObject):
 
 
 class ScanWorker(QThread):
-    def __init__(self, target_text: str, config: ScanConfig):
+    def __init__(self, target_text: str, config: ScanConfig, network_info: NetworkInfo):
         super().__init__()
         self.target_text = target_text
         self.config = config
+        self.network_info = network_info
         self.signals = WorkerSignals()
         self.scanner = None
         self.loop = None
@@ -277,13 +280,18 @@ class ScanWorker(QThread):
     def run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.scanner = Scanner(self.config)
+        self.scanner = Scanner(self.config, self.network_info)
         success = False
         message = "扫描已停止"
         try:
             target = parse_target(self.target_text)
             self.scan_task = self.loop.create_task(
-                self.scanner.scan(target, self.signals.results.emit, self.signals.progress.emit)
+                self.scanner.scan(
+                    target,
+                    self.signals.results.emit,
+                    self.signals.progress.emit,
+                    retain_results=False,
+                )
             )
             if self._cancel_requested.is_set():
                 self.scanner.cancel()
@@ -342,16 +350,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
 
         self.network_info = get_network_info()
-        default_start, default_end = self.network_info.scan_range or ("192.168.1.1", "192.168.1.254")
-        default_cidr = self.network_info.cidr or "192.168.1.0/24"
-        network_label = QLabel(f"本机网络  {self.network_info.display_text()}")
-        network_label.setObjectName("networkInfo")
-        network_label.setStyleSheet(
+        default_start, default_end = self.network_info.scan_range or ("", "")
+        default_cidr = self.network_info.cidr or ""
+        self.network_label = QLabel(f"本机网络  {self.network_info.display_text()}")
+        self.network_label.setObjectName("networkInfo")
+        self.network_label.setStyleSheet(
             "QLabel#networkInfo { background: #ecf5ff; color: #406080; "
             "border: 1px solid #d9ecff; border-radius: 6px; padding: 8px 12px; }"
         )
-        network_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(network_label)
+        self.network_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.network_label)
 
         range_controls = QHBoxLayout()
         range_label = QLabel("扫描范围")
@@ -389,7 +397,7 @@ class MainWindow(QMainWindow):
         self.ports = QLineEdit("22,80,443,445,3389,8080")
         self.ports.setMinimumWidth(210)
         self.concurrency = QSpinBox()
-        self.concurrency.setRange(1, 4096)
+        self.concurrency.setRange(1, 512)
         self.concurrency.setValue(64)
         self.concurrency.setPrefix("并发 ")
         self.concurrency.setMinimumWidth(115)
@@ -481,6 +489,7 @@ class MainWindow(QMainWindow):
     def start_scan(self):
         if self.worker and self.worker.isRunning():
             return
+        self._refresh_network_info()
         try:
             target_text = self._target_text()
             target = parse_target(target_text)
@@ -498,13 +507,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "输入有误", str(exc))
             return
         if target.total > 65536:
-            answer = QMessageBox.question(
+            QMessageBox.warning(
                 self,
-                "确认大范围扫描",
-                f"目标包含 {target.total:,} 个地址，可能耗时很久并触发安全设备告警。继续吗？",
+                "扫描范围过大",
+                f"目标包含 {target.total:,} 个地址。为保证程序稳定，单次扫描最多支持 65,536 个地址。",
             )
-            if answer != QMessageBox.Yes:
-                return
+            return
 
         self.model.clear()
         self.model.set_scan_method(config.method)
@@ -515,11 +523,19 @@ class MainWindow(QMainWindow):
         self._accept_updates = True
         self._set_running(True)
 
-        worker = ScanWorker(target_text, config)
+        worker = ScanWorker(target_text, config, self.network_info)
         self.worker = worker
-        worker.signals.results.connect(self.receive_results)
-        worker.signals.progress.connect(self.update_progress)
-        worker.signals.completed.connect(self.scan_finished)
+        worker.signals.results.connect(
+            lambda batch, active=worker: self.receive_results(active, batch)
+        )
+        worker.signals.progress.connect(
+            lambda progress, active=worker: self.update_progress(active, progress)
+        )
+        worker.signals.completed.connect(
+            lambda success, message, active=worker: self.scan_finished(
+                active, success, message
+            )
+        )
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
@@ -533,12 +549,12 @@ class MainWindow(QMainWindow):
             worker.cancel()
             self._stop_watchdog.start(3000)
 
-    def receive_results(self, batch):
-        if self._accept_updates:
+    def receive_results(self, worker, batch):
+        if worker is self.worker and self._accept_updates:
             self.model.add_batch(batch)
 
-    def update_progress(self, progress: ScanProgress):
-        if not self._accept_updates:
+    def update_progress(self, worker, progress: ScanProgress):
+        if worker is not self.worker or not self._accept_updates:
             return
         value = int(progress.scanned / progress.total * 1000) if progress.total else 0
         self.progress.setValue(value)
@@ -547,7 +563,9 @@ class MainWindow(QMainWindow):
             f"在线 {progress.alive:,} · {progress.rate:,.0f} IP/s"
         )
 
-    def scan_finished(self, success: bool, message: str):
+    def scan_finished(self, worker, success: bool, message: str):
+        if worker is not self.worker:
+            return
         self._stop_watchdog.stop()
         self._accept_updates = False
         self._auto_scroll = False
@@ -566,24 +584,8 @@ class MainWindow(QMainWindow):
         worker = self.worker
         if not worker or not worker.isRunning():
             return
-        with contextlib.suppress(RuntimeError):
-            worker.signals.completed.disconnect(self.scan_finished)
-        with contextlib.suppress(RuntimeError):
-            worker.signals.results.disconnect(self.receive_results)
-        with contextlib.suppress(RuntimeError):
-            worker.signals.progress.disconnect(self.update_progress)
-        worker.terminate()
-        worker.wait(1000)
-        self.worker = None
-        self._accept_updates = False
-        self._auto_scroll = False
-        self._set_running(False)
-        alive = sum(result.is_alive for result in self.model.results)
-        offline = len(self.model.results) - alive
-        self.status_label.setText(
-            f"扫描已停止 · 已扫描 {len(self.model.results)} 个地址 · "
-            f"在线 {alive} 台 · 离线 {offline} 台"
-        )
+        worker.cancel()
+        self.status_label.setText("正在停止…正在等待当前系统探测退出")
 
     def _set_running(self, running: bool):
         self.stop_button.setEnabled(running)
@@ -615,6 +617,31 @@ class MainWindow(QMainWindow):
     def _update_method_controls(self):
         self.ports.setEnabled(self.method.isEnabled() and self.method.currentData() == "tcp")
 
+    def _refresh_network_info(self):
+        previous = self.network_info
+        latest = get_network_info(include_gateway=False)
+        if not latest.ip:
+            return
+        old_range = previous.scan_range or ("", "")
+        old_cidr = previous.cidr or ""
+        range_uses_default = (self.start_ip.text(), self.end_ip.text()) == old_range
+        cidr_uses_default = self.target.text() == old_cidr
+        if latest.ip == previous.ip and latest.interface == previous.interface:
+            latest = NetworkInfo(
+                interface=latest.interface,
+                ip=latest.ip,
+                prefix_length=latest.prefix_length,
+                gateway=previous.gateway,
+                mac=latest.mac,
+            )
+        self.network_info = latest
+        self.network_label.setText(f"本机网络  {latest.display_text()}")
+        if range_uses_default and latest.scan_range:
+            self.start_ip.setText(latest.scan_range[0])
+            self.end_ip.setText(latest.scan_range[1])
+        if cidr_uses_default and latest.cidr:
+            self.target.setText(latest.cidr)
+
     def _target_text(self) -> str:
         if self.range_mode.currentData() == "range":
             start = self.start_ip.text().strip()
@@ -632,11 +659,13 @@ class MainWindow(QMainWindow):
         if not self.model.results:
             QMessageBox.information(self, "暂无结果", "当前没有可导出的扫描结果。")
             return
-        path, _ = QFileDialog.getSaveFileName(
+        path, selected_filter = QFileDialog.getSaveFileName(
             self, "导出扫描结果", "ip-scanner-results.csv", "CSV (*.csv);;JSON (*.json)"
         )
         if not path:
             return
+        if not Path(path).suffix:
+            path += ".json" if "JSON" in selected_filter else ".csv"
         try:
             export_results(Path(path), self.model.results)
             self.status_label.setText(f"已导出到 {path}")
@@ -648,10 +677,11 @@ class MainWindow(QMainWindow):
         worker = self.worker
         if worker and worker.isRunning():
             worker.cancel()
-            worker.wait(3000)
-            if worker.isRunning():
-                worker.terminate()
-                worker.wait(1000)
+            if not worker.wait(3000):
+                self.status_label.setText("正在停止扫描，完成后将自动关闭…")
+                worker.finished.connect(self.close)
+                event.ignore()
+                return
         event.accept()
 
 

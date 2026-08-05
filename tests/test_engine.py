@@ -4,10 +4,15 @@ from unittest.mock import AsyncMock, patch
 
 from ip_scanner.engine import ScanCancelled, Scanner
 from ip_scanner.models import ScanConfig, ScanResult
+from ip_scanner.network_info import NetworkInfo
 from ip_scanner.targets import parse_target
 
 
 class EngineTests(unittest.IsolatedAsyncioTestCase):
+    def test_excessive_concurrency_is_rejected(self):
+        with self.assertRaises(ValueError):
+            ScanConfig(concurrency=513).validate()
+
     async def test_alive_result_and_progress(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=[80], timeout=0.2, concurrency=2))
         scanner._probe = AsyncMock(
@@ -42,7 +47,6 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tcp_finds_real_port_even_when_routed_through_tunnel(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=[25224], timeout=0.05, concurrency=1))
-        scanner._is_private_tunnel_route = AsyncMock(return_value=True)
 
         async def connect_port(_ip, port, _stability_timeout):
             return port == 25224
@@ -54,7 +58,6 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tcp_rejects_tunnel_that_accepts_every_port(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=[22, 80], timeout=0.05, concurrency=1))
-        scanner._is_private_tunnel_route = AsyncMock(return_value=True)
         scanner._connect_port = AsyncMock(return_value=True)
         result = await scanner._tcp_probe("192.168.2.1")
         self.assertFalse(result.is_alive)
@@ -68,22 +71,6 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
     def test_mac_parser_accepts_single_digit_octets(self):
         output = "? (224.0.0.251) at 1:0:5e:0:0:fb on en0"
         self.assertEqual(Scanner._parse_mac(output), "01:00:5E:00:00:FB")
-
-    async def test_private_tunnel_route_is_rejected(self):
-        scanner = Scanner(ScanConfig())
-        scanner._run_command = AsyncMock(
-            return_value=(0, b"   route to: 192.168.2.1\n  interface: utun6\n")
-        )
-        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
-            self.assertTrue(await scanner._is_private_tunnel_route("192.168.2.1"))
-
-    async def test_private_physical_route_is_allowed(self):
-        scanner = Scanner(ScanConfig())
-        scanner._run_command = AsyncMock(
-            return_value=(0, b" route to: 172.16.1.1\ninterface: en0\n")
-        )
-        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
-            self.assertFalse(await scanner._is_private_tunnel_route("172.16.1.1"))
 
     def test_hostname_parser_handles_macos_cache(self):
         output = "name: printer.local\nip_address: 172.16.1.20\n"
@@ -168,6 +155,65 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         result = await scanner._probe("192.168.1.20")
         self.assertFalse(result.is_alive)
         scanner._lookup_mac.assert_not_awaited()
+
+    async def test_windows_unreachable_reply_with_zero_exit_code_is_offline(self):
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
+        scanner._run_command = AsyncMock(
+            return_value=(
+                0,
+                b"Reply from 192.168.1.1: Destination host unreachable.\r\n",
+            )
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Windows"):
+            result = await scanner._ping_probe("192.168.1.99")
+        self.assertFalse(result.is_alive)
+
+    async def test_echo_reply_requires_target_ip_and_ttl(self):
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
+        scanner._run_command = AsyncMock(
+            return_value=(0, b"Reply from 192.168.1.99: bytes=32 time<1ms TTL=128\r\n")
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Windows"):
+            result = await scanner._ping_probe("192.168.1.99")
+        self.assertTrue(result.is_alive)
+
+    async def test_reply_from_different_ip_is_not_target_echo(self):
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5))
+        scanner._run_command = AsyncMock(
+            return_value=(0, b"64 bytes from 192.168.1.1: ttl=64 time=0.5 ms\n")
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+            result = await scanner._ping_probe("192.168.1.10")
+        self.assertFalse(result.is_alive)
+
+    async def test_on_link_ping_binds_physical_source_address(self):
+        network = NetworkInfo("en0", "192.168.1.20", 24)
+        scanner = Scanner(ScanConfig(method="ping", timeout=0.5), network)
+        scanner._run_command = AsyncMock(
+            return_value=(0, b"64 bytes from 192.168.1.30: ttl=64 time=0.5 ms\n")
+        )
+        with patch("ip_scanner.engine.platform.system", return_value="Linux"):
+            result = await scanner._ping_probe("192.168.1.30")
+        self.assertTrue(result.is_alive)
+        command = scanner._run_command.await_args.args[0]
+        self.assertEqual(command[-3:], ["-I", "192.168.1.20", "192.168.1.30"])
+
+    async def test_port_checks_have_a_global_concurrency_bound(self):
+        scanner = Scanner(ScanConfig(method="tcp", ports=list(range(1, 131)), concurrency=1))
+        active = maximum = 0
+
+        async def connect(_ip, _port, _timeout):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0.001)
+            active -= 1
+            return False
+
+        scanner._connect_port = connect
+        results = await scanner._check_ports("192.0.2.1", scanner.config.ports, 0.05)
+        self.assertEqual(len(results), 130)
+        self.assertLessEqual(maximum, 32)
 
 
 if __name__ == "__main__":
