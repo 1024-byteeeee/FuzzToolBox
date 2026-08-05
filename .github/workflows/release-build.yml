@@ -93,6 +93,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -eu
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -100,5 +101,5 @@ jobs:
           else
             tag="${{ github.ref_name }}"
           fi
-          gh release view "$tag" >/dev/null
-          gh release upload "$tag" build/releases/* --clobber
+          gh release view "$tag" --repo "$GH_REPO" >/dev/null
+          gh release upload "$tag" build/releases/* --clobber --repo "$GH_REPO"
