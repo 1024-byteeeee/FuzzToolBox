@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from ip_scanner import __version__
@@ -48,6 +49,9 @@ def build() -> Path:
         "PyInstaller",
         "--noconfirm",
         "--clean",
+        "--noupx",
+        "--optimize",
+        "1",
         "--name",
         "IP-Scanner",
         "--distpath",
@@ -67,6 +71,8 @@ def build() -> Path:
             "--windowed",
             "--osx-bundle-identifier",
             "com.github.1024-byteeeee.ip-scanner",
+            "--icon",
+            str(PROJECT_DIR / "packaging" / "IP-Scanner.icns"),
         ]
     elif system == "Windows":
         command[3:3] = [
@@ -74,11 +80,20 @@ def build() -> Path:
             "--windowed",
             "--version-file",
             str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
+            "--icon",
+            str(PROJECT_DIR / "packaging" / "IP-Scanner.ico"),
+            "--exclude-module",
+            "PySide6.QtDBus",
+            "--exclude-module",
+            "PySide6.QtNetwork",
         ]
     subprocess.run(command, cwd=PROJECT_DIR, env=environment, check=True)
 
     label = platform_label()
     arch = normalized_architecture()
+    for previous in RELEASE_DIR.glob(f"IP-Scanner-{label}-{arch}*"):
+        if previous.is_file():
+            previous.unlink()
     if system == "Darwin":
         built_path = BUILD_DIR / "IP-Scanner.app"
         if not built_path.is_dir():
@@ -94,21 +109,26 @@ def build() -> Path:
             ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(built_path)],
             check=True,
         )
-        release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.zip"
-        if release_path.exists():
-            release_path.unlink()
-        subprocess.run(
-            [
-                "/usr/bin/ditto",
-                "-c",
-                "-k",
-                "--sequesterRsrc",
-                "--keepParent",
-                str(built_path),
-                str(release_path),
-            ],
-            check=True,
-        )
+        release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.dmg"
+        with tempfile.TemporaryDirectory(prefix="ip-scanner-dmg-") as staging_text:
+            staging = Path(staging_text)
+            shutil.copytree(built_path, staging / built_path.name, symlinks=True)
+            (staging / "Applications").symlink_to("/Applications")
+            subprocess.run(
+                [
+                    "/usr/bin/hdiutil",
+                    "create",
+                    "-volname",
+                    "IP-Scanner",
+                    "-srcfolder",
+                    str(staging),
+                    "-ov",
+                    "-format",
+                    "UDZO",
+                    str(release_path),
+                ],
+                check=True,
+            )
     else:
         built_path = BUILD_DIR / "IP-Scanner.exe"
         release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}.exe"

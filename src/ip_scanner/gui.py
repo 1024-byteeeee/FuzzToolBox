@@ -17,7 +17,7 @@ try:
         QTimer,
         Signal,
     )
-    from PySide6.QtGui import QAction, QColor, QPainter, QPalette
+    from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPalette
     from PySide6.QtWidgets import (
         QApplication,
         QComboBox,
@@ -323,6 +323,7 @@ class ScanWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
         self.worker = None
         self.setWindowTitle(f"IP-Scanner v{__version__}")
         self.resize(1180, 760)
