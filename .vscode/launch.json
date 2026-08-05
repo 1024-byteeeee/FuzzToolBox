@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "IP-Scanner：桌面版",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/packaging/macos_entry.py",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src",
+        "PYTHONPYCACHEPREFIX": "/tmp/ip-scanner-vscode-pycache"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "IP-Scanner：命令行测试",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "ip_scanner.cli",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src",
+        "PYTHONPYCACHEPREFIX": "/tmp/ip-scanner-vscode-pycache"
+      },
+      "args": [
+        "127.0.0.1",
+        "--method",
+        "tcp",
+        "--ports",
+        "22,80,443",
+        "--include-dead"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
