@@ -46,7 +46,7 @@ from . import __version__
 from .engine import ScanCancelled, Scanner
 from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
-from .network_info import NetworkInfo, get_network_info
+from .network_info import get_network_info
 from .targets import parse_ports, parse_target
 
 
@@ -264,11 +264,10 @@ class WorkerSignals(QObject):
 
 
 class ScanWorker(QThread):
-    def __init__(self, target_text: str, config: ScanConfig, network_info: NetworkInfo):
+    def __init__(self, target_text: str, config: ScanConfig):
         super().__init__()
         self.target_text = target_text
         self.config = config
-        self.network_info = network_info
         self.signals = WorkerSignals()
         self.scanner = None
         self.loop = None
@@ -278,7 +277,7 @@ class ScanWorker(QThread):
     def run(self):
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
-        self.scanner = Scanner(self.config, self.network_info)
+        self.scanner = Scanner(self.config)
         success = False
         message = "扫描已停止"
         try:
@@ -490,7 +489,7 @@ class MainWindow(QMainWindow):
                 method=self.method.currentData(),
                 ports=ports,
                 concurrency=self.concurrency.value(),
-                retries=1 if self.method.currentData() == "ping" else 0,
+                retries=2 if self.method.currentData() == "ping" else 0,
                 include_dead=True,
                 resolve_hostname=True,
             )
@@ -516,7 +515,7 @@ class MainWindow(QMainWindow):
         self._accept_updates = True
         self._set_running(True)
 
-        worker = ScanWorker(target_text, config, self.network_info)
+        worker = ScanWorker(target_text, config)
         self.worker = worker
         worker.signals.results.connect(self.receive_results)
         worker.signals.progress.connect(self.update_progress)

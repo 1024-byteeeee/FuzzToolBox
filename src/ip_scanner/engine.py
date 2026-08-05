@@ -9,7 +9,6 @@ import time
 from typing import Awaitable, Callable, List, Optional
 
 from .models import ScanConfig, ScanProgress, ScanResult
-from .network_info import NetworkInfo
 from .targets import TargetRange
 
 
@@ -24,10 +23,9 @@ class ScanCancelled(Exception):
 class Scanner:
     """Bounded producer/consumer scanner; memory use is independent of target size."""
 
-    def __init__(self, config: ScanConfig, local_network_info: Optional[NetworkInfo] = None):
+    def __init__(self, config: ScanConfig):
         config.validate()
         self.config = config
-        self.local_network_info = local_network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
 
     def cancel(self) -> None:
@@ -131,31 +129,25 @@ class Scanner:
             await asyncio.gather(producer_task, *workers, *watchers, return_exceptions=True)
 
     async def _probe(self, ip: str) -> ScanResult:
-        is_local = ip == self.local_network_info.ip
         last = None
         for attempt in range(self.config.retries + 1):
             if self._cancelled.is_set():
                 return ScanResult(ip=ip, is_alive=False, method=self.config.method, error="cancelled")
-            last = await (self._tcp_probe(ip) if self.config.method == "tcp" else self._ping_probe(ip))
-            # The current host is known to be online even when its firewall drops
-            # ICMP or none of the selected TCP ports is listening.
-            if is_local:
-                last.is_alive = True
-                last.error = None
-                if last.response_time_ms is None:
-                    last.response_time_ms = 0.0
+            if self.config.method == "tcp":
+                last = await self._tcp_probe(ip)
+            else:
+                # Keep the first pass fast. Only addresses that fail are retried
+                # with progressively longer waits, which also gives ARP/ND caches
+                # and sleeping Wi-Fi clients time to become ready.
+                probe_timeout = min(self.config.timeout * (2**attempt), 2.0)
+                last = await self._ping_probe(ip, probe_timeout)
             if last.is_alive:
-                last.mac = (
-                    self.local_network_info.mac if is_local else await self._lookup_mac(ip)
-                )
+                last.mac = await self._lookup_mac(ip)
                 if self.config.resolve_hostname:
-                    if is_local:
-                        last.hostname = socket.gethostname().rstrip(".") or None
-                    else:
-                        last.hostname = await self._resolve_hostname(ip)
+                    last.hostname = await self._resolve_hostname(ip)
                 return last
             if attempt < self.config.retries:
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.15 * (attempt + 1))
         return last or ScanResult(ip=ip, is_alive=False, method=self.config.method)
 
     async def _tcp_probe(self, ip: str) -> ScanResult:
@@ -215,17 +207,18 @@ class Scanner:
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
 
-    async def _ping_probe(self, ip: str) -> ScanResult:
+    async def _ping_probe(self, ip: str, timeout: Optional[float] = None) -> ScanResult:
         system = platform.system()
-        timeout_ms = max(1, int(self.config.timeout * 1000))
+        effective_timeout = self.config.timeout if timeout is None else timeout
+        timeout_ms = max(1, int(effective_timeout * 1000))
         if system == "Windows":
             args = ["ping", "-n", "1", "-w", str(timeout_ms), ip]
         elif system == "Darwin":
             args = ["/sbin/ping", "-n", "-c", "1", "-W", str(timeout_ms), ip]
         else:
-            args = ["ping", "-n", "-c", "1", "-W", str(max(1, int(self.config.timeout))), ip]
+            args = ["ping", "-n", "-c", "1", "-W", str(max(1, int(effective_timeout))), ip]
         started = time.monotonic()
-        command_result = await self._run_command(args, self.config.timeout + 0.5)
+        command_result = await self._run_command(args, effective_timeout + 0.5)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
         return_code, stdout = command_result

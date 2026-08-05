@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 from ip_scanner.engine import ScanCancelled, Scanner
 from ip_scanner.models import ScanConfig, ScanResult
-from ip_scanner.network_info import NetworkInfo
 from ip_scanner.targets import parse_target
 
 
@@ -141,32 +140,34 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         result = await scanner._probe("192.168.1.20")
         self.assertTrue(result.is_alive)
         self.assertEqual(scanner._ping_probe.await_count, 2)
+        self.assertEqual(scanner._ping_probe.await_args_list[0].args[1], 0.5)
+        self.assertEqual(scanner._ping_probe.await_args_list[1].args[1], 1.0)
 
-    async def test_local_host_is_not_excluded_when_ping_is_blocked(self):
-        local = NetworkInfo("Ethernet", "192.168.1.20", 24, mac="AA:BB:CC:DD:EE:FF")
+    async def test_ping_uses_three_adaptive_passes_before_offline(self):
         scanner = Scanner(
-            ScanConfig(method="ping", resolve_hostname=True, include_dead=True),
-            local,
+            ScanConfig(method="ping", timeout=0.5, retries=2, include_dead=True)
         )
         scanner._ping_probe = AsyncMock(
-            return_value=ScanResult(ip=local.ip, is_alive=False, method="ping")
+            return_value=ScanResult(ip="192.168.1.30", is_alive=False, method="ping")
         )
-        with patch("ip_scanner.engine.socket.gethostname", return_value="my-computer.local"):
-            result = await scanner._probe(local.ip)
-        self.assertTrue(result.is_alive)
-        self.assertEqual(result.mac, local.mac)
-        self.assertEqual(result.hostname, "my-computer.local")
-        self.assertEqual(result.response_time_ms, 0.0)
+        with patch("ip_scanner.engine.asyncio.sleep", new_callable=AsyncMock) as sleep:
+            result = await scanner._probe("192.168.1.30")
+        self.assertFalse(result.is_alive)
+        self.assertEqual(
+            [call.args[1] for call in scanner._ping_probe.await_args_list],
+            [0.5, 1.0, 2.0],
+        )
+        self.assertEqual([call.args[0] for call in sleep.await_args_list], [0.15, 0.3])
 
-    async def test_local_host_is_online_even_without_requested_tcp_port(self):
-        local = NetworkInfo("en0", "10.0.0.5", 24)
-        scanner = Scanner(ScanConfig(method="tcp", ports=[65535]), local)
-        scanner._tcp_probe = AsyncMock(
-            return_value=ScanResult(ip=local.ip, is_alive=False, method="tcp")
+    async def test_any_target_is_only_online_after_a_successful_probe(self):
+        scanner = Scanner(ScanConfig(method="ping", include_dead=True))
+        scanner._ping_probe = AsyncMock(
+            return_value=ScanResult(ip="192.168.1.20", is_alive=False, method="ping")
         )
-        result = await scanner._probe(local.ip)
-        self.assertTrue(result.is_alive)
-        self.assertEqual(result.open_ports, [])
+        scanner._lookup_mac = AsyncMock()
+        result = await scanner._probe("192.168.1.20")
+        self.assertFalse(result.is_alive)
+        scanner._lookup_mac.assert_not_awaited()
 
 
 if __name__ == "__main__":

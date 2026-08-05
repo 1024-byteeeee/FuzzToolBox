@@ -5,7 +5,6 @@ import sys
 
 from .engine import ScanCancelled, Scanner
 from .models import ScanConfig
-from .network_info import get_network_info
 from .targets import parse_ports, parse_target
 
 
@@ -34,7 +33,7 @@ async def run(args: argparse.Namespace) -> int:
         resolve_hostname=args.resolve_hostname,
         include_dead=args.include_dead,
     )
-    scanner = Scanner(config, get_network_info())
+    scanner = Scanner(config)
 
     def show_results(batch):
         for result in batch:
