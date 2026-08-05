@@ -1,15 +1,11 @@
-"""Build a native IP-Scanner bundle and a release archive on the current OS."""
+"""Build a self-contained, single-file IP-Scanner executable on the current OS."""
 
 import os
 import platform
-import plistlib
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-from ip_scanner import __version__
-
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_DIR / "build"
@@ -50,7 +46,7 @@ def build() -> Path:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--windowed",
+        "--onefile",
         "--name",
         "IP-Scanner",
         "--distpath",
@@ -66,9 +62,12 @@ def build() -> Path:
         str(entry),
     ]
     if system == "Darwin":
-        command[3:3] = ["--osx-bundle-identifier", "com.github.1024-byteeeee.ip-scanner"]
+        # A macOS .app is a directory bundle. Console mode intentionally produces
+        # one Mach-O file; the program itself still opens the PySide GUI.
+        pass
     elif system == "Windows":
         command[3:3] = [
+            "--windowed",
             "--version-file",
             str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
         ]
@@ -76,60 +75,26 @@ def build() -> Path:
 
     label = platform_label()
     arch = normalized_architecture()
-    archive_base = RELEASE_DIR / f"IP-Scanner-{label}-{arch}"
-    if system == "Darwin":
-        source_name = "IP-Scanner.app"
-        app_path = BUILD_DIR / source_name
-        plist_path = app_path / "Contents" / "Info.plist"
-        with plist_path.open("rb") as handle:
-            plist = plistlib.load(handle)
-        plist["CFBundleIdentifier"] = "com.github.1024-byteeeee.ip-scanner"
-        plist["CFBundleShortVersionString"] = __version__
-        plist["CFBundleVersion"] = __version__
-        with plist_path.open("wb") as handle:
-            plistlib.dump(plist, handle)
-        subprocess.run(
-            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_path)],
-            check=True,
-        )
-        archive_path = Path(f"{archive_base}.zip")
-        if archive_path.exists():
-            archive_path.unlink()
-        subprocess.run(
-            [
-                "/usr/bin/ditto",
-                "-c",
-                "-k",
-                "--sequesterRsrc",
-                "--keepParent",
-                str(app_path),
-                str(archive_path),
-            ],
-            check=True,
-        )
-        print(f"Built native bundle: {app_path}")
-        print(f"Built release archive: {archive_path}")
-        return archive_path
-    elif system == "Windows":
-        source_name = "IP-Scanner"
-        archive_format = "zip"
-    else:
-        source_name = "IP-Scanner"
-        archive_format = "gztar"
+    suffix = ".exe" if system == "Windows" else ""
+    built_path = BUILD_DIR / f"IP-Scanner{suffix}"
+    release_path = RELEASE_DIR / f"IP-Scanner-{label}-{arch}{suffix}"
+    if not built_path.is_file():
+        raise SystemExit(f"PyInstaller did not create the expected executable: {built_path}")
 
-    extension = ".tar.gz" if archive_format == "gztar" else ".zip"
-    archive_path = Path(f"{archive_base}{extension}")
-    if archive_path.exists():
-        archive_path.unlink()
-    result = shutil.make_archive(
-        str(archive_base),
-        archive_format,
-        root_dir=BUILD_DIR,
-        base_dir=source_name,
-    )
-    print(f"Built native bundle: {BUILD_DIR / source_name}")
-    print(f"Built release archive: {result}")
-    return Path(result)
+    if system == "Darwin":
+        subprocess.run(
+            ["/usr/bin/codesign", "--force", "--sign", "-", str(built_path)],
+            check=True,
+        )
+
+    if release_path.exists():
+        release_path.unlink()
+    shutil.copy2(built_path, release_path)
+    if system != "Windows":
+        release_path.chmod(release_path.stat().st_mode | 0o111)
+    print(f"Built self-contained executable: {built_path}")
+    print(f"Built release executable: {release_path}")
+    return release_path
 
 
 if __name__ == "__main__":

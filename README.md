@@ -62,8 +62,8 @@ sh scripts/build_linux.sh
 .\scripts\build_windows.ps1
 ```
 
-原生程序生成在 `build`，可发布压缩包生成在 `build/releases`。macOS 本机构建使用临时签名；正式分发前仍建议使用 Apple Developer ID 签名与公证。
+无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖全部嵌入一个可执行文件；本机程序生成在 `build`，带平台及架构名称的单文件发布程序生成在 `build/releases`。macOS 本机构建使用临时签名；正式分发前仍建议使用 Apple Developer ID 签名与公证。macOS/Linux 文件从浏览器下载后若丢失执行权限，可运行 `chmod +x <文件名>`。
 
 ## GitHub Release
 
-`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows、Linux 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。三个系统全部成功后，工作流才会统一替换 Release 附件，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。
+`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows、Linux 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。三个系统全部成功后，工作流才会统一替换 Release 中的三个单文件可执行程序，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。
