@@ -453,8 +453,12 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(False)
         self.table.setShowGrid(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setMinimumSectionSize(65)
+        header.setDefaultAlignment(Qt.AlignCenter)
+        for column, width in enumerate((190, 78, 108, 112, 370, 238)):
+            header.resizeSection(column, width)
         layout.addWidget(self.table, 1)
 
         github_icon = (ASSET_DIR / "github.svg").as_posix()

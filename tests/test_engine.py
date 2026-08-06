@@ -89,8 +89,25 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         output = "Pinging OFFICE-PC [192.168.1.20] with 32 bytes of data:"
         self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
 
+    def test_hostname_parser_handles_localized_windows_ping(self):
+        output = "正在 Ping OFFICE-PC [192.168.1.20] 具有 32 字节的数据:"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
+
+    def test_windows_command_output_uses_local_code_page(self):
+        output = "正在 Ping 办公电脑 [192.168.1.20] 具有 32 字节的数据:"
+        with patch("ip_scanner.engine.platform.system", return_value="Windows"), patch(
+            "ip_scanner.engine.locale.getpreferredencoding", return_value="gbk"
+        ):
+            decoded = Scanner._decode_command_output(output.encode("gbk"))
+        self.assertEqual(Scanner._parse_hostname(decoded, "192.168.1.20"), "办公电脑")
+
+    def test_hostname_parser_rejects_ping_status_as_hostname(self):
+        output = "来自 192.168.1.20 的回复: 字节=32 时间<1ms TTL=128"
+        self.assertIsNone(Scanner._parse_hostname(output, "192.168.1.20"))
+        self.assertIsNone(Scanner._clean_hostname("=32", "192.168.1.20"))
+
     def test_hostname_parser_handles_windows_netbios(self):
-        output = "       OFFICE-PC       <00>  UNIQUE      Registered"
+        output = "       OFFICE-PC       <00>  唯一        已注册"
         self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
 
     async def test_hostname_uses_cross_platform_system_resolver_first(self):

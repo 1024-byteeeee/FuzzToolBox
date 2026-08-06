@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import ipaddress
+import locale
 import platform
 import re
 import socket
@@ -329,28 +330,51 @@ class Scanner:
             ]
         elif system == "Windows":
             commands = [
-                ["nslookup", ip],
                 ["ping", "-a", "-n", "1", "-w", "1000", ip],
                 ["nbtstat", "-A", ip],
+                ["nslookup", ip],
             ]
         else:
             return None
+        command_timeout = 1.8 if system == "Windows" else 1.0
         for command in commands:
-            command_result = await self._run_command(command, timeout=1.0)
+            command_result = await self._run_command(command, timeout=command_timeout)
             if command_result is None:
                 continue
             return_code, stdout = command_result
             if return_code != 0:
                 continue
-            hostname = self._parse_hostname(stdout.decode(errors="ignore"), ip)
+            hostname = self._parse_hostname(self._decode_command_output(stdout), ip)
             if hostname:
                 return hostname
         return None
 
     @staticmethod
+    def _decode_command_output(value: bytes) -> str:
+        encodings = (
+            ("oem", locale.getpreferredencoding(False), "utf-8")
+            if platform.system() == "Windows"
+            else ("utf-8", locale.getpreferredencoding(False))
+        )
+        for encoding in dict.fromkeys(encodings):
+            try:
+                return value.decode(encoding)
+            except (LookupError, UnicodeDecodeError):
+                continue
+        return value.decode(errors="ignore")
+
+    @staticmethod
     def _clean_hostname(value: str, ip: str) -> Optional[str]:
         hostname = value.strip().rstrip(".")
         if not hostname or hostname.casefold() == "localhost" or hostname == ip:
+            return None
+        # Reject status fields accidentally captured from localized ping output,
+        # such as "bytes=32" / "字节=32". Hostnames cannot contain these delimiters.
+        if (
+            len(hostname) > 253
+            or not (hostname[0].isalnum() or hostname[0] == "_")
+            or any(not (character.isalnum() or character in "._-") for character in hostname)
+        ):
             return None
         try:
             ipaddress.ip_address(hostname)
@@ -363,11 +387,12 @@ class Scanner:
         patterns = [
             r"(?im)^\s*name:\s*(\S+)",
             r"(?im)^\s*name\s*=\s*(\S+)",
+            r"(?im)^\s*名称\s*[:：]\s*(\S+)",
             r"(?im)domain name pointer\s+(\S+)",
-            r"(?im)^\s*" + re.escape(ip) + r"\s+\S+\s+(\S+)",
-            r"(?im)^\s*" + re.escape(ip) + r"\s+(\S+)",
-            r"(?im)^\s*Pinging\s+(\S+)\s+\[" + re.escape(ip) + r"\]",
-            r"(?im)^\s*(\S+)\s+<00>\s+UNIQUE\b",
+            r"(?im)^\s*[^\r\n\[]*?([^\s\[\]=:]+)\s+\["
+            + re.escape(ip)
+            + r"\]",
+            r"(?im)^\s*(\S+)\s+<00>\s+",
             r"(?im)^" + re.escape(ip) + r"\s*:\s*(\S+)",
             r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+)\.?\s*$",
         ]
