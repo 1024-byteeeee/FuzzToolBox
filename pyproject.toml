@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "A responsive cross-platform LAN IP scanner"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["psutil>=5.9,<8"]
+dependencies = ["psutil>=5.9,<8", "dnspython>=2.4,<3", "getmac>=0.9,<1"]
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.5,<7"]

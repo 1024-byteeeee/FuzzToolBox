@@ -9,6 +9,11 @@ import subprocess
 import time
 from typing import Callable, List, Optional
 
+import dns.asyncresolver
+import dns.exception
+import dns.reversename
+from getmac import get_mac_address
+
 from .models import ScanConfig, ScanProgress, ScanResult
 from .network_info import NetworkInfo
 from .targets import TargetRange
@@ -325,6 +330,8 @@ class Scanner:
         if system == "Darwin":
             commands = [
                 ["/usr/bin/dscacheutil", "-q", "host", "-a", "ip_address", ip],
+                ["/sbin/ping", "-c", "1", "-W", "1000", ip],
+                ["/usr/sbin/arp", ip],
                 ["/usr/bin/dig", "+short", "-x", ip],
                 ["/usr/bin/host", ip],
             ]
@@ -347,12 +354,27 @@ class Scanner:
             hostname = self._parse_hostname(self._decode_command_output(stdout), ip)
             if hostname:
                 return hostname
+
+        # Direct PTR is a final cross-platform fallback. On macOS this must run
+        # after Bonjour-aware native tools, otherwise ordinary DNS can delay local
+        # .local discovery without adding any useful information.
+        try:
+            reverse_name = dns.reversename.from_address(ip)
+            answer = await dns.asyncresolver.resolve(
+                reverse_name, "PTR", lifetime=1.5, raise_on_no_answer=False
+            )
+            if answer.rrset:
+                hostname = self._clean_hostname(str(next(iter(answer))), ip)
+                if hostname:
+                    return hostname
+        except (dns.exception.DNSException, ValueError, StopIteration):
+            pass
         return None
 
     @staticmethod
     def _decode_command_output(value: bytes) -> str:
         encodings = (
-            ("oem", locale.getpreferredencoding(False), "utf-8")
+            (locale.getpreferredencoding(False), "oem", "utf-8")
             if platform.system() == "Windows"
             else ("utf-8", locale.getpreferredencoding(False))
         )
@@ -392,6 +414,8 @@ class Scanner:
             r"(?im)^\s*[^\r\n\[]*?([^\s\[\]=:]+)\s+\["
             + re.escape(ip)
             + r"\]",
+            r"(?im)^\s*PING\s+(\S+)\s+\(" + re.escape(ip) + r"\)",
+            r"(?im)^\s*(\S+)\s+\(" + re.escape(ip) + r"\)\s+at\s+",
             r"(?im)^\s*(\S+)\s+<00>\s+",
             r"(?im)^" + re.escape(ip) + r"\s*:\s*(\S+)",
             r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+)\.?\s*$",
@@ -405,6 +429,16 @@ class Scanner:
         return None
 
     async def _lookup_mac(self, ip: str) -> Optional[str]:
+        try:
+            value = await asyncio.wait_for(
+                asyncio.to_thread(get_mac_address, ip=ip), timeout=1.0
+            )
+            normalized = self._parse_mac(value or "")
+            if normalized:
+                return normalized
+        except (asyncio.TimeoutError, OSError, ValueError):
+            pass
+
         system = platform.system()
         if system == "Windows":
             args = ["arp", "-a", ip]

@@ -457,7 +457,7 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setMinimumSectionSize(65)
         header.setDefaultAlignment(Qt.AlignCenter)
-        for column, width in enumerate((190, 78, 108, 112, 370, 238)):
+        for column, width in enumerate((180, 140, 160, 160, 230, 230)):
             header.resizeSection(column, width)
         layout.addWidget(self.table, 1)
 

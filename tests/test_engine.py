@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -79,6 +80,14 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             "printer.local",
         )
 
+    def test_hostname_parser_handles_macos_ping_name(self):
+        output = "PING printer.local (192.168.1.20): 56 data bytes"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
+
+    def test_hostname_parser_handles_macos_arp_name(self):
+        output = "printer.local (192.168.1.20) at aa:bb:cc:dd:ee:ff on en0"
+        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
+
     def test_hostname_parser_handles_reverse_dns(self):
         self.assertEqual(
             Scanner._parse_hostname("router.example.net.\n", "203.0.113.1"),
@@ -118,6 +127,28 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             return_value=("printer.local.", [], ["192.168.1.20"]),
         ):
             self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "printer.local")
+
+    async def test_dns_library_is_used_when_system_resolver_has_no_name(self):
+        scanner = Scanner(ScanConfig())
+        answer = type("Answer", (), {"rrset": True, "__iter__": lambda self: iter(["printer.local."])})()
+        with patch("ip_scanner.engine.asyncio.to_thread", new_callable=AsyncMock) as native, patch(
+            "ip_scanner.engine.dns.asyncresolver.resolve",
+            new_callable=AsyncMock,
+            return_value=answer,
+        ), patch.object(scanner, "_run_command", new_callable=AsyncMock, return_value=None):
+            native.side_effect = socket.herror()
+            self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "printer.local")
+
+    async def test_getmac_library_is_used_before_platform_commands(self):
+        scanner = Scanner(ScanConfig())
+        scanner._run_command = AsyncMock()
+        with patch(
+            "ip_scanner.engine.asyncio.to_thread",
+            new_callable=AsyncMock,
+            return_value="aa-bb-cc-dd-ee-ff",
+        ):
+            self.assertEqual(await scanner._lookup_mac("192.168.1.20"), "AA:BB:CC:DD:EE:FF")
+        scanner._run_command.assert_not_awaited()
 
     async def test_worker_exception_becomes_result_instead_of_hanging(self):
         scanner = Scanner(
