@@ -161,9 +161,9 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scanner._ping_probe.await_args_list[0].args[1], 0.5)
         self.assertEqual(scanner._ping_probe.await_args_list[1].args[1], 1.0)
 
-    async def test_ping_uses_three_adaptive_passes_before_offline(self):
+    async def test_ping_uses_four_adaptive_passes_before_offline(self):
         scanner = Scanner(
-            ScanConfig(method="ping", timeout=0.5, retries=2, include_dead=True)
+            ScanConfig(method="ping", timeout=0.5, retries=3, include_dead=True)
         )
         scanner._ping_probe = AsyncMock(
             return_value=ScanResult(ip="192.168.1.30", is_alive=False, method="ping")
@@ -173,9 +173,9 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_alive)
         self.assertEqual(
             [call.args[1] for call in scanner._ping_probe.await_args_list],
-            [0.5, 1.0, 2.0],
+            [0.5, 1.0, 2.0, 2.0],
         )
-        self.assertEqual([call.args[0] for call in sleep.await_args_list], [0.15, 0.3])
+        self.assertEqual([call.args[0] for call in sleep.await_args_list], [0.15, 0.3, 0.45])
 
     async def test_any_target_is_only_online_after_a_successful_probe(self):
         scanner = Scanner(ScanConfig(method="ping", include_dead=True))

@@ -37,6 +37,7 @@ class Scanner:
         # timeout. Queue them here so timeout measurement starts only after a slot
         # is available and the process is actually launched.
         self._ping_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
+        self._neighbor_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
         self._hostname_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
 
     def cancel(self) -> None:
@@ -160,7 +161,7 @@ class Scanner:
                     last.hostname = await self._resolve_hostname(ip)
                 return last
             if attempt < self.config.retries:
-                await asyncio.sleep(0.15 * (attempt + 1))
+                await asyncio.sleep(round(0.15 * (attempt + 1), 2))
         return last or ScanResult(ip=ip, is_alive=False, method=self.config.method)
 
     async def _tcp_probe(self, ip: str) -> ScanResult:
@@ -352,28 +353,29 @@ class Scanner:
             return hostname
 
     async def _lookup_mac(self, ip: str) -> Optional[str]:
-        try:
-            value = await asyncio.wait_for(
-                asyncio.to_thread(get_mac_address, ip=ip), timeout=1.0
-            )
-            normalized = self._parse_mac(value or "")
-            if normalized:
-                return normalized
-        except (asyncio.TimeoutError, OSError, ValueError):
-            pass
+        async with self._neighbor_semaphore:
+            try:
+                value = await asyncio.wait_for(
+                    asyncio.to_thread(get_mac_address, ip=ip), timeout=1.0
+                )
+                normalized = self._parse_mac(value or "")
+                if normalized:
+                    return normalized
+            except (asyncio.TimeoutError, OSError, ValueError):
+                pass
 
-        system = platform.system()
-        if system == "Windows":
-            args = ["arp", "-a", ip]
-        elif system == "Darwin":
-            args = ["/usr/sbin/arp", "-n", ip]
-        else:
-            return None
-        command_result = await self._run_command(args, timeout=0.8)
-        if command_result is None:
-            return None
-        _, stdout = command_result
-        return self._parse_mac(stdout.decode(errors="ignore"))
+            system = platform.system()
+            if system == "Windows":
+                args = ["arp", "-a", ip]
+            elif system == "Darwin":
+                args = ["/usr/sbin/arp", "-n", ip]
+            else:
+                return None
+            command_result = await self._run_command(args, timeout=0.8)
+            if command_result is None:
+                return None
+            _, stdout = command_result
+            return self._parse_mac(stdout.decode(errors="ignore"))
 
     @staticmethod
     async def _run_command(args: List[str], timeout: float):

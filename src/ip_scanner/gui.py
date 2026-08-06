@@ -457,9 +457,8 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(QHeaderView.Interactive)
         header.setMinimumSectionSize(65)
         header.setDefaultAlignment(Qt.AlignCenter)
-        for column, width in enumerate((180, 140, 160, 160, 230, 230)):
-            header.resizeSection(column, width)
         layout.addWidget(self.table, 1)
+        QTimer.singleShot(0, self._resize_result_columns)
 
         github_icon = (ASSET_DIR / "github.svg").as_posix()
         copyright_label = QLabel(
@@ -491,6 +490,20 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         self.addAction(quit_action)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._resize_result_columns()
+
+    def _resize_result_columns(self):
+        if not hasattr(self, "table"):
+            return
+        available = self.table.viewport().width()
+        weights = (18, 12, 14, 14, 21, 21)
+        widths = [max(65, available * weight // sum(weights)) for weight in weights]
+        widths[-1] += available - sum(widths)
+        for column, width in enumerate(widths):
+            self.table.horizontalHeader().resizeSection(column, max(65, width))
+
     def start_scan(self):
         if self.worker and self.worker.isRunning():
             return
@@ -503,7 +516,9 @@ class MainWindow(QMainWindow):
                 method=self.method.currentData(),
                 ports=ports,
                 concurrency=self.concurrency.value(),
-                retries=2 if self.method.currentData() == "ping" else 0,
+                # The fourth pass gives cold ARP caches and sleeping Wi-Fi/IoT
+                # clients enough time to wake while still requiring a real Echo Reply.
+                retries=3 if self.method.currentData() == "ping" else 0,
                 include_dead=True,
                 resolve_hostname=True,
             )
