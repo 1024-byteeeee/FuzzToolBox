@@ -229,7 +229,14 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results, [])
         self.assertEqual(sum(batch_sizes), 2048)
         self.assertLessEqual(len(batch_sizes), 4)
-        self.assertLessEqual(len(progress), 12)
+        # Progress is throttled by elapsed wall time, so slower CI runners may
+        # legitimately emit more updates than a developer machine. What matters
+        # here is that it is coalesced rather than emitted once per address.
+        self.assertLess(len(progress), 2048)
+        for previous, current in zip(progress, progress[1:-1]):
+            self.assertGreaterEqual(
+                current.elapsed_seconds - previous.elapsed_seconds, 0.09
+            )
         self.assertEqual(progress[-1].scanned, 2048)
 
     async def test_ping_retry_recovers_first_pass_miss(self):

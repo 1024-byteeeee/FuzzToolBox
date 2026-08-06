@@ -104,6 +104,7 @@ class Scanner:
         batch: List[ScanResult] = []
         update_batch: List[ScanResult] = []
         last_progress_emit = 0.0
+        last_progress_scanned = -1
 
         def drain_updates() -> None:
             while not update_queue.empty():
@@ -143,6 +144,7 @@ class Scanner:
                     if on_progress and now - last_progress_emit >= 0.1:
                         on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
                         last_progress_emit = now
+                        last_progress_scanned = scanned
                     continue
                 scanned += 1
                 if result.is_alive:
@@ -160,10 +162,11 @@ class Scanner:
                 if on_progress and (now - last_progress_emit >= 0.1 or scanned == targets.total):
                     on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
                     last_progress_emit = now
+                    last_progress_scanned = scanned
             if batch and on_results:
                 on_results(batch[:])
             flush_updates()
-            if on_progress:
+            if on_progress and last_progress_scanned != scanned:
                 on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
             if self._cancelled.is_set():
                 raise ScanCancelled()
