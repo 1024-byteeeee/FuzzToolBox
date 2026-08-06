@@ -1,11 +1,12 @@
 # IP-Scanner
 
-IP-Scanner 是一个跨平台局域网主机发现工具。首版提供：
+IP-Scanner 2.1 是面向 Windows 与 macOS 的局域网主机发现工具，提供：
 
 - CIDR、单 IP、起止范围解析，目标地址惰性生成
 - 有界 `asyncio` 工作池，不为大网段一次性创建任务
-- TCP 探测与系统 Ping 探测
-- 可停止的实时扫描、CSV/JSON 导出
+- TCP 探测与严格的系统 Ping 探测（只有目标 Echo Reply 才判定在线）
+- DNS、mDNS、NetBIOS 分层主机名解析及本地网络 MAC 地址获取
+- 可停止的实时扫描、异步设备信息补全、精确 IP 搜索与 CSV/JSON 导出
 - PySide6 桌面界面，以及无 GUI 依赖的命令行入口
 
 > 请只扫描你拥有或已获授权的网络。大网段扫描可能触发防火墙、IDS 或网络限速。
@@ -32,6 +33,15 @@ PYTHONPATH=src python3 -m ip_scanner.cli 192.168.1.0/24 --method tcp --ports 80,
 ```bash
 PYTHONPATH=src python3 -m ip_scanner.cli 192.168.1.0/24 --method ping
 ```
+
+## 结果判定与功能边界
+
+- Ping 模式只有收到目标 IP 的有效 ICMP Echo Reply 才显示在线；ARP/MAC 不参与在线判定。
+- TCP 模式只有指定端口完成真实 TCP 握手才显示在线，并使用控制端口检测透明代理或隧道劫持。
+- 扫描结果会先实时显示，MAC 和主机名随后在原行补全，不阻塞在线/离线结果。
+- MAC 地址通常只能在本地二层网络获得；跨路由网络无法可靠取得目标 MAC。
+- 主机名按反向 DNS、局域网 mDNS、NetBIOS 的顺序查询。目标没有注册真实名称时保持为空。
+- 手机休眠、Wi-Fi 漫游、设备防火墙或网络丢包可能造成真实的扫描结果变化。
 
 ## 测试
 
@@ -63,4 +73,4 @@ sh scripts/build_macos.sh
 
 ## GitHub Release
 
-`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。两个系统全部成功后，工作流才会统一替换 Release 附件，避免混合不同提交的构建。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。
+`.github/workflows/release-build.yml` 会在发布 Release 或推送版本标签时，分别在 Windows 和 macOS 原生 Runner 上执行测试、GUI 初始化检查和打包。两个系统全部成功后，工作流才会统一替换 Release 附件，避免混合不同提交的构建，并附带 `SHA256SUMS.txt` 校验文件。工作流也支持手动运行，手动运行时产物保存在 Workflow Artifacts 中。

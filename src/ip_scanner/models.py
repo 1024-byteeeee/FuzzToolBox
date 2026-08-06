@@ -37,9 +37,12 @@ class ScanResult:
     mac: Optional[str] = None
     open_ports: List[int] = field(default_factory=list)
     error: Optional[str] = None
+    details_pending: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        value = asdict(self)
+        value.pop("details_pending", None)
+        return value
 
 
 @dataclass(frozen=True)

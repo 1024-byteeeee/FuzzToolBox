@@ -42,12 +42,12 @@ async def run(args: argparse.Namespace) -> int:
                 print(json.dumps(result.to_dict(), ensure_ascii=False))
             else:
                 ports = ",".join(map(str, result.open_ports)) or "-"
-                status = "存活" if result.is_alive else "无响应"
+                status = "在线" if result.is_alive else "离线"
                 print(f"{result.ip:<15} {status:<4} 端口={ports} 延迟={result.response_time_ms or '-'}ms")
 
     def show_progress(progress):
         print(
-            f"\r已扫描 {progress.scanned}/{progress.total}，存活 {progress.alive}，"
+            f"\r已扫描 {progress.scanned}/{progress.total}，在线 {progress.alive}，"
             f"{progress.rate:.1f} IP/s",
             end="",
             file=sys.stderr,

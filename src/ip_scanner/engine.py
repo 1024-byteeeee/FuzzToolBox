@@ -5,6 +5,7 @@ import platform
 import re
 import subprocess
 import time
+from dataclasses import replace
 from typing import Callable, List, Optional
 
 from getmac import get_mac_address
@@ -16,6 +17,7 @@ from .targets import TargetRange
 
 
 ResultCallback = Callable[[List[ScanResult]], None]
+UpdateCallback = Callable[[List[ScanResult]], None]
 ProgressCallback = Callable[[ScanProgress], None]
 
 
@@ -48,12 +50,14 @@ class Scanner:
         targets: TargetRange,
         on_results: Optional[ResultCallback] = None,
         on_progress: Optional[ProgressCallback] = None,
+        on_updates: Optional[UpdateCallback] = None,
         batch_size: int = 100,
         retain_results: bool = True,
     ) -> List[ScanResult]:
         started = time.monotonic()
         queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
         result_queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
+        update_queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
         sentinel = object()
 
         async def producer() -> None:
@@ -71,7 +75,7 @@ class Scanner:
                     if item is sentinel:
                         return
                     try:
-                        result = await self._probe(str(item))
+                        result = await self._probe_liveness(str(item))
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
@@ -83,7 +87,12 @@ class Scanner:
                             method=self.config.method,
                             error=str(exc),
                         )
+                    if result.is_alive:
+                        result.details_pending = True
                     await result_queue.put(result)
+                    if result.is_alive:
+                        enriched = await self._enrich(replace(result))
+                        await update_queue.put(enriched)
                 finally:
                     queue.task_done()
 
@@ -91,7 +100,23 @@ class Scanner:
         workers = [asyncio.create_task(worker()) for _ in range(self.config.concurrency)]
         scanned = alive = finished_workers = 0
         retained: List[ScanResult] = []
+        retained_rows = {}
         batch: List[ScanResult] = []
+        update_batch: List[ScanResult] = []
+
+        def drain_updates() -> None:
+            while not update_queue.empty():
+                update = update_queue.get_nowait()
+                if retain_results and update.ip in retained_rows:
+                    retained[retained_rows[update.ip]] = update
+                update_batch.append(update)
+
+        def flush_updates() -> None:
+            drain_updates()
+            if update_batch:
+                if on_updates:
+                    on_updates(update_batch[:])
+                update_batch.clear()
 
         async def watch_worker(task: asyncio.Task) -> None:
             nonlocal finished_workers
@@ -112,6 +137,7 @@ class Scanner:
                     if batch and on_results:
                         on_results(batch[:])
                         batch.clear()
+                    flush_updates()
                     if on_progress:
                         on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
                     continue
@@ -120,8 +146,10 @@ class Scanner:
                     alive += 1
                 if result.is_alive or self.config.include_dead:
                     if retain_results:
+                        retained_rows[result.ip] = len(retained)
                         retained.append(result)
-                    batch.append(result)
+                    if on_results:
+                        batch.append(result)
                 if len(batch) >= batch_size and on_results:
                     on_results(batch[:])
                     batch.clear()
@@ -129,6 +157,7 @@ class Scanner:
                     on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
             if batch and on_results:
                 on_results(batch[:])
+            flush_updates()
             if on_progress:
                 on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
             if self._cancelled.is_set():
@@ -143,6 +172,10 @@ class Scanner:
             await asyncio.gather(producer_task, *workers, *watchers, return_exceptions=True)
 
     async def _probe(self, ip: str) -> ScanResult:
+        result = await self._probe_liveness(ip)
+        return await self._enrich(result) if result.is_alive else result
+
+    async def _probe_liveness(self, ip: str) -> ScanResult:
         last = None
         for attempt in range(self.config.retries + 1):
             if self._cancelled.is_set():
@@ -150,19 +183,42 @@ class Scanner:
             if self.config.method == "tcp":
                 last = await self._tcp_probe(ip)
             else:
-                # Keep the first pass fast. Only addresses that fail are retried
-                # with progressively longer waits, which also gives ARP/ND caches
-                # and sleeping Wi-Fi clients time to become ready.
+                # Each subprocess sends a two-packet burst. The first packet can
+                # establish ARP/wake a client; the second confirms it without the
+                # cost of starting several more processes per address.
                 probe_timeout = min(self.config.timeout * (2**attempt), 2.0)
                 last = await self._ping_probe(ip, probe_timeout)
             if last.is_alive:
-                last.mac = await self._lookup_mac(ip)
-                if self.config.resolve_hostname:
-                    last.hostname = await self._resolve_hostname(ip)
                 return last
             if attempt < self.config.retries:
                 await asyncio.sleep(round(0.15 * (attempt + 1), 2))
         return last or ScanResult(ip=ip, is_alive=False, method=self.config.method)
+
+    async def _enrich(self, result: ScanResult) -> ScanResult:
+        if self._cancelled.is_set() or not result.is_alive:
+            result.details_pending = False
+            return result
+        mac_task = asyncio.create_task(self._lookup_mac(result.ip))
+        hostname_task = (
+            asyncio.create_task(self._resolve_hostname(result.ip))
+            if self.config.resolve_hostname
+            else None
+        )
+        try:
+            result.mac = await mac_task
+            if hostname_task:
+                result.hostname = await hostname_task
+        finally:
+            result.details_pending = False
+            if hostname_task and not hostname_task.done():
+                hostname_task.cancel()
+            if not mac_task.done():
+                mac_task.cancel()
+            await asyncio.gather(
+                *([mac_task, hostname_task] if hostname_task else [mac_task]),
+                return_exceptions=True,
+            )
+        return result
 
     async def _tcp_probe(self, ip: str) -> ScanResult:
         started = time.monotonic()
@@ -241,15 +297,26 @@ class Scanner:
         timeout_ms = max(1, int(effective_timeout * 1000))
         source_ip = self.network_info.ip if self._is_on_link(ip) else None
         if system == "Windows":
-            args = ["ping", "-n", "1", "-w", str(timeout_ms)]
+            args = ["ping", "-n", "2", "-w", str(timeout_ms)]
             if source_ip:
                 args.extend(["-S", source_ip])
             args.append(ip)
+            command_timeout = effective_timeout * 2 + 1.25
         elif system == "Darwin":
-            args = ["/sbin/ping", "-n", "-c", "1", "-W", str(timeout_ms)]
+            args = [
+                "/sbin/ping",
+                "-n",
+                "-c",
+                "2",
+                "-i",
+                "0.2",
+                "-W",
+                str(timeout_ms),
+            ]
             if source_ip:
                 args.extend(["-S", source_ip])
             args.append(ip)
+            command_timeout = effective_timeout * 2 + 0.75
         else:
             return ScanResult(
                 ip=ip,
@@ -258,7 +325,7 @@ class Scanner:
                 error=f"unsupported operating system: {system}",
             )
         async with self._ping_semaphore:
-            command_result = await self._run_command(args, effective_timeout + 0.5)
+            command_result = await self._run_command(args, command_timeout)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
         return_code, stdout = command_result

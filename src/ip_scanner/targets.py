@@ -37,7 +37,7 @@ def parse_target(value: str) -> TargetRange:
     if "/" in text:
         network = ipaddress.ip_network(text, strict=False)
         if network.version != 4:
-            raise ValueError("首版仅支持 IPv4")
+            raise ValueError("当前仅支持 IPv4")
         # 网络地址和广播地址也可能是有效目标（/31、/32），保持完整 CIDR 语义。
         return TargetRange(int(network.network_address), int(network.broadcast_address), text)
 

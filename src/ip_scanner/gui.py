@@ -12,6 +12,7 @@ try:
         QModelIndex,
         QObject,
         QSortFilterProxyModel,
+        QSettings,
         Qt,
         QThread,
         QTimer,
@@ -161,6 +162,7 @@ class ResultModel(QAbstractTableModel):
     def __init__(self):
         super().__init__()
         self.results: List[ScanResult] = []
+        self._rows_by_ip = {}
         self.show_mac = True
 
     def rowCount(self, _parent=QModelIndex()):
@@ -195,7 +197,7 @@ class ResultModel(QAbstractTableModel):
             "在线" if result.is_alive else "离线",
             result.method.upper(),
             f"{result.response_time_ms:.2f} ms" if result.response_time_ms is not None else "—",
-            result.hostname or "—",
+            result.hostname or ("解析中…" if result.details_pending else "—"),
             (result.mac or "—")
             if self.show_mac
             else (", ".join(map(str, result.open_ports)) or "—"),
@@ -205,15 +207,27 @@ class ResultModel(QAbstractTableModel):
     def clear(self):
         self.beginResetModel()
         self.results.clear()
+        self._rows_by_ip.clear()
         self.endResetModel()
 
     def add_batch(self, batch: List[ScanResult]):
         if not batch:
             return
-        first = len(self.results)
-        self.beginInsertRows(QModelIndex(), first, first + len(batch) - 1)
-        self.results.extend(batch)
-        self.endInsertRows()
+        new_results = []
+        for result in batch:
+            row = self._rows_by_ip.get(result.ip)
+            if row is None:
+                new_results.append(result)
+                continue
+            self.results[row] = result
+            self.dataChanged.emit(self.index(row, 0), self.index(row, self.columnCount() - 1))
+        if new_results:
+            first = len(self.results)
+            self.beginInsertRows(QModelIndex(), first, first + len(new_results) - 1)
+            for result in new_results:
+                self._rows_by_ip[result.ip] = len(self.results)
+                self.results.append(result)
+            self.endInsertRows()
 
     def set_scan_method(self, method: str):
         self.show_mac = method == "ping"
@@ -261,6 +275,7 @@ class ResultFilterModel(QSortFilterProxyModel):
 
 class WorkerSignals(QObject):
     results = Signal(list)
+    updates = Signal(list)
     progress = Signal(object)
     completed = Signal(bool, str)
 
@@ -290,6 +305,7 @@ class ScanWorker(QThread):
                     target,
                     self.signals.results.emit,
                     self.signals.progress.emit,
+                    on_updates=self.signals.updates.emit,
                     retain_results=False,
                 )
             )
@@ -324,6 +340,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
+        self.settings = QSettings("1024_byteeeee", "IP-Scanner")
         self.worker = None
         self.setWindowTitle(f"IP-Scanner v{__version__}")
         self.resize(1180, 760)
@@ -336,6 +353,7 @@ class MainWindow(QMainWindow):
         self._stop_watchdog.setSingleShot(True)
         self._stop_watchdog.timeout.connect(self._force_stop_scan)
         self._build_ui()
+        self._load_settings()
 
     def _build_ui(self):
         root = QWidget()
@@ -504,6 +522,33 @@ class MainWindow(QMainWindow):
         for column, width in enumerate(widths):
             self.table.horizontalHeader().resizeSection(column, max(65, width))
 
+    def _load_settings(self):
+        geometry = self.settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self.range_mode.setCurrentIndex(
+            max(0, self.range_mode.findData(self.settings.value("scan/range_mode", "range")))
+        )
+        self.method.setCurrentIndex(
+            max(0, self.method.findData(self.settings.value("scan/method", "ping")))
+        )
+        try:
+            saved_concurrency = int(self.settings.value("scan/concurrency", 64))
+        except (TypeError, ValueError):
+            saved_concurrency = 64
+        self.concurrency.setValue(saved_concurrency)
+        self.ports.setText(str(self.settings.value("scan/ports", self.ports.text())))
+        self.update_range_mode()
+        self._update_method_controls()
+        QTimer.singleShot(0, self._resize_result_columns)
+
+    def _save_settings(self):
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("scan/range_mode", self.range_mode.currentData())
+        self.settings.setValue("scan/method", self.method.currentData())
+        self.settings.setValue("scan/concurrency", self.concurrency.value())
+        self.settings.setValue("scan/ports", self.ports.text())
+
     def start_scan(self):
         if self.worker and self.worker.isRunning():
             return
@@ -516,9 +561,8 @@ class MainWindow(QMainWindow):
                 method=self.method.currentData(),
                 ports=ports,
                 concurrency=self.concurrency.value(),
-                # The fourth pass gives cold ARP caches and sleeping Wi-Fi/IoT
-                # clients enough time to wake while still requiring a real Echo Reply.
-                retries=3 if self.method.currentData() == "ping" else 0,
+                # Two short two-packet bursts balance cold-start reliability and speed.
+                retries=1 if self.method.currentData() == "ping" else 0,
                 include_dead=True,
                 resolve_hostname=True,
             )
@@ -538,6 +582,9 @@ class MainWindow(QMainWindow):
         worker = ScanWorker(target_text, config, self.network_info)
         self.worker = worker
         worker.signals.results.connect(
+            lambda batch, active=worker: self.receive_results(active, batch)
+        )
+        worker.signals.updates.connect(
             lambda batch, active=worker: self.receive_results(active, batch)
         )
         worker.signals.progress.connect(
@@ -686,6 +733,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._stop_watchdog.stop()
+        self._save_settings()
         worker = self.worker
         if worker and worker.isRunning():
             worker.cancel()

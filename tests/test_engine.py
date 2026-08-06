@@ -15,9 +15,10 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_alive_result_and_progress(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=[80], timeout=0.2, concurrency=2))
-        scanner._probe = AsyncMock(
+        scanner._probe_liveness = AsyncMock(
             side_effect=lambda ip: ScanResult(ip=ip, is_alive=True, method="tcp", open_ports=[80])
         )
+        scanner._enrich = AsyncMock(side_effect=lambda result: result)
         progress = []
         results = await scanner.scan(parse_target("127.0.0.1-127.0.0.2"), on_progress=progress.append)
         self.assertEqual(len(results), 2)
@@ -25,9 +26,47 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(progress[-1].scanned, 2)
         self.assertEqual(progress[-1].alive, 2)
 
+    async def test_alive_result_is_emitted_before_detail_enrichment_finishes(self):
+        scanner = Scanner(ScanConfig(method="ping", concurrency=1, resolve_hostname=True))
+        scanner._probe_liveness = AsyncMock(
+            return_value=ScanResult(ip="192.168.1.20", is_alive=True, method="ping")
+        )
+        release_enrichment = asyncio.Event()
+        initial_seen = asyncio.Event()
+        initial_batches = []
+        update_batches = []
+
+        async def enrich(result):
+            await release_enrichment.wait()
+            result.hostname = "printer.local"
+            result.details_pending = False
+            return result
+
+        def receive_initial(batch):
+            initial_batches.extend(batch)
+            initial_seen.set()
+
+        scanner._enrich = enrich
+        task = asyncio.create_task(
+            scanner.scan(
+                parse_target("192.168.1.20"),
+                on_results=receive_initial,
+                on_updates=update_batches.extend,
+            )
+        )
+        await asyncio.wait_for(initial_seen.wait(), timeout=0.5)
+        self.assertFalse(task.done())
+        self.assertTrue(initial_batches[0].details_pending)
+
+        release_enrichment.set()
+        retained = await asyncio.wait_for(task, timeout=0.5)
+
+        self.assertEqual(update_batches[0].hostname, "printer.local")
+        self.assertEqual(retained[0].hostname, "printer.local")
+
     async def test_dead_results_not_retained_by_default(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=[1], timeout=0.05, concurrency=1))
-        scanner._probe = AsyncMock(
+        scanner._probe_liveness = AsyncMock(
             return_value=ScanResult(ip="127.0.0.1", is_alive=False, method="tcp")
         )
         self.assertEqual(await scanner.scan(parse_target("127.0.0.1")), [])
@@ -36,7 +75,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         scanner = Scanner(
             ScanConfig(method="tcp", ports=[1], timeout=0.05, concurrency=1, include_dead=True)
         )
-        scanner._probe = AsyncMock(
+        scanner._probe_liveness = AsyncMock(
             return_value=ScanResult(ip="127.0.0.1", is_alive=False, method="tcp")
         )
         batches = []
@@ -120,7 +159,7 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         scanner = Scanner(
             ScanConfig(method="ping", concurrency=2, include_dead=True)
         )
-        scanner._probe = AsyncMock(side_effect=RuntimeError("probe failed"))
+        scanner._probe_liveness = AsyncMock(side_effect=RuntimeError("probe failed"))
         results = await asyncio.wait_for(
             scanner.scan(parse_target("192.0.2.1-192.0.2.2")),
             timeout=0.5,
@@ -137,10 +176,34 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(10)
             return ScanResult(ip=ip, is_alive=False, method="ping")
 
-        scanner._probe = slow_probe
+        scanner._probe_liveness = slow_probe
         task = asyncio.create_task(scanner.scan(parse_target("192.0.2.1-192.0.2.20")))
         await asyncio.sleep(0.02)
         scanner.cancel()
+        with self.assertRaises(ScanCancelled):
+            await asyncio.wait_for(task, timeout=0.5)
+
+    async def test_cancel_interrupts_detail_enrichment(self):
+        scanner = Scanner(ScanConfig(method="ping", concurrency=1, include_dead=True))
+        scanner._probe_liveness = AsyncMock(
+            return_value=ScanResult(ip="192.168.1.20", is_alive=True, method="ping")
+        )
+        initial_seen = asyncio.Event()
+
+        async def slow_enrichment(result):
+            await asyncio.sleep(10)
+            return result
+
+        scanner._enrich = slow_enrichment
+        task = asyncio.create_task(
+            scanner.scan(
+                parse_target("192.168.1.20"),
+                on_results=lambda _batch: initial_seen.set(),
+            )
+        )
+        await asyncio.wait_for(initial_seen.wait(), timeout=0.5)
+        scanner.cancel()
+
         with self.assertRaises(ScanCancelled):
             await asyncio.wait_for(task, timeout=0.5)
 
@@ -161,9 +224,9 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scanner._ping_probe.await_args_list[0].args[1], 0.5)
         self.assertEqual(scanner._ping_probe.await_args_list[1].args[1], 1.0)
 
-    async def test_ping_uses_four_adaptive_passes_before_offline(self):
+    async def test_ping_uses_two_adaptive_bursts_before_offline(self):
         scanner = Scanner(
-            ScanConfig(method="ping", timeout=0.5, retries=3, include_dead=True)
+            ScanConfig(method="ping", timeout=0.5, retries=1, include_dead=True)
         )
         scanner._ping_probe = AsyncMock(
             return_value=ScanResult(ip="192.168.1.30", is_alive=False, method="ping")
@@ -173,9 +236,9 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.is_alive)
         self.assertEqual(
             [call.args[1] for call in scanner._ping_probe.await_args_list],
-            [0.5, 1.0, 2.0, 2.0],
+            [0.5, 1.0],
         )
-        self.assertEqual([call.args[0] for call in sleep.await_args_list], [0.15, 0.3, 0.45])
+        self.assertEqual([call.args[0] for call in sleep.await_args_list], [0.15])
 
     async def test_any_target_is_only_online_after_a_successful_probe(self):
         scanner = Scanner(ScanConfig(method="ping", include_dead=True))
