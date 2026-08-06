@@ -1,5 +1,4 @@
 import asyncio
-import socket
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -73,71 +72,38 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         output = "? (224.0.0.251) at 1:0:5e:0:0:fb on en0"
         self.assertEqual(Scanner._parse_mac(output), "01:00:5E:00:00:FB")
 
-    def test_hostname_parser_handles_macos_cache(self):
-        output = "name: printer.local\nip_address: 172.16.1.20\n"
-        self.assertEqual(
-            Scanner._parse_hostname(output, "172.16.1.20"),
-            "printer.local",
-        )
-
-    def test_hostname_parser_handles_macos_ping_name(self):
-        output = "PING printer.local (192.168.1.20): 56 data bytes"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
-
-    def test_hostname_parser_handles_macos_arp_name(self):
-        output = "printer.local (192.168.1.20) at aa:bb:cc:dd:ee:ff on en0"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "printer.local")
-
-    def test_hostname_parser_handles_reverse_dns(self):
-        self.assertEqual(
-            Scanner._parse_hostname("router.example.net.\n", "203.0.113.1"),
-            "router.example.net",
-        )
-
-    def test_hostname_parser_handles_windows_ping(self):
-        output = "Pinging OFFICE-PC [192.168.1.20] with 32 bytes of data:"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
-
-    def test_hostname_parser_handles_localized_windows_ping(self):
-        output = "正在 Ping OFFICE-PC [192.168.1.20] 具有 32 字节的数据:"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
-
-    def test_windows_command_output_uses_local_code_page(self):
-        output = "正在 Ping 办公电脑 [192.168.1.20] 具有 32 字节的数据:"
-        with patch("ip_scanner.engine.platform.system", return_value="Windows"), patch(
-            "ip_scanner.engine.locale.getpreferredencoding", return_value="gbk"
-        ):
-            decoded = Scanner._decode_command_output(output.encode("gbk"))
-        self.assertEqual(Scanner._parse_hostname(decoded, "192.168.1.20"), "办公电脑")
-
-    def test_hostname_parser_rejects_ping_status_as_hostname(self):
-        output = "来自 192.168.1.20 的回复: 字节=32 时间<1ms TTL=128"
-        self.assertIsNone(Scanner._parse_hostname(output, "192.168.1.20"))
+    def test_hostname_validation_rejects_ping_status(self):
         self.assertIsNone(Scanner._clean_hostname("=32", "192.168.1.20"))
 
-    def test_hostname_parser_handles_windows_netbios(self):
-        output = "       OFFICE-PC       <00>  唯一        已注册"
-        self.assertEqual(Scanner._parse_hostname(output, "192.168.1.20"), "OFFICE-PC")
-
-    async def test_hostname_uses_cross_platform_system_resolver_first(self):
+    async def test_hostname_stops_after_reverse_dns(self):
         scanner = Scanner(ScanConfig())
-        with patch(
-            "ip_scanner.engine.asyncio.to_thread",
-            new_callable=AsyncMock,
-            return_value=("printer.local.", [], ["192.168.1.20"]),
-        ):
+        with patch("ip_scanner.engine.reverse_dns", return_value="printer.local") as dns, patch(
+            "ip_scanner.engine.multicast_dns"
+        ) as mdns, patch("ip_scanner.engine.netbios_name") as netbios:
             self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "printer.local")
+        dns.assert_called_once_with("192.168.1.20")
+        mdns.assert_not_called()
+        netbios.assert_not_called()
 
-    async def test_dns_library_is_used_when_system_resolver_has_no_name(self):
-        scanner = Scanner(ScanConfig())
-        answer = type("Answer", (), {"rrset": True, "__iter__": lambda self: iter(["printer.local."])})()
-        with patch("ip_scanner.engine.asyncio.to_thread", new_callable=AsyncMock) as native, patch(
-            "ip_scanner.engine.dns.asyncresolver.resolve",
-            new_callable=AsyncMock,
-            return_value=answer,
-        ), patch.object(scanner, "_run_command", new_callable=AsyncMock, return_value=None):
-            native.side_effect = socket.herror()
-            self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "printer.local")
+    async def test_local_hostname_falls_back_to_mdns_then_netbios(self):
+        scanner = Scanner(
+            ScanConfig(), NetworkInfo(ip="192.168.1.10", prefix_length=24)
+        )
+        with patch("ip_scanner.engine.reverse_dns", return_value=None), patch(
+            "ip_scanner.engine.multicast_dns", return_value=None
+        ) as mdns, patch("ip_scanner.engine.netbios_name", return_value="OFFICE-PC") as netbios:
+            self.assertEqual(await scanner._resolve_hostname("192.168.1.20"), "OFFICE-PC")
+        mdns.assert_called_once_with("192.168.1.20", "192.168.1.10")
+        netbios.assert_called_once_with("192.168.1.20", "192.168.1.10")
+
+    async def test_remote_hostname_does_not_use_link_local_protocols(self):
+        scanner = Scanner(ScanConfig(), NetworkInfo(ip="192.168.1.10", prefix_length=24))
+        with patch("ip_scanner.engine.reverse_dns", return_value=None), patch(
+            "ip_scanner.engine.multicast_dns"
+        ) as mdns, patch("ip_scanner.engine.netbios_name") as netbios:
+            self.assertIsNone(await scanner._resolve_hostname("203.0.113.20"))
+        mdns.assert_not_called()
+        netbios.assert_not_called()
 
     async def test_getmac_library_is_used_before_platform_commands(self):
         scanner = Scanner(ScanConfig())

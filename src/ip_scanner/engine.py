@@ -1,19 +1,15 @@
 import asyncio
 import contextlib
 import ipaddress
-import locale
 import platform
 import re
-import socket
 import subprocess
 import time
 from typing import Callable, List, Optional
 
-import dns.asyncresolver
-import dns.exception
-import dns.reversename
 from getmac import get_mac_address
 
+from .hostname import multicast_dns, netbios_name, reverse_dns
 from .models import ScanConfig, ScanProgress, ScanResult
 from .network_info import NetworkInfo
 from .targets import TargetRange
@@ -36,8 +32,6 @@ class Scanner:
         self.network_info = network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
         self._port_semaphore = asyncio.Semaphore(max(32, min(config.concurrency * 4, 256)))
-        # System resolvers may use blocking OS APIs internally. Keep their concurrency
-        # bounded so a slow DNS server cannot exhaust the process-wide thread pool.
         self._hostname_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
 
     def cancel(self) -> None:
@@ -311,79 +305,26 @@ class Scanner:
             return False
 
     async def _resolve_hostname(self, ip: str) -> Optional[str]:
-        # gethostbyaddr uses the native resolver stack on every supported platform
-        # (DNS, hosts file and platform-specific local name services). Bound and time
-        # limit it, then fall back to cancellable platform tools for broader LAN support.
+        # Angry IP Scanner's order: regular reverse DNS, then local-link mDNS,
+        # then NetBIOS. The latter two are deliberately restricted to this subnet.
         async with self._hostname_semaphore:
             try:
-                resolved = await asyncio.wait_for(
-                    asyncio.to_thread(socket.gethostbyaddr, ip), timeout=2.0
-                )
-                hostname = self._clean_hostname(resolved[0], ip)
-                if hostname:
-                    return hostname
-            except (asyncio.TimeoutError, OSError, socket.herror, socket.gaierror):
-                pass
-
-        system = platform.system()
-        commands = []
-        if system == "Darwin":
-            commands = [
-                ["/usr/bin/dscacheutil", "-q", "host", "-a", "ip_address", ip],
-                ["/sbin/ping", "-c", "1", "-W", "1000", ip],
-                ["/usr/sbin/arp", ip],
-                ["/usr/bin/dig", "+short", "-x", ip],
-                ["/usr/bin/host", ip],
-            ]
-        elif system == "Windows":
-            commands = [
-                ["ping", "-a", "-n", "1", "-w", "1000", ip],
-                ["nbtstat", "-A", ip],
-                ["nslookup", ip],
-            ]
-        else:
-            return None
-        command_timeout = 1.8 if system == "Windows" else 1.0
-        for command in commands:
-            command_result = await self._run_command(command, timeout=command_timeout)
-            if command_result is None:
-                continue
-            return_code, stdout = command_result
-            if return_code != 0:
-                continue
-            hostname = self._parse_hostname(self._decode_command_output(stdout), ip)
+                hostname = await asyncio.wait_for(asyncio.to_thread(reverse_dns, ip), timeout=1.5)
+            except asyncio.TimeoutError:
+                hostname = None
             if hostname:
-                return hostname
-
-        # Direct PTR is a final cross-platform fallback. On macOS this must run
-        # after Bonjour-aware native tools, otherwise ordinary DNS can delay local
-        # .local discovery without adding any useful information.
-        try:
-            reverse_name = dns.reversename.from_address(ip)
-            answer = await dns.asyncresolver.resolve(
-                reverse_name, "PTR", lifetime=1.5, raise_on_no_answer=False
-            )
-            if answer.rrset:
-                hostname = self._clean_hostname(str(next(iter(answer))), ip)
+                hostname = self._clean_hostname(hostname, ip)
                 if hostname:
                     return hostname
-        except (dns.exception.DNSException, ValueError, StopIteration):
-            pass
-        return None
-
-    @staticmethod
-    def _decode_command_output(value: bytes) -> str:
-        encodings = (
-            (locale.getpreferredencoding(False), "oem", "utf-8")
-            if platform.system() == "Windows"
-            else ("utf-8", locale.getpreferredencoding(False))
-        )
-        for encoding in dict.fromkeys(encodings):
-            try:
-                return value.decode(encoding)
-            except (LookupError, UnicodeDecodeError):
-                continue
-        return value.decode(errors="ignore")
+            if not self._is_on_link(ip):
+                return None
+            hostname = await asyncio.to_thread(multicast_dns, ip, self.network_info.ip)
+            if hostname:
+                hostname = self._clean_hostname(hostname, ip)
+                if hostname:
+                    return hostname
+            hostname = await asyncio.to_thread(netbios_name, ip, self.network_info.ip)
+            return self._clean_hostname(hostname, ip) if hostname else None
 
     @staticmethod
     def _clean_hostname(value: str, ip: str) -> Optional[str]:
@@ -403,30 +344,6 @@ class Scanner:
             return None
         except ValueError:
             return hostname
-
-    @staticmethod
-    def _parse_hostname(text: str, ip: str) -> Optional[str]:
-        patterns = [
-            r"(?im)^\s*name:\s*(\S+)",
-            r"(?im)^\s*name\s*=\s*(\S+)",
-            r"(?im)^\s*名称\s*[:：]\s*(\S+)",
-            r"(?im)domain name pointer\s+(\S+)",
-            r"(?im)^\s*[^\r\n\[]*?([^\s\[\]=:]+)\s+\["
-            + re.escape(ip)
-            + r"\]",
-            r"(?im)^\s*PING\s+(\S+)\s+\(" + re.escape(ip) + r"\)",
-            r"(?im)^\s*(\S+)\s+\(" + re.escape(ip) + r"\)\s+at\s+",
-            r"(?im)^\s*(\S+)\s+<00>\s+",
-            r"(?im)^" + re.escape(ip) + r"\s*:\s*(\S+)",
-            r"(?m)^\s*([A-Za-z0-9][A-Za-z0-9._-]*\.[A-Za-z0-9._-]+)\.?\s*$",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                hostname = Scanner._clean_hostname(match.group(1), ip)
-                if hostname:
-                    return hostname
-        return None
 
     async def _lookup_mac(self, ip: str) -> Optional[str]:
         try:
