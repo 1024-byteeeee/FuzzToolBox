@@ -32,6 +32,11 @@ class Scanner:
         self.network_info = network_info or NetworkInfo()
         self._cancelled = asyncio.Event()
         self._port_semaphore = asyncio.Semaphore(max(32, min(config.concurrency * 4, 256)))
+        # Starting dozens of system ping processes at once can exhaust macOS/Windows
+        # process scheduling long enough for otherwise healthy probes to hit their
+        # timeout. Queue them here so timeout measurement starts only after a slot
+        # is available and the process is actually launched.
+        self._ping_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
         self._hostname_semaphore = asyncio.Semaphore(min(config.concurrency, 32))
 
     def cancel(self) -> None:
@@ -251,7 +256,8 @@ class Scanner:
                 method="ping",
                 error=f"unsupported operating system: {system}",
             )
-        command_result = await self._run_command(args, effective_timeout + 0.5)
+        async with self._ping_semaphore:
+            command_result = await self._run_command(args, effective_timeout + 0.5)
         if command_result is None:
             return ScanResult(ip=ip, is_alive=False, method="ping", error="ping timeout")
         return_code, stdout = command_result

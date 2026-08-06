@@ -250,6 +250,28 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         command = scanner._run_command.await_args.args[0]
         self.assertEqual(command[-3:], ["-S", "192.168.1.20", "192.168.1.30"])
 
+    async def test_system_ping_processes_have_a_global_concurrency_bound(self):
+        scanner = Scanner(ScanConfig(method="ping", concurrency=256, timeout=0.5))
+        active = maximum = 0
+
+        async def run_command(args, timeout):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0.001)
+            active -= 1
+            ip = args[-1]
+            return 0, f"64 bytes from {ip}: ttl=64 time=1.0 ms\n".encode()
+
+        scanner._run_command = run_command
+        with patch("ip_scanner.engine.platform.system", return_value="Darwin"):
+            results = await asyncio.gather(
+                *(scanner._ping_probe(f"192.168.1.{index}") for index in range(1, 101))
+            )
+
+        self.assertTrue(all(result.is_alive for result in results))
+        self.assertLessEqual(maximum, 32)
+
     async def test_port_checks_have_a_global_concurrency_bound(self):
         scanner = Scanner(ScanConfig(method="tcp", ports=list(range(1, 131)), concurrency=1))
         active = maximum = 0
