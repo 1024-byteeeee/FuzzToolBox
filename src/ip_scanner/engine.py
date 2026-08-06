@@ -51,7 +51,7 @@ class Scanner:
         on_results: Optional[ResultCallback] = None,
         on_progress: Optional[ProgressCallback] = None,
         on_updates: Optional[UpdateCallback] = None,
-        batch_size: int = 100,
+        batch_size: int = 512,
         retain_results: bool = True,
     ) -> List[ScanResult]:
         started = time.monotonic()
@@ -103,6 +103,7 @@ class Scanner:
         retained_rows = {}
         batch: List[ScanResult] = []
         update_batch: List[ScanResult] = []
+        last_progress_emit = 0.0
 
         def drain_updates() -> None:
             while not update_queue.empty():
@@ -138,8 +139,10 @@ class Scanner:
                         on_results(batch[:])
                         batch.clear()
                     flush_updates()
-                    if on_progress:
+                    now = time.monotonic()
+                    if on_progress and now - last_progress_emit >= 0.1:
                         on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
+                        last_progress_emit = now
                     continue
                 scanned += 1
                 if result.is_alive:
@@ -153,8 +156,10 @@ class Scanner:
                 if len(batch) >= batch_size and on_results:
                     on_results(batch[:])
                     batch.clear()
-                if on_progress and (scanned % 50 == 0 or scanned == targets.total):
+                now = time.monotonic()
+                if on_progress and (now - last_progress_emit >= 0.1 or scanned == targets.total):
                     on_progress(ScanProgress(scanned, targets.total, alive, time.monotonic() - started))
+                    last_progress_emit = now
             if batch and on_results:
                 on_results(batch[:])
             flush_updates()

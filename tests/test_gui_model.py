@@ -1,10 +1,23 @@
 import unittest
+from unittest.mock import Mock, patch
 
-from ip_scanner.gui import ResultModel
+from ip_scanner.gui import WINDOWS_APP_ID, ResultModel, configure_windows_app_id
 from ip_scanner.models import ScanResult
 
 
 class ResultModelTests(unittest.TestCase):
+    def test_windows_app_id_is_registered_for_taskbar_icon(self):
+        shell32 = Mock()
+        windll = Mock(shell32=shell32)
+        with patch("ip_scanner.gui.sys.platform", "win32"), patch(
+            "ip_scanner.gui.ctypes.windll", windll, create=True
+        ):
+            configure_windows_app_id()
+
+        shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once_with(
+            WINDOWS_APP_ID
+        )
+
     def test_detail_update_replaces_existing_ip_without_adding_a_row(self):
         model = ResultModel()
         model.add_batch(

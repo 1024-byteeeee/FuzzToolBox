@@ -207,6 +207,31 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ScanCancelled):
             await asyncio.wait_for(task, timeout=0.5)
 
+    async def test_large_fast_scan_coalesces_gui_callbacks(self):
+        scanner = Scanner(
+            ScanConfig(method="ping", concurrency=256, include_dead=True)
+        )
+        scanner._probe_liveness = AsyncMock(
+            side_effect=lambda ip: ScanResult(ip=ip, is_alive=False, method="ping")
+        )
+        batch_sizes = []
+        progress = []
+        results = await asyncio.wait_for(
+            scanner.scan(
+                parse_target("10.0.0.0-10.0.7.255"),
+                on_results=lambda batch: batch_sizes.append(len(batch)),
+                on_progress=progress.append,
+                retain_results=False,
+            ),
+            timeout=2,
+        )
+
+        self.assertEqual(results, [])
+        self.assertEqual(sum(batch_sizes), 2048)
+        self.assertLessEqual(len(batch_sizes), 4)
+        self.assertLessEqual(len(progress), 12)
+        self.assertEqual(progress[-1].scanned, 2048)
+
     async def test_ping_retry_recovers_first_pass_miss(self):
         scanner = Scanner(
             ScanConfig(method="ping", retries=1, concurrency=1, include_dead=True)

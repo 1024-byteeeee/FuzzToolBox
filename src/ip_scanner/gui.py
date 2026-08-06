@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import ctypes
 import ipaddress
 import sys
 import threading
@@ -52,6 +53,14 @@ from .targets import parse_ports, parse_target
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
+WINDOWS_APP_ID = "1024_byteeeee.IP-Scanner"
+
+
+def configure_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    with contextlib.suppress(AttributeError, OSError):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
 
 STYLE = """
 QWidget { background: #f5f7fa; color: #303133; font-size: 13px; }
@@ -306,6 +315,7 @@ class ScanWorker(QThread):
                     self.signals.results.emit,
                     self.signals.progress.emit,
                     on_updates=self.signals.updates.emit,
+                    batch_size=512,
                     retain_results=False,
                 )
             )
@@ -349,6 +359,7 @@ class MainWindow(QMainWindow):
         self.proxy_model.setSourceModel(self.model)
         self._auto_scroll = False
         self._accept_updates = False
+        self._scroll_pending = False
         self._stop_watchdog = QTimer(self)
         self._stop_watchdog.setSingleShot(True)
         self._stop_watchdog.timeout.connect(self._force_stop_scan)
@@ -605,6 +616,15 @@ class MainWindow(QMainWindow):
             self._auto_scroll = False
             self.status_label.setText("正在停止…")
             self.stop_button.setEnabled(False)
+            # Stop feeding the GUI queue immediately. On very large/fast scans,
+            # stale table/progress events can otherwise delay both the stop click
+            # and the worker's completion notification for several seconds.
+            with contextlib.suppress(RuntimeError):
+                worker.signals.results.disconnect()
+            with contextlib.suppress(RuntimeError):
+                worker.signals.updates.disconnect()
+            with contextlib.suppress(RuntimeError):
+                worker.signals.progress.disconnect()
             worker.cancel()
             self._stop_watchdog.start(3000)
 
@@ -711,6 +731,13 @@ class MainWindow(QMainWindow):
         return self.target.text().strip()
 
     def _scroll_to_latest(self, *_args):
+        if not self._auto_scroll or self._scroll_pending:
+            return
+        self._scroll_pending = True
+        QTimer.singleShot(80, self._perform_auto_scroll)
+
+    def _perform_auto_scroll(self):
+        self._scroll_pending = False
         if self._auto_scroll:
             self.table.scrollToBottom()
 
@@ -746,9 +773,13 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
+    # Give Windows a stable application identity before QApplication is created.
+    # The taskbar then uses the application/window icon rather than python.exe.
+    configure_windows_app_id()
     app = QApplication(sys.argv)
     app.setApplicationName("IP-Scanner")
     app.setApplicationVersion(__version__)
+    app.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
     app.setStyleSheet(STYLE)
     window = MainWindow()
     window.show()
