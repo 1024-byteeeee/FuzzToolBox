@@ -15,11 +15,11 @@ VSVersionInfo(
         u'040904B0',
         [
           StringStruct(u'CompanyName', u'1024_byteeeee'),
-          StringStruct(u'FileDescription', u'IP-Scanner'),
+          StringStruct(u'FileDescription', u'FuzzToolBox'),
           StringStruct(u'FileVersion', u'2.1.0'),
-          StringStruct(u'InternalName', u'IP-Scanner'),
-          StringStruct(u'OriginalFilename', u'IP-Scanner.exe'),
-          StringStruct(u'ProductName', u'IP-Scanner'),
+          StringStruct(u'InternalName', u'FuzzToolBox'),
+          StringStruct(u'OriginalFilename', u'FuzzToolBox.exe'),
+          StringStruct(u'ProductName', u'FuzzToolBox'),
           StringStruct(u'ProductVersion', u'2.1.0')
         ]
       )

@@ -6,6 +6,6 @@ __pycache__/
 .DS_Store
 dist/
 build/
+vendor/libreoffice/
 *.egg-info/
 *.db
-

@@ -37,11 +37,14 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
-      - name: Install IP-Scanner and build dependencies
+      - name: Install FuzzToolBox and build dependencies
         run: python -m pip install ".[gui]" "pyinstaller>=6,<7"
 
       - name: Run automated tests
         run: python -m unittest discover -s tests -v
+
+      - name: Download bundled LibreOffice conversion engine
+        run: python scripts/fetch_libreoffice.py
 
       - name: Smoke-test GUI initialization
         env:
@@ -56,7 +59,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $exe = (Resolve-Path 'build/IP-Scanner.exe').Path
+          $exe = (Resolve-Path 'build/FuzzToolBox.exe').Path
           $ico = (Resolve-Path 'packaging/IP-Scanner.ico').Path
           $actualIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
           if ($null -eq $actualIcon) { throw 'Windows executable has no associated icon' }
@@ -81,7 +84,7 @@ jobs:
       - name: Store workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: IP-Scanner-${{ runner.os }}-${{ runner.arch }}
+          name: FuzzToolBox-${{ runner.os }}-${{ runner.arch }}
           path: build/releases/*
           if-no-files-found: error
 
@@ -95,7 +98,7 @@ jobs:
       - name: Download all native archives
         uses: actions/download-artifact@v4
         with:
-          pattern: IP-Scanner-*
+          pattern: FuzzToolBox-*
           path: build/releases
           merge-multiple: true
 
@@ -109,7 +112,7 @@ jobs:
       - name: Generate SHA-256 checksums
         shell: bash
         working-directory: build/releases
-        run: shasum -a 256 IP-Scanner-* > SHA256SUMS.txt
+        run: shasum -a 256 FuzzToolBox-* > SHA256SUMS.txt
 
       - name: Replace GitHub Release executables
         shell: bash
@@ -127,7 +130,9 @@ jobs:
           gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name' |
             while IFS= read -r asset; do
               case "$asset" in
-                IP-Scanner-*) gh release delete-asset "$tag" "$asset" --yes --repo "$GH_REPO" ;;
+                IP-Scanner-*|FuzzToolBox-*)
+                  gh release delete-asset "$tag" "$asset" --yes --repo "$GH_REPO"
+                  ;;
               esac
             done
           gh release upload "$tag" build/releases/* --clobber --repo "$GH_REPO"

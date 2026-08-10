@@ -5,12 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ip-scanner"
 version = "2.1.0"
-description = "A responsive cross-platform LAN IP scanner"
+description = "FuzzToolBox desktop IT toolbox with a responsive LAN IP scanner"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "psutil>=5.9,<8",
     "getmac>=0.9,<1",
+    "dxpdf>=0.4,<0.5",
+    "pypdf>=5,<7",
+    "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -25,7 +28,7 @@ ip-scanner-gui = "ip_scanner.gui:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ip_scanner = ["assets/*.svg"]
+ip_scanner = ["assets/*.svg", "assets/*.png", "assets/fonts/*.otf", "assets/fonts/*.txt"]
 
 [tool.ruff]
 line-length = 100

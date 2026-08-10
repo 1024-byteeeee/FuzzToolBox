@@ -10,33 +10,35 @@ from typing import List
 try:
     from PySide6.QtCore import (
         QAbstractTableModel,
+        QEvent,
         QModelIndex,
         QObject,
+        Signal,
         QSortFilterProxyModel,
         QSettings,
         Qt,
         QThread,
         QTimer,
-        Signal,
     )
-    from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPalette
+    from PySide6.QtGui import QAction, QColor, QIcon, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
         QComboBox,
         QFileDialog,
+        QFrame,
+        QGridLayout,
         QHBoxLayout,
         QHeaderView,
         QLabel,
         QLineEdit,
-        QListView,
         QMainWindow,
         QMessageBox,
         QProgressBar,
         QPushButton,
+        QScrollArea,
+        QSizePolicy,
         QSpinBox,
-        QStyle,
-        QStyledItemDelegate,
-        QStyleOptionViewItem,
+        QStackedWidget,
         QTableView,
         QVBoxLayout,
         QWidget,
@@ -49,11 +51,15 @@ from .engine import ScanCancelled, Scanner
 from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
 from .network_info import NetworkInfo, get_network_info
+from .subnet_gui import SubnetCalculatorPage
 from .targets import parse_ports, parse_target
+from .tool_registry import TOOLS, ToolDefinition, filter_tools
+from .ui_components import configure_combo, configure_table
+from .word_pdf_gui import WordToPdfPage
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
-WINDOWS_APP_ID = "1024_byteeeee.IP-Scanner"
+WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 
 
 def configure_windows_app_id() -> None:
@@ -65,6 +71,7 @@ def configure_windows_app_id() -> None:
 STYLE = """
 QWidget { background: #f5f7fa; color: #303133; font-size: 13px; }
 QMainWindow { background: #f5f7fa; }
+QLabel { background: transparent; }
 QLineEdit, QComboBox, QSpinBox {
   background: white; border: 1px solid #dcdfe6; border-radius: 6px; padding: 7px 10px;
 }
@@ -96,6 +103,18 @@ QPushButton:hover { background: #66b1ff; }
 QPushButton:disabled { background: #c0c4cc; color: #f5f7fa; }
 QPushButton#secondary { background: white; color: #606266; border: 1px solid #dcdfe6; }
 QPushButton#danger { background: #f56c6c; }
+QPushButton#backButton, QPushButton#categoryButton {
+  background: white; color: #606266; border: 1px solid #dcdfe6;
+}
+QPushButton#backButton:hover, QPushButton#categoryButton:hover { background: #ecf5ff; }
+QPushButton#categoryButton:checked {
+  color: #1677d2; background: #ecf5ff; border-color: #b3d8ff;
+}
+QFrame#toolCard {
+  background: white; border: 1px solid #e4e7ed; border-radius: 12px;
+}
+QFrame#toolCard:hover { background: #f8fbff; border-color: #a8d3ff; }
+QFrame#topBar { background: white; border-bottom: 1px solid #ebeef5; }
 QTableView {
   background: white; alternate-background-color: #fafcff; border: 1px solid #ebeef5;
   border-radius: 8px; gridline-color: #e4e7ed; selection-background-color: #ecf5ff;
@@ -120,49 +139,138 @@ QProgressBar::chunk { background: #409eff; border-radius: 4px; }
 ).replace("%CHEVRON_SMALL_DOWN%", (ASSET_DIR / "chevron-small-down.svg").as_posix())
 
 
-class ComboItemDelegate(QStyledItemDelegate):
-    def sizeHint(self, option, index):
-        size = super().sizeHint(option, index)
-        size.setHeight(34)
-        return size
+class ToolCard(QFrame):
+    activated = Signal(str)
 
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
-        painter.save()
-        rect = option.rect.adjusted(4, 2, -4, -2)
-        if option.state & (QStyle.State_MouseOver | QStyle.State_Selected):
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#ecf5ff"))
-            painter.drawRoundedRect(rect, 5, 5)
-        painter.setPen(QColor("#303133"))
-        painter.drawText(rect.adjusted(10, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, str(index.data()))
-        painter.restore()
+    def __init__(self, tool: ToolDefinition):
+        super().__init__()
+        self.tool = tool
+        self.setObjectName("toolCard")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumSize(260, 154)
+        self.setMaximumHeight(174)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-
-def configure_combo(combo: QComboBox) -> None:
-    view = QListView(combo)
-    view.setMouseTracking(True)
-    view.setSpacing(0)
-    view.setItemDelegate(ComboItemDelegate(view))
-    combo.setView(view)
-
-
-class GridCellDelegate(QStyledItemDelegate):
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
-        styled_option = QStyleOptionViewItem(option)
-        self.initStyleOption(styled_option, index)
-        foreground = index.data(Qt.ForegroundRole)
-        text_color = (
-            foreground
-            if isinstance(foreground, QColor)
-            else styled_option.palette.color(QPalette.Text)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 16)
+        layout.setSpacing(9)
+        heading = QHBoxLayout()
+        icon = QLabel()
+        icon.setPixmap(
+            QPixmap(str(ASSET_DIR / "app-icon.png")).scaled(
+                38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
         )
-        styled_option.palette.setColor(QPalette.HighlightedText, text_color)
-        super().paint(painter, styled_option, index)
-        painter.save()
-        painter.setPen(QColor("#e4e7ed"))
-        painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
-        painter.drawLine(option.rect.topRight(), option.rect.bottomRight())
-        painter.restore()
+        name = QLabel(tool.name)
+        name.setStyleSheet("font-size: 17px; font-weight: 700; color: #303133;")
+        heading.addWidget(icon)
+        heading.addSpacing(7)
+        heading.addWidget(name)
+        heading.addStretch()
+        layout.addLayout(heading)
+
+        description = QLabel(tool.description)
+        description.setWordWrap(True)
+        description.setStyleSheet("color: #606266; line-height: 1.4;")
+        layout.addWidget(description)
+        layout.addStretch()
+        category = QLabel(tool.category)
+        category.setStyleSheet("color: #409eff; font-size: 12px; font-weight: 600;")
+        layout.addWidget(category)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.activated.emit(self.tool.id)
+        super().mouseReleaseEvent(event)
+
+
+class ToolboxHomePage(QWidget):
+    tool_requested = Signal(str)
+
+    def __init__(self, tools=TOOLS):
+        super().__init__()
+        self.tools = tuple(tools)
+        self.cards = {tool.id: ToolCard(tool) for tool in self.tools}
+        self.category = "all"
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 28, 28, 20)
+        root.setSpacing(16)
+        title = QLabel("FuzzToolBox")
+        title.setStyleSheet("font-size: 30px; font-weight: 750; color: #303133;")
+        subtitle = QLabel("为 IT 工作准备的一站式桌面工具箱")
+        subtitle.setStyleSheet("font-size: 14px; color: #909399;")
+        root.addWidget(title)
+        root.addWidget(subtitle)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索工具，例如 IP、Ping、端口…")
+        self.search.setClearButtonEnabled(True)
+        self.search.setMinimumHeight(42)
+        root.addWidget(self.search)
+
+        categories = QHBoxLayout()
+        categories.setSpacing(8)
+        self.category_buttons = {}
+        category_values = tuple(dict.fromkeys(tool.category for tool in self.tools))
+        for label, value in (("全部", "all"), *((value, value) for value in category_values)):
+            button = QPushButton(label)
+            button.setObjectName("categoryButton")
+            button.setCheckable(True)
+            button.setChecked(value == "all")
+            button.clicked.connect(
+                lambda checked=False, selected=value: self.set_category(selected)
+            )
+            categories.addWidget(button)
+            self.category_buttons[value] = button
+        categories.addStretch()
+        root.addLayout(categories)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.card_host = QWidget()
+        self.card_grid = QGridLayout(self.card_host)
+        self.card_grid.setContentsMargins(0, 4, 4, 4)
+        self.card_grid.setHorizontalSpacing(14)
+        self.card_grid.setVerticalSpacing(14)
+        self.card_grid.setAlignment(Qt.AlignTop)
+        scroll.setWidget(self.card_host)
+        root.addWidget(scroll, 1)
+
+        self.empty_label = QLabel()
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setStyleSheet("color: #909399; padding: 18px;")
+        root.addWidget(self.empty_label)
+
+        for card in self.cards.values():
+            card.activated.connect(self.tool_requested.emit)
+        self.search.textChanged.connect(self.refresh_tools)
+        self.refresh_tools()
+
+    def set_category(self, category: str):
+        self.category = category
+        for value, button in self.category_buttons.items():
+            button.setChecked(value == category)
+        self.refresh_tools()
+
+    def refresh_tools(self):
+        visible = filter_tools(self.tools, self.search.text(), self.category)
+        visible_ids = {tool.id for tool in visible}
+        for card in self.cards.values():
+            self.card_grid.removeWidget(card)
+            card.setVisible(card.tool.id in visible_ids)
+        columns = max(1, min(3, max(1, self.width() - 56) // 310))
+        for index, tool in enumerate(visible):
+            self.card_grid.addWidget(self.cards[tool.id], index // columns, index % columns)
+        self.empty_label.setText(
+            "没有找到匹配的工具" if not visible else "更多工具将在后续版本中加入"
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh_tools()
 
 
 class ResultModel(QAbstractTableModel):
@@ -346,20 +454,18 @@ class ScanWorker(QThread):
                 self.loop.call_soon_threadsafe(cancel_in_loop)
 
 
-class MainWindow(QMainWindow):
+class IPScannerPage(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
         self.settings = QSettings("1024_byteeeee", "IP-Scanner")
         self.worker = None
-        self.setWindowTitle(f"IP-Scanner v{__version__}")
-        self.resize(1180, 760)
         self.model = ResultModel()
         self.proxy_model = ResultFilterModel()
         self.proxy_model.setSourceModel(self.model)
         self._auto_scroll = False
         self._accept_updates = False
         self._scroll_pending = False
+        self._column_resize_pending = False
         self._stop_watchdog = QTimer(self)
         self._stop_watchdog.setSingleShot(True)
         self._stop_watchdog.timeout.connect(self._force_stop_scan)
@@ -367,17 +473,9 @@ class MainWindow(QMainWindow):
         self._load_settings()
 
     def _build_ui(self):
-        root = QWidget()
-        layout = QVBoxLayout(root)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 14)
         layout.setSpacing(12)
-
-        title = QLabel("IP-Scanner")
-        title.setStyleSheet("font-size: 24px; font-weight: 700; color: #303133;")
-        subtitle = QLabel("快速发现局域网中的在线设备")
-        subtitle.setStyleSheet("color: #909399;")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
 
         self.network_info = get_network_info()
         default_start, default_end = self.network_info.scan_range or ("", "")
@@ -477,29 +575,13 @@ class MainWindow(QMainWindow):
 
         self.table = QTableView()
         self.table.setModel(self.proxy_model)
-        self.table.setItemDelegate(GridCellDelegate(self.table))
-        self.table.setAlternatingRowColors(True)
+        configure_table(self.table)
         self.table.setSortingEnabled(False)
-        self.table.setShowGrid(True)
-        self.table.verticalHeader().setVisible(False)
+        self.table.viewport().installEventFilter(self)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
         header.setMinimumSectionSize(65)
-        header.setDefaultAlignment(Qt.AlignCenter)
         layout.addWidget(self.table, 1)
-        QTimer.singleShot(0, self._resize_result_columns)
-
-        github_icon = (ASSET_DIR / "github.svg").as_posix()
-        copyright_label = QLabel(
-            f'IP-Scanner v{__version__} · © 2026 1024_byteeeee 版权所有 · '
-            f'<img src="{github_icon}" width="14" height="14"> '
-            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
-        )
-        copyright_label.setAlignment(Qt.AlignCenter)
-        copyright_label.setOpenExternalLinks(True)
-        copyright_label.setStyleSheet("color: #909399; padding-top: 4px;")
-        layout.addWidget(copyright_label)
-        self.setCentralWidget(root)
+        self.schedule_result_column_resize()
 
         self.start_button.clicked.connect(self.start_scan)
         self.stop_button.clicked.connect(self.stop_scan)
@@ -514,13 +596,27 @@ class MainWindow(QMainWindow):
         self.update_range_mode()
         self._update_method_controls()
 
-        quit_action = QAction(self)
-        quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(self.close)
-        self.addAction(quit_action)
-
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self.schedule_result_column_resize()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.schedule_result_column_resize()
+
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport() and event.type() in (QEvent.Resize, QEvent.Show):
+            self.schedule_result_column_resize()
+        return super().eventFilter(watched, event)
+
+    def schedule_result_column_resize(self):
+        if self._column_resize_pending:
+            return
+        self._column_resize_pending = True
+        QTimer.singleShot(0, self._apply_scheduled_column_resize)
+
+    def _apply_scheduled_column_resize(self):
+        self._column_resize_pending = False
         self._resize_result_columns()
 
     def _resize_result_columns(self):
@@ -534,9 +630,6 @@ class MainWindow(QMainWindow):
             self.table.horizontalHeader().resizeSection(column, max(65, width))
 
     def _load_settings(self):
-        geometry = self.settings.value("window/geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
         self.range_mode.setCurrentIndex(
             max(0, self.range_mode.findData(self.settings.value("scan/range_mode", "range")))
         )
@@ -551,10 +644,9 @@ class MainWindow(QMainWindow):
         self.ports.setText(str(self.settings.value("scan/ports", self.ports.text())))
         self.update_range_mode()
         self._update_method_controls()
-        QTimer.singleShot(0, self._resize_result_columns)
+        self.schedule_result_column_resize()
 
     def _save_settings(self):
-        self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("scan/range_mode", self.range_mode.currentData())
         self.settings.setValue("scan/method", self.method.currentData())
         self.settings.setValue("scan/concurrency", self.concurrency.value())
@@ -758,7 +850,7 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, "导出失败", str(exc))
 
-    def closeEvent(self, event):
+    def prepare_close(self, on_ready) -> bool:
         self._stop_watchdog.stop()
         self._save_settings()
         worker = self.worker
@@ -766,10 +858,112 @@ class MainWindow(QMainWindow):
             worker.cancel()
             if not worker.wait(3000):
                 self.status_label.setText("正在停止扫描，完成后将自动关闭…")
-                worker.finished.connect(self.close)
-                event.ignore()
+                worker.finished.connect(on_ready)
+                return False
+        return True
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
+        self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
+        self.setWindowTitle(f"FuzzToolBox v{__version__}")
+        self.resize(1180, 760)
+        self._closing_after_worker = False
+
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        top_bar = QFrame()
+        top_bar.setObjectName("topBar")
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(20, 11, 20, 11)
+        self.back_button = QPushButton("←  返回工具箱")
+        self.back_button.setObjectName("backButton")
+        self.back_button.clicked.connect(self.show_home)
+        self.page_title = QLabel("FuzzToolBox")
+        self.page_title.setStyleSheet("font-size: 18px; font-weight: 700; color: #303133;")
+        top_layout.addWidget(self.back_button)
+        top_layout.addWidget(self.page_title)
+        top_layout.addStretch()
+        root_layout.addWidget(top_bar)
+
+        self.pages = QStackedWidget()
+        self.home_page = ToolboxHomePage()
+        self.ip_scanner_page = IPScannerPage()
+        self.subnet_calculator_page = SubnetCalculatorPage(
+            self.ip_scanner_page.network_info
+        )
+        self.word_to_pdf_page = WordToPdfPage()
+        self.pages.addWidget(self.home_page)
+        self.pages.addWidget(self.ip_scanner_page)
+        self.pages.addWidget(self.subnet_calculator_page)
+        self.pages.addWidget(self.word_to_pdf_page)
+        root_layout.addWidget(self.pages, 1)
+
+        github_icon = (ASSET_DIR / "github.svg").as_posix()
+        copyright_label = QLabel(
+            f'FuzzToolBox v{__version__} · © 2026 1024_byteeeee 版权所有 · '
+            f'<img src="{github_icon}" width="14" height="14"> '
+            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
+        )
+        copyright_label.setAlignment(Qt.AlignCenter)
+        copyright_label.setOpenExternalLinks(True)
+        copyright_label.setStyleSheet("color: #909399; padding: 8px 0 10px 0;")
+        root_layout.addWidget(copyright_label)
+        self.setCentralWidget(root)
+
+        self.home_page.tool_requested.connect(self.open_tool)
+        quit_action = QAction(self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        self.addAction(quit_action)
+
+        geometry = self.settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self.show_home()
+
+    def show_home(self):
+        self.pages.setCurrentWidget(self.home_page)
+        self.back_button.setVisible(False)
+        self.page_title.setText("FuzzToolBox")
+        self.home_page.search.setFocus()
+
+    def open_tool(self, tool_id: str):
+        if tool_id == "ip-scanner":
+            page = self.ip_scanner_page
+            title = "IP Scanner · 网络扫描"
+        elif tool_id == "subnet-calculator":
+            page = self.subnet_calculator_page
+            title = "子网划分计算器 · 网络规划"
+        elif tool_id == "word-to-pdf":
+            page = self.word_to_pdf_page
+            title = "Word 转 PDF · 文档转换"
+        else:
+            return
+        self.pages.setCurrentWidget(page)
+        self.back_button.setVisible(True)
+        self.page_title.setText(title)
+        if page is self.ip_scanner_page:
+            self.ip_scanner_page.schedule_result_column_resize()
+
+    def closeEvent(self, event):
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        if self.ip_scanner_page.prepare_close(self._finish_deferred_close):
+            if self.word_to_pdf_page.prepare_close(self._finish_deferred_close):
+                event.accept()
                 return
-        event.accept()
+        self._closing_after_worker = True
+        event.ignore()
+
+    def _finish_deferred_close(self):
+        if self._closing_after_worker:
+            self._closing_after_worker = False
+            self.close()
 
 
 def main() -> None:
@@ -777,7 +971,8 @@ def main() -> None:
     # The taskbar then uses the application/window icon rather than python.exe.
     configure_windows_app_id()
     app = QApplication(sys.argv)
-    app.setApplicationName("IP-Scanner")
+    app.setApplicationName("FuzzToolBox")
+    app.setOrganizationName("1024_byteeeee")
     app.setApplicationVersion(__version__)
     app.setWindowIcon(QIcon(str(ASSET_DIR / "app-icon.png")))
     app.setStyleSheet(STYLE)
