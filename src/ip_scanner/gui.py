@@ -55,7 +55,6 @@ from .subnet_gui import SubnetCalculatorPage
 from .targets import parse_ports, parse_target
 from .tool_registry import TOOLS, ToolDefinition, filter_tools
 from .ui_components import configure_combo, configure_table
-from .word_pdf_gui import WordToPdfPage
 
 
 ASSET_DIR = Path(__file__).resolve().parent / "assets"
@@ -457,7 +456,7 @@ class ScanWorker(QThread):
 class IPScannerPage(QWidget):
     def __init__(self):
         super().__init__()
-        self.settings = QSettings("1024_byteeeee", "IP-Scanner")
+        self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
         self.worker = None
         self.model = ResultModel()
         self.proxy_model = ResultFilterModel()
@@ -897,11 +896,9 @@ class MainWindow(QMainWindow):
         self.subnet_calculator_page = SubnetCalculatorPage(
             self.ip_scanner_page.network_info
         )
-        self.word_to_pdf_page = WordToPdfPage()
         self.pages.addWidget(self.home_page)
         self.pages.addWidget(self.ip_scanner_page)
         self.pages.addWidget(self.subnet_calculator_page)
-        self.pages.addWidget(self.word_to_pdf_page)
         root_layout.addWidget(self.pages, 1)
 
         github_icon = (ASSET_DIR / "github.svg").as_posix()
@@ -940,9 +937,6 @@ class MainWindow(QMainWindow):
         elif tool_id == "subnet-calculator":
             page = self.subnet_calculator_page
             title = "子网划分计算器 · 网络规划"
-        elif tool_id == "word-to-pdf":
-            page = self.word_to_pdf_page
-            title = "Word 转 PDF · 文档转换"
         else:
             return
         self.pages.setCurrentWidget(page)
@@ -954,9 +948,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.settings.setValue("window/geometry", self.saveGeometry())
         if self.ip_scanner_page.prepare_close(self._finish_deferred_close):
-            if self.word_to_pdf_page.prepare_close(self._finish_deferred_close):
-                event.accept()
-                return
+            event.accept()
+            return
         self._closing_after_worker = True
         event.ignore()
 

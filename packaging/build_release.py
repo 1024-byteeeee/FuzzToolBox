@@ -33,6 +33,19 @@ def platform_label() -> str:
     }.get(platform.system(), platform.system())
 
 
+def find_inno_setup() -> Path:
+    resolved = shutil.which("ISCC.exe") or shutil.which("iscc")
+    candidates = [Path(resolved)] if resolved else []
+    for variable in ("PROGRAMFILES(X86)", "PROGRAMFILES"):
+        root = os.environ.get(variable)
+        if root:
+            candidates.append(Path(root) / "Inno Setup 6" / "ISCC.exe")
+    executable = next((path for path in candidates if path.is_file()), None)
+    if executable is None:
+        raise SystemExit("Inno Setup 6 is required to build the Windows installer")
+    return executable
+
+
 def build() -> Path:
     system = platform.system()
     if system not in {"Darwin", "Windows"}:
@@ -82,33 +95,20 @@ def build() -> Path:
         "--add-data",
         f"{assets}{os.pathsep}ip_scanner/assets",
     ]
-    vendored_libreoffice = (
-        PROJECT_DIR / "vendor" / "libreoffice" / f"{system}-{normalized_architecture()}"
-    )
-    if not vendored_libreoffice.is_dir():
-        raise SystemExit(
-            "Bundled LibreOffice is missing. Run: python scripts/fetch_libreoffice.py"
-        )
-    if system == "Windows":
-        command.extend(("--add-data", f"{vendored_libreoffice}{os.pathsep}libreoffice"))
     command.append(str(entry))
     if system == "Darwin":
         command[3:3] = [
             "--windowed",
             "--osx-bundle-identifier",
             "com.github.1024-byteeeee.fuzztoolbox",
-            f"--icon={PROJECT_DIR / 'packaging' / 'IP-Scanner.icns'}",
+            f"--icon={PROJECT_DIR / 'packaging' / 'FuzzToolBox.icns'}",
         ]
     elif system == "Windows":
         command[3:3] = [
-            "--onefile",
             "--windowed",
             "--version-file",
             str(PROJECT_DIR / "packaging" / "windows_version_info.txt"),
-            f"--icon={PROJECT_DIR / 'packaging' / 'IP-Scanner.ico'}",
-            "--hidden-import=pythoncom",
-            "--hidden-import=pywintypes",
-            "--hidden-import=win32com.client",
+            f"--icon={PROJECT_DIR / 'packaging' / 'FuzzToolBox.ico'}",
             "--exclude-module",
             "PySide6.QtDBus",
             "--exclude-module",
@@ -125,8 +125,6 @@ def build() -> Path:
         built_path = BUILD_DIR / f"{APP_NAME}.app"
         if not built_path.is_dir():
             raise SystemExit(f"PyInstaller did not create the expected app: {built_path}")
-        embedded_office = built_path / "Contents" / "Resources" / "libreoffice"
-        shutil.copytree(vendored_libreoffice, embedded_office, symlinks=True)
         plist_path = built_path / "Contents" / "Info.plist"
         with plist_path.open("rb") as handle:
             plist = plistlib.load(handle)
@@ -161,15 +159,26 @@ def build() -> Path:
                 check=True,
             )
     else:
-        built_path = BUILD_DIR / f"{APP_NAME}.exe"
-        # Versioned filenames avoid Windows Explorer reusing the icon cache from
-        # an older executable at the same desktop path.
-        release_path = RELEASE_DIR / f"{APP_NAME}-v{__version__}-{label}-{arch}.exe"
-        if not built_path.is_file():
-            raise SystemExit(f"PyInstaller did not create the expected executable: {built_path}")
+        built_path = BUILD_DIR / APP_NAME
+        executable = built_path / f"{APP_NAME}.exe"
+        if not executable.is_file():
+            raise SystemExit(f"PyInstaller did not create the expected application: {executable}")
+        installer_name = f"{APP_NAME}-v{__version__}-{label}-{arch}-Setup"
+        release_path = RELEASE_DIR / f"{installer_name}.exe"
         if release_path.exists():
             release_path.unlink()
-        shutil.copy2(built_path, release_path)
+        subprocess.run(
+            [
+                str(find_inno_setup()),
+                f"/DMyAppVersion={__version__}",
+                f"/DInstallerBaseName={installer_name}",
+                str(PROJECT_DIR / "packaging" / "windows_installer.iss"),
+            ],
+            cwd=PROJECT_DIR,
+            check=True,
+        )
+        if not release_path.is_file():
+            raise SystemExit(f"Inno Setup did not create the expected installer: {release_path}")
 
     print(f"Built self-contained application: {built_path}")
     print(f"Built release artifact: {release_path}")

@@ -43,8 +43,14 @@ jobs:
       - name: Run automated tests
         run: python -m unittest discover -s tests -v
 
-      - name: Download bundled LibreOffice conversion engine
-        run: python scripts/fetch_libreoffice.py
+      - name: Ensure Inno Setup is available
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress --yes
+          }
 
       - name: Smoke-test GUI initialization
         env:
@@ -59,8 +65,8 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $exe = (Resolve-Path 'build/FuzzToolBox.exe').Path
-          $ico = (Resolve-Path 'packaging/IP-Scanner.ico').Path
+          $exe = (Resolve-Path 'build/FuzzToolBox/FuzzToolBox.exe').Path
+          $ico = (Resolve-Path 'packaging/FuzzToolBox.ico').Path
           $actualIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
           if ($null -eq $actualIcon) { throw 'Windows executable has no associated icon' }
           $expectedIcon = [System.Drawing.Icon]::new($ico, $actualIcon.Width, $actualIcon.Height)

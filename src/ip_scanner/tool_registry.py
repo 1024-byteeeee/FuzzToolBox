@@ -37,13 +37,6 @@ TOOLS = (
         category="网络工具",
         keywords=("subnet", "cidr", "掩码", "flsm", "vlsm", "ipv4", "ipv6"),
     ),
-    ToolDefinition(
-        id="word-to-pdf",
-        name="Word 转 PDF",
-        description="批量将 Word/WPS 文档转换为 PDF，全程在本机处理。",
-        category="文档工具",
-        keywords=("word", "doc", "docx", "wps", "pdf", "转换"),
-    ),
 )
 
 

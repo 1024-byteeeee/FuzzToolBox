@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "IP-Scanner：桌面版",
+      "name": "FuzzToolBox：桌面版",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/packaging/macos_entry.py",
@@ -14,7 +14,7 @@
       "justMyCode": true
     },
     {
-      "name": "IP-Scanner：命令行测试",
+      "name": "FuzzToolBox：IP Scanner 命令行测试",
       "type": "debugpy",
       "request": "launch",
       "module": "ip_scanner.cli",

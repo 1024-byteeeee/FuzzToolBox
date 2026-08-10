@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "IP-Scanner：运行测试",
+      "label": "FuzzToolBox：运行测试",
       "type": "process",
       "command": "${command:python.interpreterPath}",
       "args": [
@@ -23,7 +23,7 @@
       "problemMatcher": []
     },
     {
-      "label": "IP-Scanner：启动桌面版",
+      "label": "FuzzToolBox：启动桌面版",
       "type": "process",
       "command": "${command:python.interpreterPath}",
       "args": [

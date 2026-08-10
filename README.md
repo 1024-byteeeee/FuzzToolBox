@@ -12,16 +12,6 @@ FuzzToolBox 是面向 Windows 与 macOS 的桌面 IT 工具箱。内置 IP Scann
 子网划分计算器支持 IPv4 与 IPv6 网络摘要、FLSM 等长划分、VLSM 可变长规划、
 超大网段连续按需加载、IP 所属子网定位、复制和 CSV 导出。
 
-Word 转 PDF 工具支持拖放及批量转换 `.doc`、`.docx`、`.wps` 文档。发行包内置完整的
-LibreOffice Writer 转换引擎，不要求用户另外安装 Python 或办公软件；如果系统已经安装
-Microsoft Word（或 Windows 版 WPS），则优先使用原生引擎以取得最高版式一致性。
-转换完全在本机进行，文档不会上传到网络。
-LibreOffice 转换会使用随应用分发的 Noto Sans CJK SC 开源备用字体、缺失字体替换表和
-PDF/A-2b 字体嵌入，并在完成后校验 DOCX 中的中文是否完整写入 PDF。备用字体采用
-SIL Open Font License 1.1，许可证随字体一同分发。
-轻量 dxpdf 引擎仅作为简单 `.docx` 的最后备用方案；复杂 OOXML、旧版 `.doc` 与 `.wps`
-均由内置 LibreOffice 处理。LibreOffice 的许可证与声明文件保留在发行包的引擎目录中。
-
 > 请只扫描你拥有或已获授权的网络。大网段扫描可能触发防火墙、IDS 或网络限速。
 
 ## 快速开始
@@ -32,7 +22,7 @@ SIL Open Font License 1.1，许可证随字体一同分发。
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[gui]'
-ip-scanner-gui
+fuzztoolbox-gui
 ```
 
 不安装 GUI 也可直接运行：
@@ -66,7 +56,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 项目已提供 `.vscode` 配置。使用 VS Code 打开本目录后：
 
-1. 按 `F5`，选择“IP-Scanner：桌面版”启动 GUI。
+1. 按 `F5`，选择“FuzzToolBox：桌面版”启动 GUI。
 2. 按 `Cmd+Shift+P`，运行“Tasks: Run Test Task”执行全部测试。
 3. 如 VS Code 未自动识别解释器，选择 `.venv/bin/python`。
 
@@ -82,7 +72,7 @@ sh scripts/build_macos.sh
 .\scripts\build_windows.ps1
 ```
 
-无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖嵌入发布产物。Windows 提供带应用图标和版本化文件名的单个 `FuzzToolBox.exe`，避免 Explorer 沿用旧版本图标缓存；macOS 提供带应用图标的 DMG，打开后将 `FuzzToolBox.app` 拖入 `Applications` 即可安装。正式分发 macOS 版本前仍建议使用 Apple Developer ID 签名与公证。
+无需目标电脑安装 Python。PyInstaller 会将 Python 解释器、PySide6 和项目依赖嵌入发布产物。Windows 使用 `onedir` 快速启动结构并通过单个 Inno Setup 安装包分发，安装后由桌面或开始菜单启动；macOS 提供带应用图标的 DMG，打开后将 `FuzzToolBox.app` 拖入 `Applications` 即可安装。正式分发 macOS 版本前仍建议使用 Apple Developer ID 签名与公证。
 
 ## GitHub Release
 

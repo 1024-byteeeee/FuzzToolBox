@@ -73,8 +73,6 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(filter_tools(TOOLS, "Ping")[0].id, "ip-scanner")
         self.assertEqual(filter_tools(TOOLS, category="网络工具")[0].id, "ip-scanner")
         self.assertEqual(filter_tools(TOOLS, "JSON"), ())
-        self.assertEqual(filter_tools(TOOLS, "WPS")[0].id, "word-to-pdf")
-        self.assertEqual(filter_tools(TOOLS, category="文档工具")[0].id, "word-to-pdf")
 
     def test_subnet_model_loads_huge_ipv6_plan_progressively(self):
         model = SubnetResultModel()
@@ -163,9 +161,6 @@ class ResultModelTests(unittest.TestCase):
         window.open_tool("subnet-calculator")
         self.assertIs(window.pages.currentWidget(), window.subnet_calculator_page)
         self.assertIn("子网划分计算器", window.page_title.text())
-        window.open_tool("word-to-pdf")
-        self.assertIs(window.pages.currentWidget(), window.word_to_pdf_page)
-        self.assertIn("Word 转 PDF", window.page_title.text())
         window.show_home()
         self.assertIs(window.pages.currentWidget(), window.home_page)
         window.close()
