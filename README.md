@@ -12,6 +12,21 @@ FuzzToolBox 是面向 Windows 与 macOS 的桌面 IT 工具箱。内置 IP Scann
 子网划分计算器支持 IPv4 与 IPv6 网络摘要、FLSM 等长划分、VLSM 可变长规划、
 超大网段连续按需加载、IP 所属子网定位、复制和 CSV 导出。
 
+UUID 生成器支持 UUID v1、v3、v4、v5 与符合 RFC 9562 的时间有序 UUID v7，
+提供批量生成、命名空间、大小写与连字符格式、复制以及 TXT/CSV 导出。
+
+IPv4 地址转换器支持将单个地址转换为分段二进制、32 位无符号十进制、
+十六进制以及 RFC 4291 IPv4-mapped IPv6 完整和简写形式，并提供结果复制。
+
+二维码生成器支持中文、网址和多行文本，可设置前景色、背景色以及 L/M/Q/H
+容错率，并提供实时预览、复制图片和 PNG 导出。二维码完全在本机生成。
+
+WiFi 二维码生成器支持 WPA/WPA2/WPA3、WEP、无密码与隐藏网络配置，
+正确处理 SSID 和密码中的特殊字符，并提供颜色、容错率、实时预览和 PNG 导出。
+
+项目源码按 `fuzztoolbox/core`、`fuzztoolbox/ui` 和 `fuzztoolbox/tools` 分层组织；
+新增工具的目录、页面和公共 UI 复用规则见 [架构文档](docs/architecture.md)。
+
 > 请只扫描你拥有或已获授权的网络。大网段扫描可能触发防火墙、IDS 或网络限速。
 
 ## 快速开始
@@ -28,13 +43,13 @@ fuzztoolbox-gui
 不安装 GUI 也可直接运行：
 
 ```bash
-PYTHONPATH=src python3 -m ip_scanner.cli 192.168.1.0/24 --method tcp --ports 80,443
+PYTHONPATH=src python3 -m fuzztoolbox.tools.ip_scanner.cli 192.168.1.0/24 --method tcp --ports 80,443
 ```
 
 系统 Ping 模式调用当前平台自带的 `ping` 程序，不要求 Python raw socket 权限：
 
 ```bash
-PYTHONPATH=src python3 -m ip_scanner.cli 192.168.1.0/24 --method ping
+PYTHONPATH=src python3 -m fuzztoolbox.tools.ip_scanner.cli 192.168.1.0/24 --method ping
 ```
 
 ## 结果判定与功能边界

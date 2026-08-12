@@ -1,0 +1,259 @@
+"""FuzzToolBox application shell and tool navigation."""
+
+import contextlib
+import ctypes
+import sys
+from pathlib import Path
+from fuzztoolbox.ui.style_loader import apply_style
+
+try:
+    from PySide6.QtCore import QSettings, Qt
+    from PySide6.QtGui import QAction, QIcon
+    from PySide6.QtWidgets import (
+        QApplication,
+        QFrame,
+        QHBoxLayout,
+        QLabel,
+        QMainWindow,
+        QPushButton,
+        QStackedWidget,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError as exc:  # pragma: no cover
+    raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.[gui]'") from exc
+
+from .. import __version__
+from ..tools.color_picker.page import ColorPickerPage
+from ..tools.datetime_converter.page import DateTimeConverterPage
+from ..tools.ip_scanner.page import IPScannerPage
+from ..tools.ip_lookup.page import IPLookupPage
+from ..tools.ipv4_converter.page import IPv4ConverterPage
+from ..tools.json_formatter.page import JSONFormatterPage
+from ..tools.password_strength.page import PasswordStrengthPage
+from ..tools.qr_generator.page import QRGeneratorPage
+from ..tools.random_port.page import RandomPortPage
+from ..tools.roman_numeral.page import RomanNumeralPage
+from ..tools.subnet_calculator.page import SubnetCalculatorPage
+from ..tools.text_comparer.page import TextComparerPage
+from ..tools.text_statistics.page import TextStatisticsPage
+from ..tools.timer.page import TimerPage
+from ..tools.token_generator.page import TokenGeneratorPage
+from ..tools.uuid_generator.page import UUIDGeneratorPage
+from ..tools.wifi_qr_generator.page import WiFiQRGeneratorPage
+from .home_page import ToolboxHomePage
+from .tool_registry import TOOLS
+from .theme import STYLE
+
+
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+APP_ICON_PATH = ASSET_DIR / "app-icon.svg"
+WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
+FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
+
+
+def configure_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    with contextlib.suppress(AttributeError, OSError):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
+        self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
+        self.setWindowTitle(f"FuzzToolBox v{__version__}")
+        self.resize(1180, 760)
+        self._closing_after_worker = False
+
+        root = QWidget()
+        root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.top_bar = QFrame()
+        self.top_bar.setObjectName("topBar")
+        top_layout = QHBoxLayout(self.top_bar)
+        top_layout.setContentsMargins(20, 11, 20, 11)
+        self.back_button = QPushButton("←  返回主页")
+        self.back_button.setObjectName("backButton")
+        self.back_button.clicked.connect(self.show_home)
+        self.page_title = QLabel("FuzzToolBox")
+        apply_style(self.page_title, "ui.main_window:83")
+        self.page_icon = QLabel()
+        self.page_icon.setFixedSize(32, 32)
+        top_layout.addWidget(self.page_icon)
+        top_layout.addSpacing(2)
+        top_layout.addWidget(self.page_title)
+        top_layout.addStretch()
+        top_layout.addWidget(self.back_button)
+        root_layout.addWidget(self.top_bar)
+
+        self.pages = QStackedWidget()
+        self.home_page = ToolboxHomePage()
+        self.ip_scanner_page = IPScannerPage()
+        self.ip_lookup_page = IPLookupPage()
+        network_info = self.ip_scanner_page.network_info
+        self.subnet_calculator_page = SubnetCalculatorPage(network_info)
+        self.uuid_generator_page = UUIDGeneratorPage()
+        self.token_generator_page = TokenGeneratorPage()
+        self.json_formatter_page = JSONFormatterPage()
+        self.text_comparer_page = TextComparerPage()
+        self.text_statistics_page = TextStatisticsPage()
+        self.ipv4_converter_page = IPv4ConverterPage(network_info)
+        self.qr_generator_page = QRGeneratorPage()
+        self.wifi_qr_generator_page = WiFiQRGeneratorPage()
+        self.color_picker_page = ColorPickerPage()
+        self.roman_numeral_page = RomanNumeralPage()
+        self.password_strength_page = PasswordStrengthPage()
+        self.random_port_page = RandomPortPage()
+        self.timer_page = TimerPage()
+        self.datetime_converter_page = DateTimeConverterPage()
+        for page in (
+            self.home_page,
+            self.ip_scanner_page,
+            self.ip_lookup_page,
+            self.subnet_calculator_page,
+            self.uuid_generator_page,
+            self.token_generator_page,
+            self.json_formatter_page,
+            self.text_comparer_page,
+            self.text_statistics_page,
+            self.ipv4_converter_page,
+            self.qr_generator_page,
+            self.wifi_qr_generator_page,
+            self.color_picker_page,
+            self.roman_numeral_page,
+            self.password_strength_page,
+            self.random_port_page,
+            self.timer_page,
+            self.datetime_converter_page,
+        ):
+            self.pages.addWidget(page)
+        root_layout.addWidget(self.pages, 1)
+
+        github_icon = (ASSET_DIR / "github.svg").as_posix()
+        copyright_label = QLabel(
+            f'FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT} '
+            f'<img src="{github_icon}" width="14" height="14"> '
+            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
+        )
+        copyright_label.setAlignment(Qt.AlignCenter)
+        copyright_label.setOpenExternalLinks(True)
+        apply_style(copyright_label, "ui.main_window:144")
+        root_layout.addWidget(copyright_label)
+        self.setCentralWidget(root)
+
+        self.home_page.tool_requested.connect(self.open_tool)
+        quit_action = QAction(self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        self.addAction(quit_action)
+
+        geometry = self.settings.value("window/geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        self.show_home()
+
+    def show_home(self):
+        self.pages.setCurrentWidget(self.home_page)
+        self.top_bar.setVisible(False)
+        self.home_page.search.setFocus()
+
+    def open_tool(self, tool_id: str):
+        destinations = {
+            "ip-scanner": (self.ip_scanner_page, "IP Scanner · 网络扫描"),
+            "ip-lookup": (self.ip_lookup_page, "公网IP信息查询 · 网络工具"),
+            "subnet-calculator": (
+                self.subnet_calculator_page,
+                "子网划分计算器 · 网络规划",
+            ),
+            "uuid-generator": (self.uuid_generator_page, "UUID 生成器 · 开发工具"),
+            "token-generator": (
+                self.token_generator_page,
+                "Token 生成器 · 开发工具",
+            ),
+            "json-formatter": (
+                self.json_formatter_page,
+                "JSON 格式化与校验器 · 开发工具",
+            ),
+            "text-comparer": (
+                self.text_comparer_page,
+                "文本对比工具 · 开发工具",
+            ),
+            "text-statistics": (
+                self.text_statistics_page,
+                "文本统计工具 · 实用工具",
+            ),
+            "ipv4-converter": (
+                self.ipv4_converter_page,
+                "IPv4 地址转换器 · 网络工具",
+            ),
+            "qr-generator": (self.qr_generator_page, "二维码生成器 · 开发工具"),
+            "wifi-qr-generator": (
+                self.wifi_qr_generator_page,
+                "WiFi 二维码生成器 · 网络工具",
+            ),
+            "color-picker": (self.color_picker_page, "取色器 · 开发工具"),
+            "roman-numeral": (
+                self.roman_numeral_page,
+                "罗马数字转换器 · 开发工具",
+            ),
+            "password-strength": (
+                self.password_strength_page,
+                "密码强度分析器 · 开发工具",
+            ),
+            "random-port": (
+                self.random_port_page,
+                "随机端口生成器 · 网络工具",
+            ),
+            "timer": (self.timer_page, "计时器 · 实用工具"),
+            "datetime-converter": (
+                self.datetime_converter_page,
+                "日期时间转换器 · 开发工具",
+            ),
+        }
+        destination = destinations.get(tool_id)
+        if destination is None:
+            return
+        page, title = destination
+        tool = next(tool for tool in TOOLS if tool.id == tool_id)
+        self.page_icon.setPixmap(QIcon(str(ASSET_DIR / tool.icon)).pixmap(32, 32))
+        self.top_bar.setVisible(True)
+        self.pages.setCurrentWidget(page)
+        self.page_title.setText(title)
+        if page is self.ip_scanner_page:
+            self.ip_scanner_page.schedule_result_column_resize()
+
+    def closeEvent(self, event):
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        if self.ip_scanner_page.prepare_close(self._finish_deferred_close):
+            if self.ip_lookup_page.prepare_close(self._finish_deferred_close):
+                event.accept()
+                return
+        self._closing_after_worker = True
+        event.ignore()
+
+    def _finish_deferred_close(self):
+        if self._closing_after_worker:
+            self._closing_after_worker = False
+            self.close()
+
+
+def main() -> None:
+    configure_windows_app_id()
+    app = QApplication(sys.argv)
+    app.setApplicationName("FuzzToolBox")
+    app.setOrganizationName("1024_byteeeee")
+    app.setApplicationVersion(__version__)
+    app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
+    app.setStyleSheet(STYLE)
+    window = MainWindow()
+    window.show()
+    raise SystemExit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

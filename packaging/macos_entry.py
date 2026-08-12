@@ -1,8 +1,7 @@
-"""PyInstaller entry point that preserves the ip_scanner package context."""
+"""PyInstaller entry point for the FuzzToolBox desktop application."""
 
-from ip_scanner.gui import main
+from fuzztoolbox.app import main
 
 
 if __name__ == "__main__":
     main()
-

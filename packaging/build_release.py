@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from ip_scanner import __version__
+from fuzztoolbox import __version__
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_DIR / "build"
@@ -71,7 +71,8 @@ def build() -> Path:
             legacy_release.unlink()
     environment = os.environ.copy()
     environment["PYINSTALLER_CONFIG_DIR"] = str(BUILD_DIR / ".pyinstaller-config")
-    assets = PROJECT_DIR / "src" / "ip_scanner" / "assets"
+    assets = PROJECT_DIR / "src" / "fuzztoolbox" / "assets"
+    styles = PROJECT_DIR / "src" / "fuzztoolbox" / "styles"
     entry = PROJECT_DIR / "packaging" / "macos_entry.py"
     command = [
         sys.executable,
@@ -93,7 +94,9 @@ def build() -> Path:
         "--paths",
         str(PROJECT_DIR / "src"),
         "--add-data",
-        f"{assets}{os.pathsep}ip_scanner/assets",
+        f"{assets}{os.pathsep}fuzztoolbox/assets",
+        "--add-data",
+        f"{styles}{os.pathsep}fuzztoolbox/styles",
     ]
     command.append(str(entry))
     if system == "Darwin":

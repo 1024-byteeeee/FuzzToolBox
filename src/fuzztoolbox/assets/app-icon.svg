@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- FuzzToolBox brand master: three tool modules converge into one prism hub. -->
+  <rect x="96" y="96" width="832" height="832" rx="188" fill="#123E6D"/>
+
+  <!-- Top module. -->
+  <path d="M512 226
+           762 370
+           588 446
+           512 402
+           436 446
+           262 370Z"
+        fill="#F4FBFF"/>
+
+  <!-- Lower-left module. -->
+  <path d="M262 370
+           436 446
+           436 582
+           512 626
+           512 802
+           262 658Z"
+        fill="#62E3E4"/>
+
+  <!-- Lower-right module. -->
+  <path d="M762 370
+           762 658
+           512 802
+           512 626
+           588 582
+           588 446Z"
+        fill="#B8DFFF"/>
+</svg>

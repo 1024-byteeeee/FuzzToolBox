@@ -11,6 +11,7 @@ requires-python = ">=3.9"
 dependencies = [
     "psutil>=5.9,<8",
     "getmac>=0.9,<1",
+    "segno>=1.6,<2",
 ]
 
 [project.optional-dependencies]
@@ -18,16 +19,14 @@ gui = ["PySide6>=6.5,<7"]
 dev = ["pytest>=7", "ruff>=0.5", "pyinstaller>=6,<7"]
 
 [project.scripts]
-fuzztoolbox = "ip_scanner.cli:main"
-fuzztoolbox-gui = "ip_scanner.gui:main"
-ip-scanner = "ip_scanner.cli:main"
-ip-scanner-gui = "ip_scanner.gui:main"
+fuzztoolbox = "fuzztoolbox.tools.ip_scanner.cli:main"
+fuzztoolbox-gui = "fuzztoolbox.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ip_scanner = ["assets/*.svg", "assets/*.png"]
+fuzztoolbox = ["assets/*.svg", "assets/*.png", "styles/*.qss"]
 
 [tool.ruff]
 line-length = 100

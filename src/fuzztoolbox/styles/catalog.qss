@@ -1,0 +1,448 @@
+/* @style tools.color_picker.page:98
+color: #606266;
+@endstyle */
+
+/* @style tools.color_picker.page:106
+QFrame#colorWheelPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.color_picker.page:118
+QFrame#colorDetailsPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.color_picker.page:132
+font-size: 15px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.color_picker.page:156
+font-size: 15px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.color_picker.page:210
+font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.color_picker.page:218
+QSpinBox#colorChannelInput { font-size: 14px; font-weight: 600; padding: 0 6px; }
+@endstyle */
+
+/* @style tools.datetime_converter.page:70
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.datetime_converter.page:75
+QFrame#datetimePanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.datetime_converter.page:172
+QScrollArea#dateResultsScroll { background: transparent; }QWidget#dateResults { background: transparent; }QFrame#datePrimaryResult { background: #176b87; border: 0; border-radius: 12px; }QFrame#datePrimaryResult QLabel#dateResultName { color: #c9f3f1; font-weight: 700; }QFrame#datePrimaryResult QLabel#dateResultValue { color: white; font-size: 20px; font-weight: 700; }QFrame#dateResultGroup { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }QLabel#dateGroupTitle { color: #303133; font-size: 15px; font-weight: 700; }QFrame#dateResultCard { background: #f8fafc; border: 1px solid #e4eaf1; border-radius: 9px; }QFrame#dateResultCard:hover { background: #f0f8ff; border-color: #a8d3ff; }QLabel#dateResultName { color: #718096; font-size: 12px; font-weight: 600; }QLabel#dateResultValue { color: #263445; font-size: 14px; font-weight: 600; }QPushButton#dateCopyButton { background: transparent; color: #1677d2; border: 0; padding: 3px 6px; }QPushButton#dateCopyButton:hover { background: #e6f3ff; border-radius: 4px; }QFrame#datePrimaryResult QPushButton#dateCopyButton { color: white; }QFrame#datePrimaryResult QPushButton#dateCopyButton:hover { background: #2a7d96; }
+@endstyle */
+
+/* @style tools.datetime_converter.page:251
+color: #2d7a46;
+@endstyle */
+
+/* @style tools.datetime_converter.page:271
+color: #2d7a46;
+@endstyle */
+
+/* @style tools.datetime_converter.page:267
+color: #c45656;
+@endstyle */
+
+/* @style tools.datetime_converter.page:280
+color: #c45656;
+@endstyle */
+
+/* @style tools.ip_lookup.page:132
+color: #606266;
+@endstyle */
+
+/* @style tools.ip_lookup.page:137
+font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.ip_lookup.page:153
+color: #606266;
+@endstyle */
+
+/* @style tools.ip_lookup.page:164
+QFrame#ipLookupResultCard { background: transparent; border: 0; }QFrame#ipHero { background: #176b87; border: 0; border-radius: 12px; }QLabel#ipHeroCaption { color: #bdecea; font-weight: 700; }QLabel#ipHeroValue { color: white; font-size: 24px; font-weight: 750; }QLabel#ipHeroBadge { color: #e8ffff; background: #2a7d96; border-radius: 9px; padding: 3px 9px; }QLabel#ipOnlineDot { color: #65e6a0; font-size: 16px; }QFrame#ipGroup { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }QLabel#ipGroupTitle { color: #303133; font-size: 15px; font-weight: 700; }QFrame#ipValueCard { background: #f8fafc; border: 1px solid #e4eaf1; border-radius: 9px; }QFrame#ipValueCard:hover { background: #f0f8ff; border-color: #a8d3ff; }QFrame#ipValueCard[missing=true] QLabel#ipValueText { color: #909399; font-weight: 500; }QLabel#ipValueTitle { color: #718096; font-size: 12px; font-weight: 600; }QLabel#ipValueText { color: #263445; font-size: 14px; font-weight: 650; }QPushButton#ipValueCopy { background: transparent; color: #1677d2; border: 0; padding: 3px 6px; }QPushButton#ipValueCopy:hover { background: #e6f3ff; border-radius: 4px; }QLabel#ipResultState { background: white; color: #909399; border: 1px solid #e4e7ed; border-radius: 12px; padding: 70px 20px; }
+@endstyle */
+
+/* @style tools.ip_lookup.page:405
+QLabel#ipResultState { color: #c45656; background: #fef0f0; border: 1px solid #fde2e2; border-radius: 12px; padding: 55px 20px; }
+@endstyle */
+
+/* @style tools.ip_scanner.page:259
+QLabel#networkInfo { background: #ecf5ff; color: #406080; border: 1px solid #d9ecff; border-radius: 6px; padding: 8px 12px; }
+@endstyle */
+
+/* @style tools.ip_scanner.page:268
+font-weight: 600;
+@endstyle */
+
+/* @style tools.ip_scanner.page:291
+font-weight: 600;
+@endstyle */
+
+/* @style tools.ip_scanner.page:298
+font-weight: 600;
+@endstyle */
+
+/* @style tools.ip_scanner.page:330
+color: #606266;
+@endstyle */
+
+/* @style tools.ip_scanner.page:336
+font-weight: 600;
+@endstyle */
+
+/* @style tools.ipv4_converter.page:64
+QScrollArea#ipv4PageScroll { background: transparent; border: 0; }QWidget#ipv4ScrollContent { background: transparent; }
+@endstyle */
+
+/* @style tools.ipv4_converter.page:79
+QLabel#networkInfo { background: #ecf5ff; color: #406080; border: 1px solid #d9ecff; border-radius: 6px; padding: 8px 12px; }
+@endstyle */
+
+/* @style tools.ipv4_converter.page:88
+color: #606266;
+@endstyle */
+
+/* @style tools.ipv4_converter.page:94
+QFrame#converterPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.ipv4_converter.page:127
+QFrame#ipv4Results { background: transparent; border: 0; }QLabel#ipv4State { background: white; color: #909399; border: 1px solid #e4e7ed; border-radius: 12px; padding: 65px 20px; }QFrame#ipv4Hero { background: #176b87; border: 0; border-radius: 12px; }QLabel#ipv4HeroTitle { color: #bdecea; font-weight: 700; }QLabel#ipv4HeroValue { color: white; font-size: 25px; font-weight: 750; }QLabel#ipv4Badge { color: #e8ffff; background: #2a7d96; border-radius: 8px; padding: 4px 10px; font-weight: 650; }QLabel#ipv4Octet { color: #176b87; background: #e9fbfa; border: 1px solid #a9e8e4; border-radius: 7px; padding: 6px 11px; font-size: 15px; font-weight: 700; }QLabel#ipv4Dot { color: #8ea1b2; font-size: 18px; font-weight: 700; }QFrame#ipv4Group { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }QLabel#ipv4GroupTitle { color: #303133; font-size: 15px; font-weight: 700; }QFrame#ipv4ValueCard { background: #f8fafc; border: 1px solid #e4eaf1; border-radius: 9px; }QFrame#ipv4ValueCard:hover { background: #f0f8ff; border-color: #a8d3ff; }QLabel#ipv4ValueTitle { color: #718096; font-size: 12px; font-weight: 600; }QLabel#ipv4ValueText { color: #263445; font-size: 14px; font-weight: 650; }QPushButton#ipv4ValueCopy { background: transparent; color: #1677d2; border: 0; padding: 3px 6px; }QPushButton#ipv4ValueCopy:hover { background: #e6f3ff; border-radius: 4px; }
+@endstyle */
+
+/* @style tools.ipv4_converter.page:259
+QLabel#ipv4State { color: #c45656; background: #fef0f0; border: 1px solid #fde2e2; border-radius: 12px; padding: 55px 20px; }
+@endstyle */
+
+/* @style tools.json_formatter.page:43
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.json_formatter.page:48
+QFrame#jsonToolbar { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.json_formatter.page:82
+QFrame#jsonEditors { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.json_formatter.page:95
+font-size: 15px; font-weight: 700;
+@endstyle */
+
+/* @style tools.json_formatter.page:103
+font-size: 15px; font-weight: 700;
+@endstyle */
+
+/* @style tools.json_formatter.page:127
+QPlainTextEdit { background: #fbfcfe; color: #303133; border: 1px solid #dcdfe6; border-radius: 8px; padding: 10px; font-size: 13px; selection-background-color: #409eff; }QPlainTextEdit:focus { border-color: #409eff; }
+@endstyle */
+
+/* @style tools.password_strength.page:26
+QFrame#strengthMetric { background: #fafcff; border: 1px solid #e4e7ed; border-radius: 9px; }
+@endstyle */
+
+/* @style tools.password_strength.page:34
+color: #909399; font-size: 12px;
+@endstyle */
+
+/* @style tools.password_strength.page:37
+color: #303133; font-size: 19px; font-weight: 700;
+@endstyle */
+
+/* @style tools.password_strength.page:55
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.password_strength.page:65
+font-size: 15px; font-weight: 700;
+@endstyle */
+
+/* @style tools.password_strength.page:82
+font-weight: 700;
+@endstyle */
+
+/* @style tools.password_strength.page:84
+font-size: 16px; font-weight: 700; color: #909399;
+@endstyle */
+
+/* @style tools.password_strength.page:118
+color: #8a6116; background: #fff8e6; border: 1px solid #f5d99a; border-radius: 8px; padding: 11px 13px;
+@endstyle */
+
+/* @style tools.qr_generator.page:41
+color: #606266;
+@endstyle */
+
+/* @style tools.qr_generator.page:115
+color: #606266;
+@endstyle */
+
+/* @style tools.random_port.page:27
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.random_port.page:32
+QFrame#randomPortPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.random_port.page:42
+color: #909399; font-size: 14px; font-weight: 600;
+@endstyle */
+
+/* @style tools.random_port.page:49
+QLabel#randomPortValue { color: #1677d2; background: #ecf5ff; border: 1px solid #b3d8ff; border-radius: 10px; padding: 22px; font-size: 42px; font-weight: 750; }
+@endstyle */
+
+/* @style tools.random_port.page:58
+color: #909399;
+@endstyle */
+
+/* @style tools.random_port.page:75
+color: #606266;
+@endstyle */
+
+/* @style tools.random_port.page:81
+color: #8a6116; background: #fff8e6; border: 1px solid #f5d99a; border-radius: 8px; padding: 11px 13px;
+@endstyle */
+
+/* @style tools.roman_numeral.page:28
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.roman_numeral.page:33
+QFrame#romanPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.roman_numeral.page:46
+font-size: 16px; font-weight: 700;
+@endstyle */
+
+/* @style tools.roman_numeral.page:48
+font-size: 16px; font-weight: 700;
+@endstyle */
+
+/* @style tools.roman_numeral.page:60
+font-size: 16px; letter-spacing: 1px;
+@endstyle */
+
+/* @style tools.roman_numeral.page:79
+QLabel#romanStatus { color: #606266; background: #f5f7fa; border-radius: 6px; padding: 9px 12px; }
+@endstyle */
+
+/* @style tools.roman_numeral.page:113
+QLabel#romanStatus { color: #c45656; background: #fef0f0; border: 1px solid #fde2e2; border-radius: 6px; padding: 8px 11px; }
+@endstyle */
+
+/* @style tools.roman_numeral.page:120
+QLabel#romanStatus { color: #2d7a46; background: #f0f9eb; border: 1px solid #d9ecce; border-radius: 6px; padding: 8px 11px; }
+@endstyle */
+
+/* @style tools.roman_numeral.page:162
+QLabel#romanStatus { color: #606266; background: #f5f7fa; border-radius: 6px; padding: 9px 12px; }
+@endstyle */
+
+/* @style tools.subnet_calculator.page:181
+QLabel#networkInfo { background: #ecf5ff; color: #406080; border: 1px solid #d9ecff; border-radius: 6px; padding: 8px 12px; }
+@endstyle */
+
+/* @style tools.subnet_calculator.page:317
+color: #606266;
+@endstyle */
+
+/* @style tools.subnet_calculator.page:278
+font-weight: 600;
+@endstyle */
+
+/* @style tools.text_comparer.page:65
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.text_comparer.page:70
+QFrame#textComparerToolbar { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.text_comparer.page:148
+color: #606266;
+@endstyle */
+
+/* @style tools.text_comparer.page:222
+QPlainTextEdit { background: #fbfcfe; color: #303133; border: 1px solid #dcdfe6; border-radius: 8px; padding: 10px; font-size: 13px; selection-background-color: rgba(64, 158, 255, 82); selection-color: #172b4d; }QPlainTextEdit:focus { border-color: #409eff; }
+@endstyle */
+
+/* @style tools.text_comparer.page:124
+font-size: 15px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.text_comparer.page:162
+color: #606266;
+@endstyle */
+
+/* @style tools.text_statistics.page:33
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.text_statistics.page:38
+font-size: 15px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.text_statistics.page:40
+color: #718096;
+@endstyle */
+
+/* @style tools.text_statistics.page:67
+QPlainTextEdit { background: #fbfcfe; color: #303133; border: 1px solid #dcdfe6; border-radius: 9px; padding: 11px; font-size: 13px; selection-background-color: #409eff; }QPlainTextEdit:focus { border-color: #409eff; }
+@endstyle */
+
+/* @style tools.text_statistics.page:77
+QFrame#statisticsCards { background: transparent; border: none; }
+@endstyle */
+
+/* @style tools.text_statistics.page:85
+QFrame#statisticsCard { background: white; border: 1px solid #e4e7ed; border-radius: 9px; }
+@endstyle */
+
+/* @style tools.text_statistics.page:92
+color: #718096; font-size: 12px;
+@endstyle */
+
+/* @style tools.text_statistics.page:95
+color: #1769aa; font-size: 18px; font-weight: 700;
+@endstyle */
+
+/* @style tools.timer.page:46
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.timer.page:51
+QFrame#timerPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.timer.page:74
+color: #303133; font-size: 54px; font-weight: 750; font-family: Menlo, Consolas, monospace; padding: 12px;
+@endstyle */
+
+/* @style tools.timer.page:88
+color: #606266;
+@endstyle */
+
+/* @style tools.timer.page:92
+font-size: 14px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.timer.page:163
+color: #406080; background: #ecf5ff; border: 1px solid #d9ecff; border-radius: 7px; padding: 8px 12px;
+@endstyle */
+
+/* @style tools.timer.page:195
+QSpinBox { font-size: 17px; font-weight: 650; padding: 7px 10px; }
+@endstyle */
+
+/* @style tools.timer.page:116
+QFrame#timeInputCard { background: #fafcff; border: 1px solid #e4e7ed; border-radius: 9px; }
+@endstyle */
+
+/* @style tools.timer.page:124
+color: #606266; font-size: 12px; font-weight: 600;
+@endstyle */
+
+/* @style tools.token_generator.page:34
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.token_generator.page:39
+QFrame#tokenSettings { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.token_generator.page:87
+QFrame#tokenResult { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.token_generator.page:95
+font-size: 15px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style tools.token_generator.page:103
+QPlainTextEdit { color: #145ca6; background: #f4f9ff; border: 1px solid #b9dbff; border-radius: 9px; padding: 14px; font-size: 16px; selection-background-color: #409eff; }
+@endstyle */
+
+/* @style tools.token_generator.page:112
+color: #606266;
+@endstyle */
+
+/* @style tools.uuid_generator.page:80
+color: #606266;
+@endstyle */
+
+/* @style tools.uuid_generator.page:85
+QFrame#uuidPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.wifi_qr_generator.page:42
+color: #606266;
+@endstyle */
+
+/* @style tools.wifi_qr_generator.page:143
+color: #606266;
+@endstyle */
+
+/* @style ui.components:71
+QListView { background: transparent; color: #303133; border: 0; border-radius: 8px; padding: 4px; outline: none; }QListView::item { background: transparent; color: #303133; border: 0; padding: 0; }QListView::item:hover, QListView::item:selected { background: #ecf5ff; color: #303133; }
+@endstyle */
+
+/* @style ui.components:92
+background: transparent; color: #303133;
+@endstyle */
+
+/* @style ui.components:57
+QFrame#comboPopupContainer { background: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; }
+@endstyle */
+
+/* @style ui.home_page:46
+font-size: 17px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style ui.home_page:55
+color: #606266; line-height: 1.4;
+@endstyle */
+
+/* @style ui.home_page:59
+color: #409eff; font-size: 12px; font-weight: 600;
+@endstyle */
+
+/* @style ui.home_page:81
+font-size: 30px; font-weight: 750; color: #303133;
+@endstyle */
+
+/* @style ui.home_page:83
+font-size: 14px; color: #909399;
+@endstyle */
+
+/* @style ui.home_page:126
+color: #909399; padding: 6px;
+@endstyle */
+
+/* @style ui.main_window:83
+font-size: 18px; font-weight: 700; color: #303133;
+@endstyle */
+
+/* @style ui.main_window:144
+color: #909399; padding: 8px 0 10px 0;
+@endstyle */
+
+/* @style tools.qr_generator.components:color-picker
+QPushButton#colorPicker {{ background: {value}; color: {text_color}; border: 1px solid #c0c4cc; border-radius: 6px; padding: 8px 12px; }}
+QPushButton#colorPicker:hover {{ background: {hover}; border-color: #409eff; }}
+@endstyle */
+
+/* @style tools.subnet_calculator.page:calculator-panel
+QFrame#calculatorPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */

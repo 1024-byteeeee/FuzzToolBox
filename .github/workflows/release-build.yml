@@ -55,7 +55,7 @@ jobs:
       - name: Smoke-test GUI initialization
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -c "from PySide6.QtWidgets import QApplication; from ip_scanner.gui import MainWindow; app = QApplication([]); window = MainWindow(); window.close(); app.processEvents()"
+        run: python -c "from PySide6.QtWidgets import QApplication; from fuzztoolbox.app import MainWindow; app = QApplication([]); window = MainWindow(); window.close(); app.processEvents()"
 
       - name: Build native application and archive
         run: python packaging/build_release.py
