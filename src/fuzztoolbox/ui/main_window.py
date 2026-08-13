@@ -55,6 +55,7 @@ FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
 THEME_MODES = ("system", "light", "dark")
 DEFAULT_WINDOW_SIZE = (1180, 760)
 MINIMUM_WINDOW_SIZE = (900, 600)
+DWMWA_TRANSITIONS_FORCEDISABLED = 3
 
 
 def configure_windows_app_id() -> None:
@@ -64,11 +65,29 @@ def configure_windows_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
 
 
+def disable_windows_window_transitions(window: QMainWindow) -> bool:
+    """Disable the DWM scale/fade transition for this top-level window."""
+    if sys.platform != "win32":
+        return False
+    disabled = ctypes.c_int(1)
+    try:
+        result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            int(window.winId()),
+            DWMWA_TRANSITIONS_FORCEDISABLED,
+            ctypes.byref(disabled),
+            ctypes.sizeof(disabled),
+        )
+    except (AttributeError, OSError):
+        return False
+    return result == 0
+
+
 def show_main_window(window: QMainWindow) -> None:
     """Map the fully constructed main window exactly once."""
     window.ensurePolished()
     if window.centralWidget() is not None and window.centralWidget().layout() is not None:
         window.centralWidget().layout().activate()
+    disable_windows_window_transitions(window)
     window.show()
 
 

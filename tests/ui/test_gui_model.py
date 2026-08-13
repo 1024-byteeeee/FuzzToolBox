@@ -21,8 +21,10 @@ from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
     THEME_MODES,
     WINDOWS_APP_ID,
+    DWMWA_TRANSITIONS_FORCEDISABLED,
     MainWindow,
     configure_windows_app_id,
+    disable_windows_window_transitions,
     restore_valid_window_geometry,
     show_main_window,
 )
@@ -66,14 +68,44 @@ class ResultModelTests(unittest.TestCase):
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
         window.centralWidget.return_value = None
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"):
+        with patch(
+            "fuzztoolbox.ui.main_window.disable_windows_window_transitions"
+        ) as disable_transitions:
             show_main_window(window)
 
         window.ensurePolished.assert_called_once_with()
+        disable_transitions.assert_called_once_with(window)
         window.show.assert_called_once_with()
         window.hide.assert_not_called()
         window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
+
+    def test_windows_dwm_transition_is_disabled_before_show(self):
+        window = Mock()
+        window.winId.return_value = 12345
+        dwmapi = Mock()
+        dwmapi.DwmSetWindowAttribute.return_value = 0
+        windll = Mock(dwmapi=dwmapi)
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
+            "fuzztoolbox.ui.main_window.ctypes.windll", windll, create=True
+        ):
+            disabled = disable_windows_window_transitions(window)
+
+        self.assertTrue(disabled)
+        window.winId.assert_called_once_with()
+        args = dwmapi.DwmSetWindowAttribute.call_args.args
+        self.assertEqual(args[0], 12345)
+        self.assertEqual(args[1], DWMWA_TRANSITIONS_FORCEDISABLED)
+        self.assertEqual(args[3], 4)
+
+    def test_dwm_transition_configuration_is_skipped_off_windows(self):
+        window = Mock()
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+            disabled = disable_windows_window_transitions(window)
+
+        self.assertFalse(disabled)
+        window.winId.assert_not_called()
 
     def test_tiny_saved_geometry_is_replaced_before_first_show(self):
         window = Mock()
