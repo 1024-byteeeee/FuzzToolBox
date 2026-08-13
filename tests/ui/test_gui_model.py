@@ -26,6 +26,7 @@ from fuzztoolbox.ui.main_window import (
     restore_window_placement,
     show_main_window,
 )
+from fuzztoolbox.ui.splash_screen import SPLASH_SIZE, create_splash_screen
 from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
 from fuzztoolbox.tools.ip_scanner.models import ScanConfig
 from fuzztoolbox.ui.home_page import ToolboxHomePage
@@ -75,6 +76,16 @@ class ResultModelTests(unittest.TestCase):
         window.hide.assert_not_called()
         window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
+
+    def test_startup_splash_is_frameless_and_expected_size(self):
+        splash = create_splash_screen()
+
+        self.assertEqual((splash.width(), splash.height()), SPLASH_SIZE)
+        self.assertTrue(splash.windowFlags() & Qt.SplashScreen)
+        self.assertTrue(splash.windowFlags() & Qt.WindowStaysOnTopHint)
+        self.assertFalse(splash.pixmap().isNull())
+
+        splash.close()
 
     def test_maximized_window_is_mapped_maximized_without_normal_show(self):
         window = Mock()

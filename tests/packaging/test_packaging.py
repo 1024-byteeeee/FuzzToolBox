@@ -8,6 +8,15 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_desktop_entry_point_defers_main_window_import_until_after_splash(self):
+        script = (PROJECT_DIR / "src" / "fuzztoolbox" / "app.py").read_text(
+            encoding="utf-8"
+        )
+
+        splash_position = script.index("show_splash_screen(app)")
+        main_window_position = script.index("from .ui.main_window import")
+        self.assertLess(splash_position, main_window_position)
+
     def test_macos_release_filename_includes_version(self):
         script = (PROJECT_DIR / "packaging" / "build_release.py").read_text(
             encoding="utf-8"

@@ -64,6 +64,33 @@ def configure_windows_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
 
 
+def configure_application(app: QApplication) -> None:
+    """Apply application metadata and theme before constructing the main window."""
+    configure_windows_app_id()
+    if sys.platform == "darwin":
+        app.setQuitOnLastWindowClosed(False)
+    app.setApplicationName("FuzzToolBox")
+    app.setOrganizationName("1024_byteeeee")
+    app.setApplicationVersion(__version__)
+    requested = str(
+        QSettings("1024_byteeeee", "FuzzToolBox").value(
+            "appearance/theme", "system"
+        )
+    )
+    hints = app.styleHints()
+    dark_value = getattr(getattr(Qt, "ColorScheme", object), "Dark", None)
+    system_dark = (
+        dark_value is not None
+        and getattr(hints, "colorScheme", lambda: None)() == dark_value
+    )
+    set_theme(
+        "dark"
+        if requested == "dark" or (requested == "system" and system_dark)
+        else "light"
+    )
+    app.setStyleSheet(load_qss("base.qss"))
+
+
 def show_main_window(window: QMainWindow) -> None:
     """Map the fully constructed window directly in its saved state."""
     window.ensurePolished()
@@ -215,6 +242,9 @@ class MainWindow(QMainWindow):
         self.apply_theme()
         self.show_home()
 
+    def show_in_saved_state(self) -> None:
+        show_main_window(self)
+
     def _system_theme(self) -> str:
         hints = QApplication.styleHints()
         color_scheme = getattr(hints, "colorScheme", lambda: None)()
@@ -363,25 +393,13 @@ class MainWindow(QMainWindow):
 
 
 def main() -> None:
-    configure_windows_app_id()
     app = QApplication(sys.argv)
-    if sys.platform == "darwin":
-        app.setQuitOnLastWindowClosed(False)
-    app.setApplicationName("FuzzToolBox")
-    app.setOrganizationName("1024_byteeeee")
-    app.setApplicationVersion(__version__)
+    configure_application(app)
     app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
-    settings = QSettings("1024_byteeeee", "FuzzToolBox")
-    requested = str(settings.value("appearance/theme", "system"))
-    hints = app.styleHints()
-    dark_value = getattr(getattr(Qt, "ColorScheme", object), "Dark", None)
-    system_dark = dark_value is not None and getattr(hints, "colorScheme", lambda: None)() == dark_value
-    set_theme("dark" if requested == "dark" or (requested == "system" and system_dark) else "light")
-    app.setStyleSheet(load_qss("base.qss"))
     window = MainWindow()
     if sys.platform == "darwin":
         app.applicationStateChanged.connect(window.restore_from_application_activation)
-    show_main_window(window)
+    window.show_in_saved_state()
     raise SystemExit(app.exec())
 
 
