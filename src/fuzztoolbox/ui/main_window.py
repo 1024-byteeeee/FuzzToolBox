@@ -12,8 +12,8 @@ from fuzztoolbox.ui.style_loader import (
 )
 
 try:
-    from PySide6.QtCore import QSettings, Qt
-    from PySide6.QtGui import QAction, QIcon
+    from PySide6.QtCore import QSettings, QTimer, Qt
+    from PySide6.QtGui import QAction, QIcon, QKeySequence
     from PySide6.QtWidgets import (
         QApplication,
         QFrame,
@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"FuzzToolBox v{__version__}")
         self.resize(1180, 760)
         self._closing_after_worker = False
+        self._application_quitting = False
         self.theme_mode = str(self.settings.value("appearance/theme", "system"))
         if self.theme_mode not in THEME_MODES:
             self.theme_mode = "system"
@@ -150,8 +151,10 @@ class MainWindow(QMainWindow):
         self.home_page.tool_requested.connect(self.open_tool)
         self.home_page.theme_requested.connect(self.cycle_theme)
         quit_action = QAction(self)
-        quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(self.close)
+        quit_action.setText("退出 FuzzToolBox")
+        quit_action.setMenuRole(QAction.QuitRole)
+        quit_action.setShortcut(QKeySequence.Quit)
+        quit_action.triggered.connect(self.request_application_quit)
         self.addAction(quit_action)
 
         geometry = self.settings.value("window/geometry")
@@ -271,12 +274,33 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.settings.setValue("window/geometry", self.saveGeometry())
+        if sys.platform == "darwin" and not self._application_quitting:
+            event.ignore()
+            self.hide()
+            return
         if self.ip_scanner_page.prepare_close(self._finish_deferred_close):
             if self.ip_lookup_page.prepare_close(self._finish_deferred_close):
                 event.accept()
+                if self._application_quitting:
+                    QTimer.singleShot(0, QApplication.instance().quit)
                 return
         self._closing_after_worker = True
         event.ignore()
+
+    def request_application_quit(self):
+        self._application_quitting = True
+        self.close()
+
+    def restore_from_application_activation(self, state):
+        if (
+            sys.platform == "darwin"
+            and state == Qt.ApplicationActive
+            and not self.isVisible()
+            and not self._application_quitting
+        ):
+            self.show()
+            self.raise_()
+            self.activateWindow()
 
     def _finish_deferred_close(self):
         if self._closing_after_worker:
@@ -287,6 +311,8 @@ class MainWindow(QMainWindow):
 def main() -> None:
     configure_windows_app_id()
     app = QApplication(sys.argv)
+    if sys.platform == "darwin":
+        app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("FuzzToolBox")
     app.setOrganizationName("1024_byteeeee")
     app.setApplicationVersion(__version__)
@@ -299,6 +325,8 @@ def main() -> None:
     set_theme("dark" if requested == "dark" or (requested == "system" and system_dark) else "light")
     app.setStyleSheet(load_qss("base.qss"))
     window = MainWindow()
+    if sys.platform == "darwin":
+        app.applicationStateChanged.connect(window.restore_from_application_activation)
     window.show()
     raise SystemExit(app.exec())
 

@@ -13,6 +13,7 @@ from getmac import get_mac_address
 from .hostname import multicast_dns, netbios_name, reverse_dns
 from .models import ScanConfig, ScanProgress, ScanResult
 from ...core.network_info import NetworkInfo
+from ...core.subprocess_utils import hidden_subprocess_kwargs
 from .targets import TargetRange
 
 
@@ -469,16 +470,11 @@ class Scanner:
 
     async def _run_command(self, args: List[str], timeout: float):
         try:
-            creationflags = (
-                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                if platform.system() == "Windows"
-                else 0
-            )
             process = await asyncio.create_subprocess_exec(
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
-                creationflags=creationflags,
+                **hidden_subprocess_kwargs(),
             )
         except (FileNotFoundError, OSError):
             return None

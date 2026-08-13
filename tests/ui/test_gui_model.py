@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEasingCurve, Qt
-from PySide6.QtGui import QGuiApplication, QTextCursor
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QTableView
 
@@ -385,6 +385,35 @@ class ResultModelTests(unittest.TestCase):
         self.assertIs(window.pages.currentWidget(), window.home_page)
         self.assertTrue(window.top_bar.isHidden())
         window.close()
+
+    def test_macos_close_hides_window_and_explicit_quit_cleans_up(self):
+        with patch("fuzztoolbox.tools.ip_scanner.page.get_network_info") as network_info:
+            network_info.return_value.scan_range = None
+            network_info.return_value.cidr = None
+            network_info.return_value.display_text.return_value = "未知"
+            window = MainWindow()
+        window.show()
+        self.app.processEvents()
+        window.ip_scanner_page.prepare_close = Mock(return_value=True)
+        window.ip_lookup_page.prepare_close = Mock(return_value=True)
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+            close_event = QCloseEvent()
+            window.closeEvent(close_event)
+            self.assertFalse(close_event.isAccepted())
+            self.assertTrue(window.isHidden())
+            window.ip_scanner_page.prepare_close.assert_not_called()
+
+            window.restore_from_application_activation(Qt.ApplicationActive)
+            self.assertTrue(window.isVisible())
+
+            with patch("fuzztoolbox.ui.main_window.QTimer.singleShot") as single_shot:
+                window.request_application_quit()
+                self.assertTrue(window._application_quitting)
+                window.ip_scanner_page.prepare_close.assert_called_once()
+                window.ip_lookup_page.prepare_close.assert_called_once()
+                single_shot.assert_called_once()
+        window.hide()
 
     def test_labels_use_transparent_background(self):
         self.assertIn("QLabel { background: transparent; }", STYLE)

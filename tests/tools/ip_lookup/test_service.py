@@ -6,6 +6,7 @@ from fuzztoolbox.tools.ip_lookup.service import (
     LookupReport,
     SourceResult,
     classify_ip,
+    discover_public_ip,
     lookup,
     parse_public_ip,
 )
@@ -18,6 +19,25 @@ class IPLookupServiceTests(unittest.TestCase):
         self.assertIn("私有地址", classify_ip("192.168.1.1"))
         with self.assertRaises(ValueError):
             parse_public_ip("192.168.1.1")
+
+    @patch("fuzztoolbox.tools.ip_lookup.service._read_text")
+    def test_public_ip_discovery_falls_back_between_services(self, read_text):
+        read_text.side_effect = [OSError("unavailable"), "not an ip", "8.8.8.8\n"]
+        self.assertEqual(discover_public_ip(4), "8.8.8.8")
+        self.assertEqual(read_text.call_count, 3)
+
+    @patch("fuzztoolbox.tools.ip_lookup.service._read_text")
+    def test_public_ip_discovery_accepts_json_and_rejects_wrong_version(self, read_text):
+        read_text.side_effect = [
+            '{"ip":"2606:4700:4700::1111"}',
+            "not an ip",
+            "8.8.8.8",
+        ]
+        self.assertEqual(discover_public_ip(4), "8.8.8.8")
+
+    def test_public_ip_discovery_rejects_unknown_version(self):
+        with self.assertRaises(ValueError):
+            discover_public_ip(5)
 
     @patch("fuzztoolbox.tools.ip_lookup.service.reverse_dns")
     @patch("fuzztoolbox.tools.ip_lookup.service._read_json")

@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag whose assets should be replaced
+        required: true
+        default: v2.1.0
 
 permissions:
   contents: write
@@ -94,7 +99,7 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             tag="${{ github.event.release.tag_name }}"
           else
-            tag="${{ github.ref_name }}"
+            tag="${{ inputs.release_tag }}"
           fi
           echo "Targeting release/tag: $tag"
           upload_files=$(find build/releases -maxdepth 1 -type f | sort)

@@ -137,8 +137,9 @@ class NetworkInfoTests(unittest.TestCase):
         self.assertIsNone(info.scan_range)
 
     @patch("fuzztoolbox.core.network_info.platform.system", return_value="Windows")
+    @patch("fuzztoolbox.core.subprocess_utils.platform.system", return_value="Windows")
     @patch("fuzztoolbox.core.network_info.subprocess.run")
-    def test_windows_commands_are_hidden(self, run, _system):
+    def test_windows_commands_are_hidden(self, run, _subprocess_system, _system):
         run.return_value.stdout = ""
         _run(["ipconfig"])
         self.assertEqual(run.call_args.kwargs["creationflags"], 0x08000000)

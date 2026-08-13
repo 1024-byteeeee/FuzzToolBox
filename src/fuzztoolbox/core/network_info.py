@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass, replace
 from typing import List, Optional
 
+from .subprocess_utils import hidden_subprocess_kwargs
+
 try:
     import psutil
 except ImportError:  # pragma: no cover - source-only fallback for incomplete installs
@@ -95,11 +97,7 @@ def _run(args: List[str], timeout: float = 3.0) -> str:
             text=True,
             timeout=timeout,
             check=False,
-            creationflags=(
-                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                if platform.system() == "Windows"
-                else 0
-            ),
+            **hidden_subprocess_kwargs(),
         )
         return result.stdout
     except (OSError, subprocess.TimeoutExpired):

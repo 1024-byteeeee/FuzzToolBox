@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
+import ssl
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -12,6 +13,20 @@ from urllib.request import Request, urlopen
 
 
 USER_AGENT = "FuzzToolBox/2.1 IP-Lookup"
+PUBLIC_IP_URLS = {
+    4: (
+        "https://api4.ipify.org?format=json",
+        "https://ipv4.icanhazip.com/",
+        "https://v4.ident.me/",
+    ),
+    6: (
+        "https://api6.ipify.org?format=json",
+        "https://ipv6.icanhazip.com/",
+        "https://v6.ident.me/",
+    ),
+}
+
+
 @dataclass
 class SourceResult:
     source: str
@@ -61,24 +76,49 @@ def classify_ip(value: str) -> str:
     return " · ".join(labels)
 
 
-def _read_json(url: str, timeout: float = 5.0) -> dict:
+def _ssl_context() -> ssl.SSLContext:
+    """Use Python defaults plus certificates from Windows' native root store."""
+    context = ssl.create_default_context()
+    enum_certificates = getattr(ssl, "enum_certificates", None)
+    if enum_certificates is not None:
+        try:
+            for certificate, encoding, trust in enum_certificates("ROOT"):
+                if encoding != "x509_asn" or not (trust is True or trust):
+                    continue
+                try:
+                    context.load_verify_locations(
+                        cadata=ssl.DER_cert_to_PEM_cert(certificate)
+                    )
+                except ssl.SSLError:
+                    continue
+        except OSError:
+            pass
+    return context
+
+
+def _read_text(url: str, timeout: float = 5.0) -> str:
     request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    with urlopen(request, timeout=timeout, context=_ssl_context()) as response:
+        return response.read().decode("utf-8").strip()
+
+
+def _read_json(url: str, timeout: float = 5.0) -> dict:
+    return json.loads(_read_text(url, timeout))
 
 
 def discover_public_ip(version: int, timeout: float = 4.0) -> Optional[str]:
-    url = (
-        "https://api.ipify.org?format=json"
-        if version == 4
-        else "https://api6.ipify.org?format=json"
-    )
-    try:
-        value = _read_json(url, timeout).get("ip", "")
-        address = ipaddress.ip_address(value)
-        return str(address) if address.version == version and address.is_global else None
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
-        return None
+    if version not in PUBLIC_IP_URLS:
+        raise ValueError("IP version must be 4 or 6")
+    for url in PUBLIC_IP_URLS[version]:
+        try:
+            text = _read_text(url, timeout)
+            value = json.loads(text).get("ip", "") if text.startswith("{") else text
+            address = ipaddress.ip_address(value.strip())
+            if address.version == version and address.is_global:
+                return str(address)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError, ssl.SSLError):
+            continue
+    return None
 
 
 def discover_public_ips() -> tuple:
