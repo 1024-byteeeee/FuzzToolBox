@@ -2,7 +2,7 @@ import math
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEasingCurve, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QTextCursor
@@ -62,29 +62,14 @@ class ResultModelTests(unittest.TestCase):
             WINDOWS_APP_ID
         )
 
-    def test_windows_main_window_is_revealed_after_first_event_pass(self):
+    def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
-            "fuzztoolbox.ui.main_window.QApplication.processEvents"
-        ) as process_events, patch(
-            "fuzztoolbox.ui.main_window.QTimer.singleShot"
-        ) as single_shot:
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"):
             show_main_window(window)
 
-        self.assertEqual(
-            window.setAttribute.call_args_list,
-            [
-                call(Qt.WA_DontShowOnScreen, True),
-                call(Qt.WA_DontShowOnScreen, False),
-            ],
-        )
-        window.ensurePolished.assert_called_once_with()
-        window.repaint.assert_called_once_with()
-        self.assertEqual(process_events.call_count, 2)
-        window.hide.assert_called_once_with()
-        callback = single_shot.call_args.args[1]
-        callback()
-        self.assertEqual(window.show.call_count, 2)
+        window.show.assert_called_once_with()
+        window.hide.assert_not_called()
+        window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
 
     def test_scan_worker_cancel_reaches_scanner_and_force_cancels_task(self):

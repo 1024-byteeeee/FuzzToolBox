@@ -63,19 +63,8 @@ def configure_windows_app_id() -> None:
 
 
 def show_main_window(window: QMainWindow) -> None:
-    """Warm up the first frame off-screen before mapping a Windows HWND."""
-    if sys.platform != "win32":
-        window.show()
-        return
-    window.setAttribute(Qt.WA_DontShowOnScreen, True)
+    """Map the fully constructed main window exactly once."""
     window.show()
-    window.ensurePolished()
-    QApplication.processEvents()
-    window.repaint()
-    QApplication.processEvents()
-    window.hide()
-    window.setAttribute(Qt.WA_DontShowOnScreen, False)
-    QTimer.singleShot(0, window.show)
 
 
 class MainWindow(QMainWindow):
