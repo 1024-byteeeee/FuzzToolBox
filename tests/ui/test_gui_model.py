@@ -83,7 +83,22 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual((splash.width(), splash.height()), SPLASH_SIZE)
         self.assertTrue(splash.windowFlags() & Qt.SplashScreen)
         self.assertTrue(splash.windowFlags() & Qt.WindowStaysOnTopHint)
+        self.assertTrue(splash.windowFlags() & Qt.WindowDoesNotAcceptFocus)
+        self.assertTrue(splash.testAttribute(Qt.WA_TransparentForMouseEvents))
         self.assertFalse(splash.pixmap().isNull())
+
+        splash.close()
+
+    def test_startup_splash_renders_at_the_screen_pixel_ratio(self):
+        splash = create_splash_screen(2.0)
+        pixmap = splash.pixmap()
+
+        self.assertEqual(pixmap.devicePixelRatio(), 2.0)
+        self.assertEqual((pixmap.width(), pixmap.height()), (1000, 800))
+        self.assertEqual(
+            (pixmap.deviceIndependentSize().width(), pixmap.deviceIndependentSize().height()),
+            SPLASH_SIZE,
+        )
 
         splash.close()
 
