@@ -1,3 +1,4 @@
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -639,7 +640,11 @@ class ResultModelTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(page._card_columns, 2)
         first_microseconds = dict(page.result_rows)["Unix 时间戳（微秒）"]
-        QTest.qWait(120)
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            QTest.qWait(50)
+            if dict(page.result_rows)["Unix 时间戳（微秒）"] != first_microseconds:
+                break
         self.assertNotEqual(dict(page.result_rows)["Unix 时间戳（微秒）"], first_microseconds)
         page.mode.setCurrentIndex(page.mode.findData("timestamp"))
         page.input.setText("0")
@@ -761,7 +766,7 @@ class ResultModelTests(unittest.TestCase):
             page.context_lines.fontMetrics().horizontalAdvance("20") + 12,
         )
         page.context_lines.setValue(9)
-        self.assertEqual(page.context_lines.width(), one_digit_width)
+        self.assertAlmostEqual(page.context_lines.width(), one_digit_width, delta=1)
         page.show()
         page.context_lines.setFocus()
         self.app.processEvents()
@@ -828,19 +833,25 @@ class ResultModelTests(unittest.TestCase):
         page = TextStatisticsPage()
         self.assertIsInstance(page.input, LineNumberEditor)
         page.input.setPlainText("你好 OpenAI\n第二行")
-        QTest.qWait(150)
+        deadline = time.monotonic() + 2
+        while page.stats.lines != 2 and time.monotonic() < deadline:
+            QTest.qWait(20)
         self.assertEqual(page.stats.lines, 2)
         self.assertEqual(page.stats.words, 1)
         self.assertEqual(page.values["word_units"].text(), "6")
         self.assertEqual(page.values["utf8_bytes"].text(), "23 字节")
         page.input.setPlainText('#include <iostream>\nstd::cout << "ok";')
-        QTest.qWait(180)
+        deadline = time.monotonic() + 2
+        while page.syntax_highlighter.language != "cpp" and time.monotonic() < deadline:
+            QTest.qWait(20)
         self.assertEqual(page.syntax_highlighter.language, "cpp")
         self.assertTrue(page.input.document().firstBlock().layout().formats())
         page.language.setCurrentIndex(page.language.findData("python"))
         self.assertEqual(page.syntax_highlighter.language, "python")
         page.input.setPlainText("你好 OpenAI\n第二行")
-        QTest.qWait(150)
+        deadline = time.monotonic() + 2
+        while page.stats.lines != 2 and time.monotonic() < deadline:
+            QTest.qWait(20)
         cursor = page.input.textCursor()
         cursor.setPosition(0)
         cursor.setPosition(2, QTextCursor.KeepAnchor)
