@@ -782,7 +782,11 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(page.left_highlighter.language, "cpp")
         self.assertTrue(page.left.document().firstBlock().layout().formats())
         page.left.clear()
-        QTest.qWait(180)
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            QTest.qWait(50)
+            if page.left_highlighter.language == "text":
+                break
         self.assertEqual(page.left_highlighter.language, "text")
         page.language.setCurrentIndex(page.language.findData("cpp"))
         self.assertEqual(page.left_highlighter.language, "cpp")
