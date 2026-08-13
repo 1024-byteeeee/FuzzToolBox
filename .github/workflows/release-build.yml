@@ -84,44 +84,11 @@ jobs:
           if ($different -ne 0) { throw "Embedded executable icon differs at $different pixels" }
           Write-Host 'Custom Windows executable icon verified.'
 
-      - name: Store workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FuzzToolBox-${{ runner.os }}-${{ runner.arch }}
-          path: build/releases/*
-          if-no-files-found: error
-
-
-  publish:
-    name: Publish complete release set
-    if: github.event_name != 'workflow_dispatch'
-    needs: build
-    runs-on: macos-latest
-    steps:
-      - name: Download all native archives
-        uses: actions/download-artifact@v4
-        with:
-          pattern: FuzzToolBox-*
-          path: build/releases
-          merge-multiple: true
-
-      - name: Verify complete platform set
-        shell: bash
-        run: |
-          set -eu
-          test "$(find build/releases -maxdepth 1 -type f | wc -l)" -eq 2
-          ls -lh build/releases
-
-      - name: Generate SHA-256 checksums
-        shell: bash
-        working-directory: build/releases
-        run: shasum -a 256 FuzzToolBox-* > SHA256SUMS.txt
-
-      - name: Replace GitHub Release executables
-        shell: bash
+      - name: Upload release asset directly
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+        shell: bash
         run: |
           set -eu
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -129,13 +96,40 @@ jobs:
           else
             tag="${{ github.ref_name }}"
           fi
-          gh release view "$tag" --repo "$GH_REPO" >/dev/null
-          gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name' |
-            while IFS= read -r asset; do
-              case "$asset" in
-                IP-Scanner-*|FuzzToolBox-*)
-                  gh release delete-asset "$tag" "$asset" --yes --repo "$GH_REPO"
-                  ;;
-              esac
-            done
-          gh release upload "$tag" build/releases/* --clobber --repo "$GH_REPO"
+          echo "Targeting release/tag: $tag"
+          upload_files=$(find build/releases -maxdepth 1 -type f | sort)
+          if [ -z "$upload_files" ]; then
+            echo "ERROR: No build artifacts found in build/releases/"
+            exit 1
+          fi
+          echo "Uploading: $upload_files"
+          gh release upload "$tag" $upload_files --clobber --repo "$GH_REPO"
+
+  verify:
+    name: Verify release assets
+    if: github.event_name != 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify both platform assets exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -eu
+          tag="${{ github.event.release.tag_name }}"
+          echo "Verifying assets for tag: $tag"
+          echo "Assets currently on release:"
+          gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[] | "  \(.name)  (\(.size) bytes)"'
+          asset_count=$(gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets | length')
+          echo "Total assets: $asset_count"
+          if [ "$asset_count" -lt 2 ]; then
+            echo "ERROR: Expected at least 2 release assets, found $asset_count"
+            gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name'
+            exit 1
+          fi
+          echo "All platform assets present in release."
