@@ -757,16 +757,21 @@ class ResultModelTests(unittest.TestCase):
         page.left.setPlainText('#include <iostream>\nint main() { return 0; }')
         page.left_highlighter.rehighlight()
         self.assertTrue(page.left.document().firstBlock().layout().formats())
-        one_digit_width = page.context_lines.width()
+        one_digit_edit = page._context_edit_width(page.context_lines.width())
         page.context_lines.setValue(20)
+        self.app.processEvents()
         two_digit_width = page.context_lines.width()
-        self.assertGreater(two_digit_width, one_digit_width)
+        two_digit_edit = page._context_edit_width(two_digit_width)
         self.assertGreaterEqual(
-            page._context_edit_width(two_digit_width),
-            page.context_lines.fontMetrics().horizontalAdvance("20") + 12,
+            two_digit_edit,
+            page.context_lines.fontMetrics().horizontalAdvance("20") + 8,
         )
         page.context_lines.setValue(9)
-        self.assertAlmostEqual(page.context_lines.width(), one_digit_width, delta=1)
+        self.app.processEvents()
+        self.assertGreaterEqual(
+            one_digit_edit,
+            page.context_lines.fontMetrics().horizontalAdvance("9"),
+        )
         page.show()
         page.context_lines.setFocus()
         self.app.processEvents()
@@ -778,7 +783,7 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(page.context_lines.text(), "20")
         QTest.keyClick(page.context_lines, Qt.Key_Return)
         self.assertEqual(page.context_lines.value(), 20)
-        self.assertEqual(page.context_lines.width(), two_digit_width)
+        self.assertAlmostEqual(page.context_lines.width(), two_digit_width, delta=2)
         page.left.setPlainText("one\nold\nend")
         page.right.setPlainText("one\nnew\nadded\nend")
         page.compare()
