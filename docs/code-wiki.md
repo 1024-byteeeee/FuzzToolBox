@@ -986,7 +986,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 sh scripts/build_macos.sh
 ```
 
-产物：`build/FuzzToolBox.app` + `build/releases/FuzzToolBox-macOS-{arch}.dmg`
+产物：`build/FuzzToolBox.app` + `build/releases/FuzzToolBox-v{version}-macOS-{arch}.dmg`
 
 #### Windows
 

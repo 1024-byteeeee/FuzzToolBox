@@ -141,7 +141,7 @@ def build() -> Path:
             ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(built_path)],
             check=True,
         )
-        release_path = RELEASE_DIR / f"{APP_NAME}-{label}-{arch}.dmg"
+        release_path = RELEASE_DIR / f"{APP_NAME}-v{__version__}-{label}-{arch}.dmg"
         with tempfile.TemporaryDirectory(prefix="fuzztoolbox-dmg-") as staging_text:
             staging = Path(staging_text)
             shutil.copytree(built_path, staging / built_path.name, symlinks=True)

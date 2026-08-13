@@ -7,6 +7,15 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_macos_release_filename_includes_version(self):
+        script = (PROJECT_DIR / "packaging" / "build_release.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'f"{APP_NAME}-v{__version__}-{label}-{arch}.dmg"',
+            script,
+        )
+
     def test_windows_installer_uses_only_bundled_inno_resources(self):
         script = (PROJECT_DIR / "packaging" / "windows_installer.iss").read_text(
             encoding="utf-8"

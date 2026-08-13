@@ -28,10 +28,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -102,6 +102,16 @@ jobs:
             tag="${{ inputs.release_tag }}"
           fi
           echo "Targeting release/tag: $tag"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name' |
+              while IFS= read -r asset; do
+                case "$asset" in
+                  FuzzToolBox-macOS-*.dmg)
+                    gh release delete-asset "$tag" "$asset" --yes --repo "$GH_REPO"
+                    ;;
+                esac
+              done
+          fi
           upload_files=$(find build/releases -maxdepth 1 -type f | sort)
           if [ -z "$upload_files" ]; then
             echo "ERROR: No build artifacts found in build/releases/"
@@ -117,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify both platform assets exist
         env:
@@ -130,11 +140,12 @@ jobs:
           echo "Verifying assets for tag: $tag"
           echo "Assets currently on release:"
           gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[] | "  \(.name)  (\(.size) bytes)"'
-          asset_count=$(gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets | length')
-          echo "Total assets: $asset_count"
-          if [ "$asset_count" -lt 2 ]; then
-            echo "ERROR: Expected at least 2 release assets, found $asset_count"
-            gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name'
+          version="${tag#v}"
+          assets=$(gh release view "$tag" --repo "$GH_REPO" --json assets --jq '.assets[].name')
+          echo "$assets" | grep -qx "FuzzToolBox-v${version}-macOS-arm64.dmg"
+          echo "$assets" | grep -qx "FuzzToolBox-v${version}-Windows-x86_64-Setup.exe"
+          if echo "$assets" | grep -q '^FuzzToolBox-macOS-'; then
+            echo "ERROR: Legacy unversioned macOS asset is still present"
             exit 1
           fi
           echo "All platform assets present in release."
