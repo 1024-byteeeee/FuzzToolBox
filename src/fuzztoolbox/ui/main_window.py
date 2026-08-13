@@ -55,7 +55,6 @@ FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
 THEME_MODES = ("system", "light", "dark")
 DEFAULT_WINDOW_SIZE = (1180, 760)
 MINIMUM_WINDOW_SIZE = (900, 600)
-DWMWA_TRANSITIONS_FORCEDISABLED = 3
 
 
 def configure_windows_app_id() -> None:
@@ -65,53 +64,54 @@ def configure_windows_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
 
 
-def disable_windows_window_transitions(window: QMainWindow) -> bool:
-    """Disable the DWM scale/fade transition for this top-level window."""
-    if sys.platform != "win32":
-        return False
-    disabled = ctypes.c_int(1)
-    try:
-        result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
-            int(window.winId()),
-            DWMWA_TRANSITIONS_FORCEDISABLED,
-            ctypes.byref(disabled),
-            ctypes.sizeof(disabled),
-        )
-    except (AttributeError, OSError):
-        return False
-    return result == 0
-
-
 def show_main_window(window: QMainWindow) -> None:
-    """Map the fully constructed main window exactly once."""
+    """Map the fully constructed window directly in its saved state."""
     window.ensurePolished()
     if window.centralWidget() is not None and window.centralWidget().layout() is not None:
         window.centralWidget().layout().activate()
-    disable_windows_window_transitions(window)
-    window.show()
+    if getattr(window, "_start_maximized", False):
+        window.showMaximized()
+    else:
+        window.show()
 
 
-def restore_valid_window_geometry(window: QMainWindow, settings: QSettings) -> bool:
-    """Restore only geometry that is large enough and intersects a live screen."""
-    geometry = settings.value("window/geometry")
-    if not geometry or not window.restoreGeometry(geometry):
-        return False
-
-    frame = window.frameGeometry()
+def _valid_normal_geometry(rect) -> bool:
     minimum_width, minimum_height = MINIMUM_WINDOW_SIZE
-    screens = QGuiApplication.screens()
-    if (
-        frame.width() < minimum_width
-        or frame.height() < minimum_height
-        or not any(screen.availableGeometry().intersects(frame) for screen in screens)
-    ):
+    return bool(
+        rect
+        and rect.width() >= minimum_width
+        and rect.height() >= minimum_height
+        and any(
+            screen.availableGeometry().intersects(rect)
+            for screen in QGuiApplication.screens()
+        )
+    )
+
+
+def restore_window_placement(window: QMainWindow, settings: QSettings) -> bool:
+    """Restore normal geometry separately from the maximized startup state."""
+    normal_geometry = settings.value("window/normalGeometry")
+    maximized = settings.value("window/maximized", False, type=bool)
+
+    # One-time migration from the old saveGeometry blob, which also embeds state.
+    legacy_geometry = settings.value("window/geometry")
+    if normal_geometry is None and legacy_geometry and window.restoreGeometry(legacy_geometry):
+        maximized = window.isMaximized()
+        normal_geometry = window.normalGeometry() if maximized else window.geometry()
+        window.setWindowState(Qt.WindowNoState)
+        settings.remove("window/geometry")
+
+    restored = _valid_normal_geometry(normal_geometry)
+    if restored:
+        window.setGeometry(normal_geometry)
+    else:
         window.resize(*DEFAULT_WINDOW_SIZE)
         screen = QGuiApplication.primaryScreen()
         if screen is not None:
             available = screen.availableGeometry()
             window.move(available.center() - window.rect().center())
-        return False
-    return True
+    window._start_maximized = bool(maximized)
+    return restored
 
 
 class MainWindow(QMainWindow):
@@ -210,7 +210,7 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.request_application_quit)
         self.addAction(quit_action)
 
-        restore_valid_window_geometry(self, self.settings)
+        restore_window_placement(self, self.settings)
         self._connect_system_theme()
         self.apply_theme()
         self.show_home()
@@ -324,7 +324,10 @@ class MainWindow(QMainWindow):
             self.ip_scanner_page.schedule_result_column_resize()
 
     def closeEvent(self, event):
-        self.settings.setValue("window/geometry", self.saveGeometry())
+        normal_geometry = self.normalGeometry() if self.isMaximized() else self.geometry()
+        self.settings.setValue("window/normalGeometry", normal_geometry)
+        self.settings.setValue("window/maximized", self.isMaximized())
+        self.settings.remove("window/geometry")
         if sys.platform == "darwin" and not self._application_quitting:
             event.ignore()
             self.hide()

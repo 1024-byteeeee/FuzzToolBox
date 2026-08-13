@@ -21,11 +21,9 @@ from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
     THEME_MODES,
     WINDOWS_APP_ID,
-    DWMWA_TRANSITIONS_FORCEDISABLED,
     MainWindow,
     configure_windows_app_id,
-    disable_windows_window_transitions,
-    restore_valid_window_geometry,
+    restore_window_placement,
     show_main_window,
 )
 from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
@@ -68,52 +66,34 @@ class ResultModelTests(unittest.TestCase):
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
         window.centralWidget.return_value = None
-        with patch(
-            "fuzztoolbox.ui.main_window.disable_windows_window_transitions"
-        ) as disable_transitions:
-            show_main_window(window)
+        window._start_maximized = False
+        show_main_window(window)
 
         window.ensurePolished.assert_called_once_with()
-        disable_transitions.assert_called_once_with(window)
         window.show.assert_called_once_with()
+        window.showMaximized.assert_not_called()
         window.hide.assert_not_called()
         window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
 
-    def test_windows_dwm_transition_is_disabled_before_show(self):
+    def test_maximized_window_is_mapped_maximized_without_normal_show(self):
         window = Mock()
-        window.winId.return_value = 12345
-        dwmapi = Mock()
-        dwmapi.DwmSetWindowAttribute.return_value = 0
-        windll = Mock(dwmapi=dwmapi)
+        window.centralWidget.return_value = None
+        window._start_maximized = True
+        show_main_window(window)
 
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
-            "fuzztoolbox.ui.main_window.ctypes.windll", windll, create=True
-        ):
-            disabled = disable_windows_window_transitions(window)
-
-        self.assertTrue(disabled)
-        window.winId.assert_called_once_with()
-        args = dwmapi.DwmSetWindowAttribute.call_args.args
-        self.assertEqual(args[0], 12345)
-        self.assertEqual(args[1], DWMWA_TRANSITIONS_FORCEDISABLED)
-        self.assertEqual(args[3], 4)
-
-    def test_dwm_transition_configuration_is_skipped_off_windows(self):
-        window = Mock()
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
-            disabled = disable_windows_window_transitions(window)
-
-        self.assertFalse(disabled)
-        window.winId.assert_not_called()
+        window.showMaximized.assert_called_once_with()
+        window.show.assert_not_called()
 
     def test_tiny_saved_geometry_is_replaced_before_first_show(self):
         window = Mock()
-        window.restoreGeometry.return_value = True
-        window.frameGeometry.return_value = QRect(50, 50, 320, 240)
         window.rect.return_value = QRect(0, 0, 1180, 760)
         settings = Mock()
-        settings.value.return_value = b"saved-geometry"
+        settings.value.side_effect = lambda key, *args, **kwargs: {
+            "window/normalGeometry": QRect(50, 50, 320, 240),
+            "window/maximized": False,
+            "window/geometry": None,
+        }.get(key)
         screen = Mock()
         screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
 
@@ -123,7 +103,7 @@ class ResultModelTests(unittest.TestCase):
             "fuzztoolbox.ui.main_window.QGuiApplication.primaryScreen",
             return_value=screen,
         ):
-            restored = restore_valid_window_geometry(window, settings)
+            restored = restore_window_placement(window, settings)
 
         self.assertFalse(restored)
         window.resize.assert_called_once_with(1180, 760)
@@ -131,19 +111,24 @@ class ResultModelTests(unittest.TestCase):
 
     def test_visible_full_size_saved_geometry_is_preserved(self):
         window = Mock()
-        window.restoreGeometry.return_value = True
-        window.frameGeometry.return_value = QRect(80, 60, 1180, 760)
         settings = Mock()
-        settings.value.return_value = b"saved-geometry"
+        normal_geometry = QRect(80, 60, 1180, 760)
+        settings.value.side_effect = lambda key, *args, **kwargs: {
+            "window/normalGeometry": normal_geometry,
+            "window/maximized": True,
+            "window/geometry": None,
+        }.get(key)
         screen = Mock()
         screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
 
         with patch(
             "fuzztoolbox.ui.main_window.QGuiApplication.screens", return_value=[screen]
         ):
-            restored = restore_valid_window_geometry(window, settings)
+            restored = restore_window_placement(window, settings)
 
         self.assertTrue(restored)
+        window.setGeometry.assert_called_once_with(normal_geometry)
+        self.assertTrue(window._start_maximized)
         window.resize.assert_not_called()
         window.move.assert_not_called()
 
