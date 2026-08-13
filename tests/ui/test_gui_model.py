@@ -290,6 +290,15 @@ class ResultModelTests(unittest.TestCase):
         self.assertTrue(page.cards["ip-scanner"].isHidden())
         self.assertEqual(page.empty_label.text(), "没有找到匹配的工具")
 
+    def test_home_page_cards_are_never_top_level_windows(self):
+        page = ToolboxHomePage()
+
+        for card in page.cards.values():
+            self.assertIs(card.parentWidget(), page.card_host)
+            self.assertFalse(card.isWindow())
+
+        page.close()
+
     def test_ipv4_converter_presents_grouped_cards_and_inline_errors(self):
         from fuzztoolbox.tools.ipv4_converter.page import IPv4ConverterPage
 

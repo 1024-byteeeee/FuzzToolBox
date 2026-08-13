@@ -54,8 +54,8 @@ class ThemeToggleButton(QPushButton):
 class ToolCard(QFrame):
     activated = Signal(str)
 
-    def __init__(self, tool: ToolDefinition):
-        super().__init__()
+    def __init__(self, tool: ToolDefinition, parent=None):
+        super().__init__(parent)
         self.tool = tool
         self.setObjectName("toolCard")
         self.setCursor(Qt.PointingHandCursor)
@@ -100,7 +100,6 @@ class ToolboxHomePage(QWidget):
     def __init__(self, tools=TOOLS):
         super().__init__()
         self.tools = tuple(tools)
-        self.cards = {tool.id: ToolCard(tool) for tool in self.tools}
         self.category = "all"
 
         root = QVBoxLayout(self)
@@ -157,6 +156,13 @@ class ToolboxHomePage(QWidget):
         self.card_grid.setAlignment(Qt.AlignTop)
         scroll.setWidget(self.card_host)
         root.addWidget(scroll, 1)
+
+        # Cards must have a parent before refresh_tools() makes them visible.
+        # Otherwise Qt treats each parentless card as a temporary top-level
+        # window, which produces a visible startup flash on Windows.
+        self.cards = {
+            tool.id: ToolCard(tool, self.card_host) for tool in self.tools
+        }
 
         self.empty_label = QLabel()
         self.empty_label.setAlignment(Qt.AlignCenter)
