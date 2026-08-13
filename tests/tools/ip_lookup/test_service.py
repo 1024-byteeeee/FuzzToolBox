@@ -1,4 +1,6 @@
 import unittest
+import socket
+import struct
 from unittest.mock import patch
 
 from fuzztoolbox.tools.ip_lookup.page import format_report
@@ -7,6 +9,8 @@ from fuzztoolbox.tools.ip_lookup.service import (
     SourceResult,
     classify_ip,
     discover_public_ip,
+    _discover_ipv4_via_dns,
+    _ssl_context,
     lookup,
     parse_public_ip,
 )
@@ -38,6 +42,38 @@ class IPLookupServiceTests(unittest.TestCase):
     def test_public_ip_discovery_rejects_unknown_version(self):
         with self.assertRaises(ValueError):
             discover_public_ip(5)
+
+    @patch("fuzztoolbox.tools.ip_lookup.service._discover_ipv4_via_dns")
+    @patch("fuzztoolbox.tools.ip_lookup.service._read_text", side_effect=OSError("offline"))
+    def test_public_ip_discovery_uses_dns_after_https_sources(self, read_text, dns):
+        dns.return_value = "8.8.4.4"
+        self.assertEqual(discover_public_ip(4), "8.8.4.4")
+        self.assertEqual(read_text.call_count, 6)
+        dns.assert_called_once()
+
+    @patch("fuzztoolbox.tools.ip_lookup.service.socket.socket")
+    @patch("fuzztoolbox.tools.ip_lookup.service.os.urandom", return_value=b"\x12\x34")
+    def test_opendns_response_is_parsed(self, _random, socket_class):
+        question = b"\x04myip\x07opendns\x03com\x00\x00\x01\x00\x01"
+        answer = b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04" + socket.inet_aton("8.8.8.8")
+        response = b"\x12\x34\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00" + question + answer
+        socket_class.return_value.recvfrom.return_value = (response, ("208.67.222.222", 53))
+        self.assertEqual(_discover_ipv4_via_dns(), "8.8.8.8")
+        socket_class.return_value.sendto.assert_called_once()
+        socket_class.return_value.close.assert_called_once()
+
+    @patch("fuzztoolbox.tools.ip_lookup.service.platform.system", return_value="Darwin")
+    @patch("fuzztoolbox.tools.ip_lookup.service.Path.is_file", return_value=True)
+    @patch("fuzztoolbox.tools.ip_lookup.service.subprocess.run")
+    @patch("fuzztoolbox.tools.ip_lookup.service.ssl.create_default_context")
+    def test_macos_ssl_context_loads_native_certificates(self, create_context, run, _exists, _system):
+        context = create_context.return_value
+        run.return_value.returncode = 0
+        run.return_value.stdout = b"-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n"
+        _ssl_context.cache_clear()
+        self.assertIs(_ssl_context(), context)
+        self.assertGreaterEqual(context.load_verify_locations.call_count, 3)
+        _ssl_context.cache_clear()
 
     @patch("fuzztoolbox.tools.ip_lookup.service.reverse_dns")
     @patch("fuzztoolbox.tools.ip_lookup.service._read_json")

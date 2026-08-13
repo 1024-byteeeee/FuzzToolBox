@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
+import platform
 import socket
 import ssl
+import struct
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.request import Request, urlopen
 
@@ -18,6 +24,9 @@ PUBLIC_IP_URLS = {
         "https://api4.ipify.org?format=json",
         "https://ipv4.icanhazip.com/",
         "https://v4.ident.me/",
+        "https://checkip.amazonaws.com/",
+        "https://ipinfo.io/ip",
+        "https://www.cloudflare.com/cdn-cgi/trace",
     ),
     6: (
         "https://api6.ipify.org?format=json",
@@ -25,6 +34,10 @@ PUBLIC_IP_URLS = {
         "https://v6.ident.me/",
     ),
 }
+MACOS_CERTIFICATE_FILES = (
+    "/etc/ssl/cert.pem",
+    "/private/etc/ssl/cert.pem",
+)
 
 
 @dataclass
@@ -76,9 +89,31 @@ def classify_ip(value: str) -> str:
     return " · ".join(labels)
 
 
+@lru_cache(maxsize=1)
 def _ssl_context() -> ssl.SSLContext:
-    """Use Python defaults plus certificates from Windows' native root store."""
+    """Build a reusable context that also trusts the native OS certificate store."""
     context = ssl.create_default_context()
+    if platform.system() == "Darwin":
+        for certificate_file in MACOS_CERTIFICATE_FILES:
+            if Path(certificate_file).is_file():
+                try:
+                    context.load_verify_locations(cafile=certificate_file)
+                except (OSError, ssl.SSLError):
+                    continue
+        try:
+            result = subprocess.run(
+                [
+                    "/usr/bin/security", "find-certificate", "-a", "-p",
+                    "/System/Library/Keychains/SystemRootCertificates.keychain",
+                ],
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout:
+                context.load_verify_locations(cadata=result.stdout.decode("ascii"))
+        except (OSError, UnicodeDecodeError, subprocess.TimeoutExpired, ssl.SSLError):
+            pass
     enum_certificates = getattr(ssl, "enum_certificates", None)
     if enum_certificates is not None:
         try:
@@ -97,7 +132,14 @@ def _ssl_context() -> ssl.SSLContext:
 
 
 def _read_text(url: str, timeout: float = 5.0) -> str:
-    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    request = Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json,text/plain;q=0.9,*/*;q=0.8",
+            "Cache-Control": "no-cache",
+        },
+    )
     with urlopen(request, timeout=timeout, context=_ssl_context()) as response:
         return response.read().decode("utf-8").strip()
 
@@ -112,12 +154,68 @@ def discover_public_ip(version: int, timeout: float = 4.0) -> Optional[str]:
     for url in PUBLIC_IP_URLS[version]:
         try:
             text = _read_text(url, timeout)
-            value = json.loads(text).get("ip", "") if text.startswith("{") else text
+            if text.startswith("{"):
+                value = json.loads(text).get("ip", "")
+            elif "ip=" in text and "\n" in text:
+                value = next(
+                    (line[3:] for line in text.splitlines() if line.startswith("ip=")),
+                    "",
+                )
+            else:
+                value = text
             address = ipaddress.ip_address(value.strip())
             if address.version == version and address.is_global:
                 return str(address)
         except (OSError, ValueError, KeyError, json.JSONDecodeError, ssl.SSLError):
             continue
+    return _discover_ipv4_via_dns(timeout) if version == 4 else None
+
+
+def _dns_name(value: str) -> bytes:
+    return b"".join(bytes((len(label),)) + label.encode("ascii") for label in value.split(".")) + b"\0"
+
+
+def _discover_ipv4_via_dns(timeout: float = 4.0) -> Optional[str]:
+    """Ask OpenDNS for myip.opendns.com without relying on HTTPS certificates."""
+    transaction = os.urandom(2)
+    query = transaction + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+    query += _dns_name("myip.opendns.com") + b"\x00\x01\x00\x01"
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.settimeout(timeout)
+        sock.sendto(query, ("208.67.222.222", 53))
+        response, _peer = sock.recvfrom(2048)
+    except OSError:
+        return None
+    finally:
+        sock.close()
+    if len(response) < 12 or response[:2] != transaction or response[3] & 0x0F:
+        return None
+    question_count, answer_count = struct.unpack("!HH", response[4:8])
+    offset = 12
+    try:
+        for _ in range(question_count):
+            while response[offset] != 0:
+                offset += response[offset] + 1
+            offset += 5
+        for _ in range(answer_count):
+            if response[offset] & 0xC0 == 0xC0:
+                offset += 2
+            else:
+                while response[offset] != 0:
+                    offset += response[offset] + 1
+                offset += 1
+            record_type, record_class, _ttl, length = struct.unpack(
+                "!HHIH", response[offset:offset + 10]
+            )
+            offset += 10
+            data = response[offset:offset + length]
+            offset += length
+            if record_type == 1 and record_class == 1 and length == 4:
+                value = socket.inet_ntoa(data)
+                return value if ipaddress.ip_address(value).is_global else None
+    except (IndexError, struct.error, ValueError):
+        return None
     return None
 
 

@@ -16,6 +16,17 @@ class PackagingTests(unittest.TestCase):
             script,
         )
 
+    def test_macos_dmg_has_styled_finder_layout(self):
+        layout = (PROJECT_DIR / "packaging" / "dmg_layout.py").read_text(
+            encoding="utf-8"
+        )
+        background = PROJECT_DIR / "packaging" / "dmg-background.svg"
+        self.assertTrue(background.is_file())
+        self.assertIn("set background picture of opts", layout)
+        self.assertIn('set position of item "{app_path.name}"', layout)
+        self.assertIn('set position of item "Applications"', layout)
+        self.assertIn('"-format", "UDZO"', layout)
+
     def test_windows_installer_uses_only_bundled_inno_resources(self):
         script = (PROJECT_DIR / "packaging" / "windows_installer.iss").read_text(
             encoding="utf-8"

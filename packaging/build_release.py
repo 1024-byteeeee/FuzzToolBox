@@ -6,10 +6,10 @@ import plistlib
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from fuzztoolbox import __version__
+from dmg_layout import create_styled_dmg
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_DIR / "build"
@@ -142,25 +142,7 @@ def build() -> Path:
             check=True,
         )
         release_path = RELEASE_DIR / f"{APP_NAME}-v{__version__}-{label}-{arch}.dmg"
-        with tempfile.TemporaryDirectory(prefix="fuzztoolbox-dmg-") as staging_text:
-            staging = Path(staging_text)
-            shutil.copytree(built_path, staging / built_path.name, symlinks=True)
-            (staging / "Applications").symlink_to("/Applications")
-            subprocess.run(
-                [
-                    "/usr/bin/hdiutil",
-                    "create",
-                    "-volname",
-                    APP_NAME,
-                    "-srcfolder",
-                    str(staging),
-                    "-ov",
-                    "-format",
-                    "UDZO",
-                    str(release_path),
-                ],
-                check=True,
-            )
+        create_styled_dmg(built_path, release_path, APP_NAME)
     else:
         built_path = BUILD_DIR / APP_NAME
         executable = built_path / f"{APP_NAME}.exe"
