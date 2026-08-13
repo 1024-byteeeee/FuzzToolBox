@@ -62,6 +62,17 @@ def configure_windows_app_id() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
 
 
+def show_main_window(window: QMainWindow) -> None:
+    """Show the completed first frame without flashing an empty Windows HWND."""
+    if sys.platform != "win32":
+        window.show()
+        return
+    window.setWindowOpacity(0.0)
+    window.show()
+    QApplication.processEvents()
+    QTimer.singleShot(0, lambda: window.setWindowOpacity(1.0))
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -327,7 +338,7 @@ def main() -> None:
     window = MainWindow()
     if sys.platform == "darwin":
         app.applicationStateChanged.connect(window.restore_from_application_activation)
-    window.show()
+    show_main_window(window)
     raise SystemExit(app.exec())
 
 

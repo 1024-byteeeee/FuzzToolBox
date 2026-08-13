@@ -6,7 +6,15 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import QEasingCurve, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QTableView
+from PySide6.QtWidgets import (
+    QApplication,
+    QColorDialog,
+    QComboBox,
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QTableView,
+)
 
 from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
@@ -14,6 +22,7 @@ from fuzztoolbox.ui.main_window import (
     WINDOWS_APP_ID,
     MainWindow,
     configure_windows_app_id,
+    show_main_window,
 )
 from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
 from fuzztoolbox.tools.ip_scanner.models import ScanConfig
@@ -51,6 +60,22 @@ class ResultModelTests(unittest.TestCase):
         shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once_with(
             WINDOWS_APP_ID
         )
+
+    def test_windows_main_window_is_revealed_after_first_event_pass(self):
+        window = Mock()
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
+            "fuzztoolbox.ui.main_window.QApplication.processEvents"
+        ) as process_events, patch(
+            "fuzztoolbox.ui.main_window.QTimer.singleShot"
+        ) as single_shot:
+            show_main_window(window)
+
+        window.setWindowOpacity.assert_called_once_with(0.0)
+        window.show.assert_called_once_with()
+        process_events.assert_called_once_with()
+        callback = single_shot.call_args.args[1]
+        callback()
+        window.setWindowOpacity.assert_called_with(1.0)
 
     def test_scan_worker_cancel_reaches_scanner_and_force_cancels_task(self):
         worker = ScanWorker("192.0.2.1", ScanConfig(), NetworkInfo())
@@ -488,6 +513,22 @@ class ResultModelTests(unittest.TestCase):
         self.assertTrue(page.png_data.startswith(b"\x89PNG"))
         page.security.setCurrentIndex(page.security.findData("WPA"))
         self.assertTrue(page.password.isEnabled())
+
+    def test_qr_color_dialog_initializes_before_first_interaction(self):
+        from fuzztoolbox.tools.qr_generator.components import ColorButton
+
+        button = ColorButton("#409EFF", "选择颜色")
+        self.assertTrue(button._dialog.testOption(QColorDialog.DontUseNativeDialog))
+        self.assertEqual(button._dialog.windowTitle(), "选择颜色")
+        with patch.object(button._dialog, "exec", return_value=QDialog.Rejected), patch(
+            "fuzztoolbox.tools.qr_generator.components.QTimer.singleShot"
+        ) as single_shot:
+            button.choose_color()
+        self.assertEqual(button._dialog.currentColor().name(), "#409eff")
+        callback = single_shot.call_args.args[1]
+        callback()
+        self.assertEqual(button._dialog.currentColor().name(), "#409eff")
+        button.close()
 
     def test_color_picker_keeps_rgb_and_all_outputs_in_sync(self):
         from fuzztoolbox.tools.color_picker.page import ColorPickerPage

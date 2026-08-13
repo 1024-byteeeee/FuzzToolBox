@@ -1,8 +1,8 @@
 """Reusable controls shared by QR-based toolbox pages."""
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QColorDialog, QPushButton
+from PySide6.QtWidgets import QColorDialog, QDialog, QPushButton, QWidget
 
 from fuzztoolbox.ui.style_loader import apply_style
 
@@ -17,14 +17,31 @@ class ColorButton(QPushButton):
         self.setObjectName("colorPicker")
         self.setMinimumWidth(128)
         self.clicked.connect(self.choose_color)
+        self._dialog = QColorDialog(self)
+        self._dialog.setWindowTitle(self.title)
+        self._dialog.setOption(QColorDialog.DontUseNativeDialog, True)
         self._refresh()
 
     def choose_color(self):
-        selected = QColorDialog.getColor(self.color, self, self.title)
-        if selected.isValid():
-            self.color = selected
+        self._dialog.setCurrentColor(self.color)
+        # QColorDialog builds its HSV controls lazily. Reapplying the color
+        # after the first layout pass prevents an uninitialized black color
+        # field on the first opening on Windows.
+        QTimer.singleShot(0, self._initialize_dialog)
+        if self._dialog.exec() == QDialog.Accepted:
+            selected = self._dialog.currentColor()
+            if not selected.isValid():
+                return
+            self.color = QColor(selected)
             self._refresh()
             self.color_changed.emit()
+
+    def _initialize_dialog(self):
+        self._dialog.ensurePolished()
+        self._dialog.setCurrentColor(self.color)
+        self._dialog.update()
+        for child in self._dialog.findChildren(QWidget):
+            child.update()
 
     def _refresh(self):
         value = self.color.name().upper()
