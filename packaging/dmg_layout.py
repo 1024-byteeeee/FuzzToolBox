@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -13,6 +14,27 @@ WINDOW_HEIGHT = 440
 ICON_SIZE = 112
 APP_POSITION = (190, 265)
 APPLICATIONS_POSITION = (530, 265)
+
+
+def _detach_dmg(device: str, attempts: int = 6) -> None:
+    """Detach a DMG after Finder has released its background and window state."""
+    subprocess.run(["/usr/bin/sync"], check=False)
+    for attempt in range(attempts):
+        result = subprocess.run(
+            ["/usr/bin/hdiutil", "detach", device],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return
+        if attempt + 1 < attempts:
+            time.sleep(min(0.5 * (attempt + 1), 2.0))
+
+    subprocess.run(
+        ["/usr/bin/hdiutil", "detach", "-force", device],
+        check=True,
+    )
 
 
 def _render_background(svg_path: Path, png_path: Path) -> None:
@@ -104,7 +126,17 @@ end tell
         try:
             subprocess.run(["/usr/bin/osascript", "-e", script], check=True)
         finally:
-            subprocess.run(["/usr/bin/hdiutil", "detach", device], check=True)
+            # Finder can keep the background image or .DS_Store open briefly,
+            # especially on hosted macOS runners. Ask it to release the disk,
+            # then retry the detach before falling back to a forced detach.
+            subprocess.run(
+                [
+                    "/usr/bin/osascript", "-e",
+                    f'tell application "Finder" to close every window whose target is disk "{volume_name}"',
+                ],
+                check=False,
+            )
+            _detach_dmg(device)
         output_path.unlink(missing_ok=True)
         subprocess.run(
             [
