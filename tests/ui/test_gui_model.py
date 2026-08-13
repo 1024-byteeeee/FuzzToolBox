@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QEasingCurve, Qt
+from PySide6.QtCore import QEasingCurve, QRect, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -23,6 +23,7 @@ from fuzztoolbox.ui.main_window import (
     WINDOWS_APP_ID,
     MainWindow,
     configure_windows_app_id,
+    restore_valid_window_geometry,
     show_main_window,
 )
 from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
@@ -64,13 +65,55 @@ class ResultModelTests(unittest.TestCase):
 
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
+        window.centralWidget.return_value = None
         with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"):
             show_main_window(window)
 
+        window.ensurePolished.assert_called_once_with()
         window.show.assert_called_once_with()
         window.hide.assert_not_called()
         window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
+
+    def test_tiny_saved_geometry_is_replaced_before_first_show(self):
+        window = Mock()
+        window.restoreGeometry.return_value = True
+        window.frameGeometry.return_value = QRect(50, 50, 320, 240)
+        window.rect.return_value = QRect(0, 0, 1180, 760)
+        settings = Mock()
+        settings.value.return_value = b"saved-geometry"
+        screen = Mock()
+        screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+
+        with patch(
+            "fuzztoolbox.ui.main_window.QGuiApplication.screens", return_value=[screen]
+        ), patch(
+            "fuzztoolbox.ui.main_window.QGuiApplication.primaryScreen",
+            return_value=screen,
+        ):
+            restored = restore_valid_window_geometry(window, settings)
+
+        self.assertFalse(restored)
+        window.resize.assert_called_once_with(1180, 760)
+        window.move.assert_called_once()
+
+    def test_visible_full_size_saved_geometry_is_preserved(self):
+        window = Mock()
+        window.restoreGeometry.return_value = True
+        window.frameGeometry.return_value = QRect(80, 60, 1180, 760)
+        settings = Mock()
+        settings.value.return_value = b"saved-geometry"
+        screen = Mock()
+        screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+
+        with patch(
+            "fuzztoolbox.ui.main_window.QGuiApplication.screens", return_value=[screen]
+        ):
+            restored = restore_valid_window_geometry(window, settings)
+
+        self.assertTrue(restored)
+        window.resize.assert_not_called()
+        window.move.assert_not_called()
 
     def test_scan_worker_cancel_reaches_scanner_and_force_cancels_task(self):
         worker = ScanWorker("192.0.2.1", ScanConfig(), NetworkInfo())

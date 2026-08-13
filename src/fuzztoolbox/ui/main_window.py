@@ -13,7 +13,7 @@ from fuzztoolbox.ui.style_loader import (
 
 try:
     from PySide6.QtCore import QSettings, QTimer, Qt
-    from PySide6.QtGui import QAction, QIcon, QKeySequence
+    from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
     from PySide6.QtWidgets import (
         QApplication,
         QFrame,
@@ -53,6 +53,8 @@ APP_ICON_PATH = ASSET_DIR / "app-icon.svg"
 WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
 THEME_MODES = ("system", "light", "dark")
+DEFAULT_WINDOW_SIZE = (1180, 760)
+MINIMUM_WINDOW_SIZE = (900, 600)
 
 
 def configure_windows_app_id() -> None:
@@ -64,7 +66,33 @@ def configure_windows_app_id() -> None:
 
 def show_main_window(window: QMainWindow) -> None:
     """Map the fully constructed main window exactly once."""
+    window.ensurePolished()
+    if window.centralWidget() is not None and window.centralWidget().layout() is not None:
+        window.centralWidget().layout().activate()
     window.show()
+
+
+def restore_valid_window_geometry(window: QMainWindow, settings: QSettings) -> bool:
+    """Restore only geometry that is large enough and intersects a live screen."""
+    geometry = settings.value("window/geometry")
+    if not geometry or not window.restoreGeometry(geometry):
+        return False
+
+    frame = window.frameGeometry()
+    minimum_width, minimum_height = MINIMUM_WINDOW_SIZE
+    screens = QGuiApplication.screens()
+    if (
+        frame.width() < minimum_width
+        or frame.height() < minimum_height
+        or not any(screen.availableGeometry().intersects(frame) for screen in screens)
+    ):
+        window.resize(*DEFAULT_WINDOW_SIZE)
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            window.move(available.center() - window.rect().center())
+        return False
+    return True
 
 
 class MainWindow(QMainWindow):
@@ -73,7 +101,8 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
         self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
         self.setWindowTitle(f"FuzzToolBox v{__version__}")
-        self.resize(1180, 760)
+        self.setMinimumSize(*MINIMUM_WINDOW_SIZE)
+        self.resize(*DEFAULT_WINDOW_SIZE)
         self._closing_after_worker = False
         self._application_quitting = False
         self.theme_mode = str(self.settings.value("appearance/theme", "system"))
@@ -162,9 +191,7 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.request_application_quit)
         self.addAction(quit_action)
 
-        geometry = self.settings.value("window/geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
+        restore_valid_window_geometry(self, self.settings)
         self._connect_system_theme()
         self.apply_theme()
         self.show_home()
