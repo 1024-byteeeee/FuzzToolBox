@@ -1,10 +1,11 @@
+import math
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from PySide6.QtCore import QEasingCurve, Qt
-from PySide6.QtGui import QCloseEvent, QGuiApplication, QTextCursor
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -70,12 +71,21 @@ class ResultModelTests(unittest.TestCase):
         ) as single_shot:
             show_main_window(window)
 
-        window.setWindowOpacity.assert_called_once_with(0.0)
-        window.show.assert_called_once_with()
-        process_events.assert_called_once_with()
+        self.assertEqual(
+            window.setAttribute.call_args_list,
+            [
+                call(Qt.WA_DontShowOnScreen, True),
+                call(Qt.WA_DontShowOnScreen, False),
+            ],
+        )
+        window.ensurePolished.assert_called_once_with()
+        window.repaint.assert_called_once_with()
+        self.assertEqual(process_events.call_count, 2)
+        window.hide.assert_called_once_with()
         callback = single_shot.call_args.args[1]
         callback()
-        window.setWindowOpacity.assert_called_with(1.0)
+        self.assertEqual(window.show.call_count, 2)
+        window.setWindowOpacity.assert_not_called()
 
     def test_scan_worker_cancel_reaches_scanner_and_force_cancels_task(self):
         worker = ScanWorker("192.0.2.1", ScanConfig(), NetworkInfo())
@@ -571,6 +581,28 @@ class ResultModelTests(unittest.TestCase):
 
         self.assertEqual(page.wheel._hue, 217.35)
         page.close()
+
+    def test_color_wheel_uses_antialiased_vector_gradient(self):
+        from fuzztoolbox.tools.color_picker.color_wheel import ColorWheel
+
+        wheel = ColorWheel()
+        wheel.resize(360, 360)
+        image = QImage(360, 360, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        wheel.render(image)
+
+        center, outer_radius, ring_width, _square = wheel._geometry()
+        radius = outer_radius - ring_width / 2
+        red = image.pixelColor(round(center.x() + radius), round(center.y()))
+        green = image.pixelColor(
+            round(center.x() + math.cos(math.radians(120)) * radius),
+            round(center.y() - math.sin(math.radians(120)) * radius),
+        )
+        self.assertGreater(red.red(), 240)
+        self.assertLess(red.green(), 25)
+        self.assertGreater(green.green(), 220)
+        self.assertFalse(hasattr(wheel, "_wheel_image"))
+        wheel.close()
 
     def test_ip_lookup_has_named_input_default_ip_and_progress_animation(self):
         from fuzztoolbox.tools.ip_lookup.page import IPLookupPage

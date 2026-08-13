@@ -1,7 +1,7 @@
 import math
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import QColor, QConicalGradient, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from fuzztoolbox.ui.style_loader import theme_color
@@ -16,8 +16,6 @@ class ColorWheel(QWidget):
         self._saturation = 0.75
         self._value = 1.0
         self._drag_target = None
-        self._wheel_image = QImage()
-        self._wheel_cache_key = None
         self.setMinimumSize(280, 280)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCursor(Qt.CrossCursor)
@@ -52,37 +50,24 @@ class ColorWheel(QWidget):
         )
         return center, outer_radius, ring_width, square
 
-    def _ensure_wheel_image(self) -> None:
-        dpr = self.devicePixelRatioF()
-        cache_key = (self.size(), round(dpr, 3))
-        if cache_key == self._wheel_cache_key:
-            return
-        pixel_width = max(1, round(self.width() * dpr))
-        pixel_height = max(1, round(self.height() * dpr))
-        image = QImage(pixel_width, pixel_height, QImage.Format_ARGB32_Premultiplied)
-        image.fill(Qt.transparent)
-        center, outer_radius, ring_width, _square = self._geometry()
-        inner_radius = outer_radius - ring_width
-        for pixel_y in range(pixel_height):
-            logical_y = (pixel_y + 0.5) / dpr
-            dy = logical_y - center.y()
-            for pixel_x in range(pixel_width):
-                logical_x = (pixel_x + 0.5) / dpr
-                dx = logical_x - center.x()
-                radius = math.hypot(dx, dy)
-                if inner_radius <= radius <= outer_radius:
-                    hue = math.degrees(math.atan2(-dy, dx)) % 360.0
-                    image.setPixelColor(pixel_x, pixel_y, QColor.fromHsvF(hue / 360.0, 1, 1))
-        image.setDevicePixelRatio(dpr)
-        self._wheel_image = image
-        self._wheel_cache_key = cache_key
-
     def paintEvent(self, _event):
-        self._ensure_wheel_image()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.drawImage(QPointF(0, 0), self._wheel_image)
         center, outer_radius, ring_width, square = self._geometry()
+
+        wheel_gradient = QConicalGradient(center, 0)
+        for position in (0.0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1.0):
+            wheel_gradient.setColorAt(
+                position, QColor.fromHsvF(position % 1.0, 1.0, 1.0)
+            )
+        outer_path = QPainterPath()
+        outer_path.addEllipse(center, outer_radius, outer_radius)
+        inner_radius = outer_radius - ring_width
+        inner_path = QPainterPath()
+        inner_path.addEllipse(center, inner_radius, inner_radius)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(wheel_gradient)
+        painter.drawPath(outer_path.subtracted(inner_path))
 
         painter.setPen(QPen(QColor(theme_color("border")), 1.5))
         painter.setBrush(QColor.fromHsvF(self._hue / 360.0, 1, 1))
@@ -168,7 +153,3 @@ class ColorWheel(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-    def resizeEvent(self, event):
-        self._wheel_cache_key = None
-        super().resizeEvent(event)
