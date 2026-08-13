@@ -745,7 +745,11 @@ class ResultModelTests(unittest.TestCase):
         self.assertIsInstance(page.right, LineNumberEditor)
         self.assertGreaterEqual(page.language.count(), 25)
         page.left.setPlainText('#include <iostream>\nstd::cout << "ready";')
-        QTest.qWait(180)
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            QTest.qWait(50)
+            if page.left_highlighter.language == "cpp":
+                break
         self.assertEqual(page.left_highlighter.language, "cpp")
         self.assertTrue(page.left.document().firstBlock().layout().formats())
         page.left.clear()
