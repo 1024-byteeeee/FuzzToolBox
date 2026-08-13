@@ -18,7 +18,9 @@ APPLICATIONS_POSITION = (530, 265)
 
 def _detach_dmg(device: str, attempts: int = 6) -> None:
     """Detach a DMG after Finder has released its background and window state."""
-    subprocess.run(["/usr/bin/sync"], check=False)
+    sync_command = shutil.which("sync")
+    if sync_command:
+        subprocess.run([sync_command], check=False)
     for attempt in range(attempts):
         result = subprocess.run(
             ["/usr/bin/hdiutil", "detach", device],

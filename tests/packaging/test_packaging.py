@@ -26,6 +26,8 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('set position of item "{app_path.name}"', layout)
         self.assertIn('set position of item "Applications"', layout)
         self.assertIn('"-format", "UDZO"', layout)
+        self.assertIn('shutil.which("sync")', layout)
+        self.assertIn('"detach", "-force", device', layout)
 
     def test_windows_installer_uses_only_bundled_inno_resources(self):
         script = (PROJECT_DIR / "packaging" / "windows_installer.iss").read_text(
