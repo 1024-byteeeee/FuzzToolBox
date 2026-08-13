@@ -1,9 +1,6 @@
 name: Build release applications
 
 on:
-  push:
-    tags:
-      - "*"
   release:
     types: [published]
   workflow_dispatch:

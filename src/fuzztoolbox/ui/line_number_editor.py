@@ -6,6 +6,8 @@ from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QTextFormat
 from PySide6.QtWidgets import QPlainTextEdit, QTextEdit, QWidget
 
+from .style_loader import theme_color
+
 
 class LineNumberArea(QWidget):
     def __init__(self, editor: "LineNumberEditor"):
@@ -80,8 +82,8 @@ class LineNumberEditor(QPlainTextEdit):
 
     def paint_line_number_area(self, event):
         painter = QPainter(self.line_number_area)
-        painter.fillRect(event.rect(), QColor("#f2f5f9"))
-        painter.setPen(QColor("#d8dee8"))
+        painter.fillRect(event.rect(), QColor(theme_color("gutter")))
+        painter.setPen(QColor(theme_color("gutter_border")))
         painter.drawLine(
             self.line_number_area.width() - 1,
             event.rect().top(),
@@ -101,13 +103,13 @@ class LineNumberEditor(QPlainTextEdit):
                 if marker:
                     painter.fillRect(0, top, 4, bottom - top, QColor(marker))
                 if line == self._error_line:
-                    painter.fillRect(0, top, self.line_number_area.width() - 1, bottom - top, QColor("#fde2e2"))
-                    color = QColor("#d64545")
+                    painter.fillRect(0, top, self.line_number_area.width() - 1, bottom - top, QColor(theme_color("error_bg")))
+                    color = QColor(theme_color("error"))
                 elif line == current_line and self.hasFocus():
-                    painter.fillRect(0, top, self.line_number_area.width() - 1, bottom - top, QColor("#e8f3ff"))
-                    color = QColor("#1677d2")
+                    painter.fillRect(0, top, self.line_number_area.width() - 1, bottom - top, QColor(theme_color("current_line")))
+                    color = QColor(theme_color("primary_text"))
                 else:
-                    color = QColor("#909399")
+                    color = QColor(theme_color("text_muted"))
                 painter.setPen(color)
                 painter.drawText(
                     4,
@@ -135,7 +137,9 @@ class LineNumberEditor(QPlainTextEdit):
         current_line_selection = None
         if not self.isReadOnly() or self._highlight_read_only_line:
             selection = QTextEdit.ExtraSelection()
-            selection.format.setBackground(QColor(64, 158, 255, 54 if self.isReadOnly() else 24))
+            highlight = QColor(theme_color("primary"))
+            highlight.setAlpha(54 if self.isReadOnly() else 24)
+            selection.format.setBackground(highlight)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
             selection.cursor.clearSelection()

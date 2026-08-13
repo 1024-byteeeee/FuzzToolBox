@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
     QTableView,
 )
-from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import apply_style, on_theme_changed, theme_color
 
 
 class ComboItemDelegate(QStyledItemDelegate):
@@ -24,9 +24,9 @@ class ComboItemDelegate(QStyledItemDelegate):
         rect = option.rect.adjusted(4, 2, -4, -2)
         if option.state & (QStyle.State_MouseOver | QStyle.State_Selected):
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#ecf5ff"))
+            painter.setBrush(QColor(theme_color("primary_soft")))
             painter.drawRoundedRect(rect, 5, 5)
-        painter.setPen(QColor("#303133"))
+        painter.setPen(QColor(theme_color("text")))
         painter.drawText(
             rect.adjusted(10, 0, -8, 0),
             Qt.AlignVCenter | Qt.AlignLeft,
@@ -38,17 +38,34 @@ class ComboItemDelegate(QStyledItemDelegate):
 class ComboListView(QListView):
     """Dropdown view that also paints Qt's separate popup container."""
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        on_theme_changed(self.apply_theme_palette)
+
+    def apply_theme_palette(self):
+        palette = self.palette()
+        palette.setColor(QPalette.Base, QColor(theme_color("surface")))
+        palette.setColor(QPalette.Window, QColor(theme_color("surface")))
+        palette.setColor(QPalette.Text, QColor(theme_color("text")))
+        palette.setColor(QPalette.Highlight, QColor(theme_color("primary_soft")))
+        palette.setColor(QPalette.HighlightedText, QColor(theme_color("text")))
+        self.setPalette(palette)
+        self.viewport().setPalette(palette)
+        popup = self.window()
+        popup_palette = popup.palette()
+        for role in (QPalette.Base, QPalette.Button):
+            popup_palette.setColor(role, QColor(theme_color("surface")))
+        popup_palette.setColor(QPalette.Window, QColor("transparent"))
+        popup_palette.setColor(QPalette.Text, QColor(theme_color("text")))
+        popup.setPalette(popup_palette)
+        self.viewport().update()
+
     def prepare_popup(self) -> None:
         """Configure the popup once, before its native window is first shown."""
         popup = self.window()
         if popup.property("fuzztoolboxPopupPrepared"):
             return
-        palette = popup.palette()
-        for role in (QPalette.Base, QPalette.Button):
-            palette.setColor(role, QColor("#ffffff"))
-        palette.setColor(QPalette.Window, QColor("transparent"))
-        palette.setColor(QPalette.Text, QColor("#303133"))
-        popup.setPalette(palette)
+        self.apply_theme_palette()
         if not popup.windowFlags() & Qt.FramelessWindowHint:
             popup.setWindowFlag(Qt.FramelessWindowHint, True)
         popup.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -68,13 +85,8 @@ def configure_combo(combo: QComboBox) -> None:
     view.setAttribute(Qt.WA_StyledBackground, True)
     apply_style(view, "ui.components:71")
     view.setItemDelegate(ComboItemDelegate(view))
+    view.apply_theme_palette()
     palette = view.palette()
-    palette.setColor(QPalette.Base, QColor("#ffffff"))
-    palette.setColor(QPalette.Window, QColor("#ffffff"))
-    palette.setColor(QPalette.Text, QColor("#303133"))
-    palette.setColor(QPalette.Highlight, QColor("#ecf5ff"))
-    palette.setColor(QPalette.HighlightedText, QColor("#303133"))
-    view.setPalette(palette)
     view.setAutoFillBackground(True)
     view.viewport().setPalette(palette)
     view.viewport().setAutoFillBackground(True)
@@ -98,7 +110,7 @@ class GridCellDelegate(QStyledItemDelegate):
         styled_option.palette.setColor(QPalette.HighlightedText, text_color)
         super().paint(painter, styled_option, index)
         painter.save()
-        painter.setPen(QColor("#e4e7ed"))
+        painter.setPen(QColor(theme_color("border_soft")))
         painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
         painter.drawLine(option.rect.topRight(), option.rect.bottomRight())
         painter.restore()

@@ -4,6 +4,8 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from fuzztoolbox.ui.style_loader import theme_color
+
 
 class ColorWheel(QWidget):
     color_changed = Signal(QColor)
@@ -82,7 +84,7 @@ class ColorWheel(QWidget):
         painter.drawImage(QPointF(0, 0), self._wheel_image)
         center, outer_radius, ring_width, square = self._geometry()
 
-        painter.setPen(QPen(QColor("#dcdfe6"), 1.5))
+        painter.setPen(QPen(QColor(theme_color("border")), 1.5))
         painter.setBrush(QColor.fromHsvF(self._hue / 360.0, 1, 1))
         painter.drawRoundedRect(square, 5, 5)
 

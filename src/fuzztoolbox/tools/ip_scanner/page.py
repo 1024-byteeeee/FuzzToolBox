@@ -4,7 +4,7 @@ import ipaddress
 import threading
 from pathlib import Path
 from typing import List
-from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 try:
     from PySide6.QtCore import (
@@ -78,7 +78,7 @@ class ResultModel(QAbstractTableModel):
         if role == Qt.ToolTipRole and result.error:
             return result.error
         if role == Qt.ForegroundRole and index.column() == 1:
-            return QColor("#67c23a" if result.is_alive else "#909399")
+            return QColor("#67c23a" if result.is_alive else theme_color("text_muted"))
         if role == Qt.TextAlignmentRole:
             return Qt.AlignCenter
         if role != Qt.DisplayRole:

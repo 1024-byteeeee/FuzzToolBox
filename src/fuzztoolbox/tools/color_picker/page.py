@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from .color_wheel import ColorWheel
 from .converter import ColorValue
-from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 
 class ColorPreview(QWidget):
@@ -55,7 +55,7 @@ class ColorPreview(QWidget):
         overlay.setAlpha(int(self._alpha * 255 / 100 + 0.5))
         painter.fillPath(clip, overlay)
         painter.restore()
-        painter.setPen(QPen(QColor("#dcdfe6"), 1.5))
+        painter.setPen(QPen(QColor(theme_color("border")), 1.5))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(clip)
 

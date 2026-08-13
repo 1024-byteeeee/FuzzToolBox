@@ -2,7 +2,14 @@ import re
 import unittest
 from pathlib import Path
 
-from fuzztoolbox.ui.style_loader import STYLE_DIR, load_qss, style_text
+from fuzztoolbox.ui.style_loader import (
+    STYLE_DIR,
+    current_theme,
+    load_qss,
+    set_theme,
+    style_text,
+    theme_color,
+)
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "fuzztoolbox"
@@ -38,6 +45,28 @@ class StyleArchitectureTests(unittest.TestCase):
         self.assertTrue((STYLE_DIR / "catalog.qss").is_file())
         self.assertIn("QWidget {", load_qss("base.qss"))
         self.assertNotIn("%ASSET_DIR%", load_qss("base.qss"))
+
+    def test_dark_theme_resolves_qss_and_custom_paint_colors(self):
+        try:
+            set_theme("dark")
+            stylesheet = load_qss("base.qss")
+            self.assertEqual(current_theme(), "dark")
+            self.assertIn("#111827", stylesheet)
+            self.assertIn("#edf2f7", stylesheet)
+            self.assertIn("chevron-down-dark.svg", stylesheet)
+            self.assertEqual(theme_color("surface"), "#182230")
+            self.assertIn("#182230", style_text("ui.components:57"))
+            self.assertIn("#1b3025", stylesheet)
+            self.assertNotIn("#f0faf4", stylesheet)
+        finally:
+            set_theme("light")
+
+    def test_light_theme_remains_the_default_visual_contract(self):
+        set_theme("light")
+        stylesheet = load_qss("base.qss")
+        self.assertIn("#f5f7fa", stylesheet)
+        self.assertNotIn("-dark.svg", stylesheet)
+        self.assertEqual(theme_color("text"), "#303133")
 
 
 if __name__ == "__main__":

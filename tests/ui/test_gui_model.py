@@ -2,13 +2,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEasingCurve, Qt
 from PySide6.QtGui import QGuiApplication, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QTableView
 
 from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
+    THEME_MODES,
     WINDOWS_APP_ID,
     MainWindow,
     configure_windows_app_id,
@@ -16,6 +17,7 @@ from fuzztoolbox.ui.main_window import (
 from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
 from fuzztoolbox.tools.ip_scanner.models import ScanConfig
 from fuzztoolbox.ui.home_page import ToolboxHomePage
+from fuzztoolbox.ui.home_page import ThemeToggleButton
 from fuzztoolbox.ui.line_number_editor import LineNumberEditor
 from fuzztoolbox.ui.theme import STYLE
 from fuzztoolbox.tools.ip_scanner.models import ScanResult
@@ -420,6 +422,19 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(FOOTER_COPYRIGHT, "© 2026 1024_byteeeee. All rights reserved.")
         self.assertNotIn("版权所有", FOOTER_COPYRIGHT)
 
+    def test_theme_modes_have_stable_labels(self):
+        self.assertEqual(THEME_MODES, ("system", "light", "dark"))
+
+    def test_theme_toggle_icon_uses_smooth_hover_animation(self):
+        button = ThemeToggleButton()
+        self.assertEqual(button.iconSize(), ThemeToggleButton.NORMAL_ICON_SIZE)
+        self.assertGreater(
+            ThemeToggleButton.HOVER_ICON_SIZE.width(),
+            ThemeToggleButton.NORMAL_ICON_SIZE.width(),
+        )
+        self.assertEqual(button._icon_animation.duration(), 160)
+        self.assertEqual(button._icon_animation.easingCurve().type(), QEasingCurve.InOutCubic)
+
     def test_named_uuid_versions_use_one_deterministic_result(self):
         from fuzztoolbox.tools.uuid_generator.page import UUIDGeneratorPage
 
@@ -770,7 +785,10 @@ class ResultModelTests(unittest.TestCase):
         page.left.moveCursor(QTextCursor.NextBlock)
         last_selection = page.left.extraSelections()[-1]
         last_format = last_selection.format
-        self.assertIn(last_format.background().color().name(), ("#fff0bf", "#f1b8b8"))
+        self.assertIn(
+            last_format.background().color().name(),
+            ("#fff0bf", "#f1b8b8", "#4a3d22", "#63343c"),
+        )
 
         page.mode.setCurrentIndex(page.mode.findData("unified"))
         self.assertIs(page.stack.currentWidget(), page.patch_output)

@@ -4,7 +4,12 @@ import contextlib
 import ctypes
 import sys
 from pathlib import Path
-from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import (
+    apply_style,
+    load_qss,
+    refresh_widget_styles,
+    set_theme,
+)
 
 try:
     from PySide6.QtCore import QSettings, Qt
@@ -43,13 +48,11 @@ from ..tools.uuid_generator.page import UUIDGeneratorPage
 from ..tools.wifi_qr_generator.page import WiFiQRGeneratorPage
 from .home_page import ToolboxHomePage
 from .tool_registry import TOOLS
-from .theme import STYLE
-
-
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ICON_PATH = ASSET_DIR / "app-icon.svg"
 WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
+THEME_MODES = ("system", "light", "dark")
 
 
 def configure_windows_app_id() -> None:
@@ -67,6 +70,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"FuzzToolBox v{__version__}")
         self.resize(1180, 760)
         self._closing_after_worker = False
+        self.theme_mode = str(self.settings.value("appearance/theme", "system"))
+        if self.theme_mode not in THEME_MODES:
+            self.theme_mode = "system"
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -134,19 +140,15 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(page)
         root_layout.addWidget(self.pages, 1)
 
-        github_icon = (ASSET_DIR / "github.svg").as_posix()
-        copyright_label = QLabel(
-            f'FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT} '
-            f'<img src="{github_icon}" width="14" height="14"> '
-            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
-        )
-        copyright_label.setAlignment(Qt.AlignCenter)
-        copyright_label.setOpenExternalLinks(True)
-        apply_style(copyright_label, "ui.main_window:144")
-        root_layout.addWidget(copyright_label)
+        self.copyright_label = QLabel()
+        self.copyright_label.setAlignment(Qt.AlignCenter)
+        self.copyright_label.setOpenExternalLinks(True)
+        apply_style(self.copyright_label, "ui.main_window:144")
+        root_layout.addWidget(self.copyright_label)
         self.setCentralWidget(root)
 
         self.home_page.tool_requested.connect(self.open_tool)
+        self.home_page.theme_requested.connect(self.cycle_theme)
         quit_action = QAction(self)
         quit_action.setShortcut("Ctrl+Q")
         quit_action.triggered.connect(self.close)
@@ -155,7 +157,47 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value("window/geometry")
         if geometry:
             self.restoreGeometry(geometry)
+        self._connect_system_theme()
+        self.apply_theme()
         self.show_home()
+
+    def _system_theme(self) -> str:
+        hints = QApplication.styleHints()
+        color_scheme = getattr(hints, "colorScheme", lambda: None)()
+        dark_value = getattr(getattr(Qt, "ColorScheme", object), "Dark", None)
+        return "dark" if dark_value is not None and color_scheme == dark_value else "light"
+
+    def _connect_system_theme(self):
+        signal = getattr(QApplication.styleHints(), "colorSchemeChanged", None)
+        if signal is not None:
+            signal.connect(self._system_theme_changed)
+
+    def _system_theme_changed(self, *_args):
+        if self.theme_mode == "system":
+            self.apply_theme()
+
+    def cycle_theme(self):
+        resolved = self._system_theme() if self.theme_mode == "system" else self.theme_mode
+        self.theme_mode = "light" if resolved == "dark" else "dark"
+        self.settings.setValue("appearance/theme", self.theme_mode)
+        self.apply_theme()
+
+    def apply_theme(self):
+        resolved = self._system_theme() if self.theme_mode == "system" else self.theme_mode
+        set_theme(resolved)
+        QApplication.instance().setStyleSheet(load_qss("base.qss"))
+        refresh_widget_styles(QApplication.allWidgets())
+        self.home_page.theme_button.setText("")
+        next_mode = "light" if resolved == "dark" else "dark"
+        icon_name = "theme-sun-dark.svg" if resolved == "dark" else "theme-moon.svg"
+        self.home_page.theme_button.setIcon(QIcon(str(ASSET_DIR / icon_name)))
+        self.home_page.theme_button.setToolTip(f"切换到{'浅色' if next_mode == 'light' else '深色'}模式")
+        github_icon = ASSET_DIR / ("github-dark.svg" if resolved == "dark" else "github.svg")
+        self.copyright_label.setText(
+            f'FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT} '
+            f'<img src="{github_icon.as_posix()}" width="14" height="14"> '
+            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
+        )
 
     def show_home(self):
         self.pages.setCurrentWidget(self.home_page)
@@ -249,7 +291,13 @@ def main() -> None:
     app.setOrganizationName("1024_byteeeee")
     app.setApplicationVersion(__version__)
     app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
-    app.setStyleSheet(STYLE)
+    settings = QSettings("1024_byteeeee", "FuzzToolBox")
+    requested = str(settings.value("appearance/theme", "system"))
+    hints = app.styleHints()
+    dark_value = getattr(getattr(Qt, "ColorScheme", object), "Dark", None)
+    system_dark = dark_value is not None and getattr(hints, "colorScheme", lambda: None)() == dark_value
+    set_theme("dark" if requested == "dark" or (requested == "system" and system_dark) else "light")
+    app.setStyleSheet(load_qss("base.qss"))
     window = MainWindow()
     window.show()
     raise SystemExit(app.exec())

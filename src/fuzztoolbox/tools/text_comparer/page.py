@@ -20,7 +20,7 @@ from ...ui.components import configure_combo
 from ...ui.line_number_editor import LineNumberEditor
 from .comparer import ComparisonResult, compare_texts, context_diff, unified_diff
 from .syntax import CodeSyntaxHighlighter, LANGUAGES, detect_language
-from fuzztoolbox.ui.style_loader import apply_style, set_style_state
+from fuzztoolbox.ui.style_loader import apply_style, set_style_state, theme_color
 
 
 EXAMPLE_LEFT = """FuzzToolBox
@@ -276,7 +276,7 @@ class TextComparerPage(QWidget):
             span_cursor.setPosition(block.position() + end, QTextCursor.KeepAnchor)
             selection = QTextEdit.ExtraSelection()
             selection.cursor = span_cursor
-            selection.format.setBackground(QColor("#f1b8b8" if editor is self.left else "#9edbb0"))
+            selection.format.setBackground(QColor(theme_color("diff_remove_strong" if editor is self.left else "diff_add_strong")))
             selections.append(selection)
         return selections
 
@@ -287,16 +287,16 @@ class TextComparerPage(QWidget):
         right_empty_markers = {}
         for line in self.last_result.lines:
             if line.tag == "delete" and line.left_number:
-                left_selections += self._line_selection(self.left, line.left_number, "#f8d7da")
+                left_selections += self._line_selection(self.left, line.left_number, theme_color("diff_remove_bg"))
                 if not (line.left_text or "").strip():
                     left_empty_markers[line.left_number] = "#dc5a64"
             elif line.tag == "insert" and line.right_number:
-                right_selections += self._line_selection(self.right, line.right_number, "#d9f2df")
+                right_selections += self._line_selection(self.right, line.right_number, theme_color("diff_add_bg"))
                 if not (line.right_text or "").strip():
                     right_empty_markers[line.right_number] = "#35a35a"
             elif line.tag == "replace":
-                left_selections += self._line_selection(self.left, line.left_number, "#fff0bf", line.left_spans)
-                right_selections += self._line_selection(self.right, line.right_number, "#fff0bf", line.right_spans)
+                left_selections += self._line_selection(self.left, line.left_number, theme_color("diff_change_bg"), line.left_spans)
+                right_selections += self._line_selection(self.right, line.right_number, theme_color("diff_change_bg"), line.right_spans)
                 if not (line.left_text or "").strip():
                     left_empty_markers[line.left_number] = "#d79a20"
                 if not (line.right_text or "").strip():
@@ -323,17 +323,17 @@ class TextComparerPage(QWidget):
         for line_number, text in enumerate(value.splitlines(), 1):
             background = marker = None
             if text.startswith("@@") or text == "***************" or text.startswith("*** ") and text.endswith(" ****"):
-                background, marker = "#e8f1fb", "#4b8fce"
+                background, marker = theme_color("diff_info_bg"), "#4b8fce"
             elif mode == "unified" and (text.startswith("--- ") or text.startswith("+++ ")):
-                background, marker = "#eef2f7", "#8492a6"
+                background, marker = theme_color("diff_context_bg"), "#8492a6"
             elif mode == "context" and line_number <= 2:
-                background, marker = "#eef2f7", "#8492a6"
+                background, marker = theme_color("diff_context_bg"), "#8492a6"
             elif text.startswith("+") or text.startswith("+ "):
-                background, marker = "#e3f3e7", "#35a35a"
+                background, marker = theme_color("diff_add_bg"), "#35a35a"
             elif text.startswith("-") or text.startswith("- "):
-                background, marker = "#f8e3e5", "#dc5a64"
+                background, marker = theme_color("diff_remove_bg"), "#dc5a64"
             elif mode == "context" and text.startswith("! "):
-                background, marker = "#fff1cf", "#d79a20"
+                background, marker = theme_color("diff_change_bg"), "#d79a20"
             if not background:
                 continue
             block = self.patch_output.document().findBlockByNumber(line_number - 1)

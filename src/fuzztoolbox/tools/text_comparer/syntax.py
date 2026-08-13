@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from PySide6.QtCore import QRegularExpression
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
+from fuzztoolbox.ui.style_loader import on_theme_changed, theme_color
+
 
 LANGUAGES = (
     ("自动检测", "auto"), ("纯文本", "text"), ("JSON", "json"),
@@ -104,12 +106,21 @@ class CodeSyntaxHighlighter(QSyntaxHighlighter):
         super().__init__(document)
         self.language = language
         self.diff_mode = diff_mode
+        self._apply_theme()
+        on_theme_changed(self._apply_theme)
+
+    def _apply_theme(self):
         self.formats = {
-            "keyword": _format("#7b3fb2", True), "string": _format("#16825d"),
-            "number": _format("#b15c00"), "comment": _format("#718096", italic=True),
-            "type": _format("#087f8c"), "tag": _format("#b43b52", True),
-            "property": _format("#1769aa"), "preprocessor": _format("#9a5b13", True),
+            "keyword": _format(theme_color("syntax_keyword"), True),
+            "string": _format(theme_color("syntax_string")),
+            "number": _format(theme_color("syntax_number")),
+            "comment": _format(theme_color("syntax_comment"), italic=True),
+            "type": _format(theme_color("syntax_type")),
+            "tag": _format(theme_color("syntax_tag"), True),
+            "property": _format(theme_color("syntax_property")),
+            "preprocessor": _format(theme_color("syntax_preprocessor"), True),
         }
+        self.rehighlight()
 
     def set_language(self, language):
         if language == self.language:

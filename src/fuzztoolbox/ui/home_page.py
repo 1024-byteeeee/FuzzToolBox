@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -22,6 +22,33 @@ from fuzztoolbox.ui.style_loader import apply_style
 
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+
+class ThemeToggleButton(QPushButton):
+    """Borderless theme control with a subtle, reversible icon-size animation."""
+
+    NORMAL_ICON_SIZE = QSize(23, 23)
+    HOVER_ICON_SIZE = QSize(28, 28)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setIconSize(self.NORMAL_ICON_SIZE)
+        self._icon_animation = QPropertyAnimation(self, b"iconSize", self)
+        self._icon_animation.setDuration(160)
+        self._icon_animation.setEasingCurve(QEasingCurve.InOutCubic)
+
+    def event(self, event):
+        if event.type() == QEvent.Enter:
+            self._animate_icon(self.HOVER_ICON_SIZE)
+        elif event.type() == QEvent.Leave:
+            self._animate_icon(self.NORMAL_ICON_SIZE)
+        return super().event(event)
+
+    def _animate_icon(self, target: QSize):
+        self._icon_animation.stop()
+        self._icon_animation.setStartValue(self.iconSize())
+        self._icon_animation.setEndValue(target)
+        self._icon_animation.start()
 
 
 class ToolCard(QFrame):
@@ -68,6 +95,7 @@ class ToolCard(QFrame):
 
 class ToolboxHomePage(QWidget):
     tool_requested = Signal(str)
+    theme_requested = Signal()
 
     def __init__(self, tools=TOOLS):
         super().__init__()
@@ -78,11 +106,20 @@ class ToolboxHomePage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 28, 28, 20)
         root.setSpacing(16)
+        heading = QHBoxLayout()
         self.title = QLabel("Fuzz Tool Box")
         apply_style(self.title, "ui.home_page:81")
+        self.theme_button = ThemeToggleButton()
+        self.theme_button.setObjectName("themeToggle")
+        self.theme_button.setToolTip("切换界面主题")
+        self.theme_button.setFixedSize(42, 42)
+        self.theme_button.clicked.connect(self.theme_requested.emit)
+        heading.addWidget(self.title)
+        heading.addStretch()
+        heading.addWidget(self.theme_button)
         subtitle = QLabel("为 IT 工作准备的一站式桌面工具箱")
         apply_style(subtitle, "ui.home_page:83")
-        root.addWidget(self.title)
+        root.addLayout(heading)
         root.addWidget(subtitle)
 
         self.search = QLineEdit()

@@ -86,6 +86,12 @@ QPushButton#backButton {
 QPushButton#backButton:hover { background: #f0faf4; border-color: #219653; }
 QPushButton#backButton:pressed { background: #e3f6ea; border-color: #1e8449; }
 QPushButton#backButton:focus { border-color: #219653; }
+QPushButton#themeToggle,
+QPushButton#themeToggle:hover,
+QPushButton#themeToggle:pressed,
+QPushButton#themeToggle:focus {
+  background: transparent; border: 0; padding: 8px;
+}
 QPushButton#categoryButton {
   background: white; color: #606266; border: 1px solid #dcdfe6;
 }
