@@ -1,5 +1,6 @@
 import unittest
 import struct
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -28,6 +29,23 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('"-format", "UDZO"', layout)
         self.assertIn('shutil.which("sync")', layout)
         self.assertIn('"detach", "-force", device', layout)
+
+    def test_macos_dmg_background_is_full_size_and_solid(self):
+        background = PROJECT_DIR / "packaging" / "dmg-background.svg"
+        root = ET.parse(background).getroot()
+        self.assertEqual((root.get("width"), root.get("height")), ("720", "440"))
+        children = list(root)
+        self.assertEqual(len(children), 1)
+        self.assertTrue(children[0].tag.endswith("rect"))
+        self.assertEqual(children[0].get("width"), "720")
+        self.assertEqual(children[0].get("height"), "440")
+
+        layout = (PROJECT_DIR / "packaging" / "dmg_layout.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("FINDER_DPI = 72", layout)
+        self.assertIn("image.setDotsPerMeterX(dots_per_meter)", layout)
+        self.assertIn("image.setDotsPerMeterY(dots_per_meter)", layout)
 
     def test_windows_installer_uses_only_bundled_inno_resources(self):
         script = (PROJECT_DIR / "packaging" / "windows_installer.iss").read_text(

@@ -1,12 +1,3 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440">
   <rect width="720" height="440" fill="#123d68"/>
-  <text x="360" y="76" text-anchor="middle" fill="#ffffff"
-        font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="28" font-weight="700">FuzzToolBox</text>
-  <text x="360" y="105" text-anchor="middle" fill="#b9d4ec"
-        font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">把常用工具装进一个工具箱</text>
-  <rect x="34" y="135" width="652" height="265" rx="24" fill="#f4f8fc" stroke="#d5e3ef" stroke-width="1.5"/>
-  <text x="360" y="244" text-anchor="middle" fill="#4f7394"
-        font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="36" font-weight="600">››</text>
-  <text x="360" y="278" text-anchor="middle" fill="#53728d"
-        font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14">拖动到 Applications</text>
 </svg>

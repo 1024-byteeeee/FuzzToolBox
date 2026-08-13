@@ -12,8 +12,9 @@ from pathlib import Path
 WINDOW_WIDTH = 720
 WINDOW_HEIGHT = 440
 ICON_SIZE = 112
-APP_POSITION = (190, 265)
-APPLICATIONS_POSITION = (530, 265)
+APP_POSITION = (190, 220)
+APPLICATIONS_POSITION = (530, 220)
+FINDER_DPI = 72
 
 
 def _detach_dmg(device: str, attempts: int = 6) -> None:
@@ -45,6 +46,9 @@ def _render_background(svg_path: Path, png_path: Path) -> None:
 
     app = QGuiApplication([])
     image = QImage(WINDOW_WIDTH, WINDOW_HEIGHT, QImage.Format_ARGB32)
+    dots_per_meter = round(FINDER_DPI / 0.0254)
+    image.setDotsPerMeterX(dots_per_meter)
+    image.setDotsPerMeterY(dots_per_meter)
     image.fill(0)
     painter = QPainter(image)
     renderer = QSvgRenderer(str(svg_path))
