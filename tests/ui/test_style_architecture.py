@@ -58,6 +58,11 @@ class StyleArchitectureTests(unittest.TestCase):
             self.assertIn("#182230", style_text("ui.components:57"))
             self.assertIn("#1b3025", stylesheet)
             self.assertNotIn("#f0faf4", stylesheet)
+            compose_style = style_text("tools.docker_compose_converter.page:workspace")
+            self.assertIn("#203b57", compose_style)
+            self.assertIn("#46381f", compose_style)
+            self.assertNotIn("#fdf6ec", compose_style)
+            self.assertNotIn("#faecd8", compose_style)
         finally:
             set_theme("light")
 

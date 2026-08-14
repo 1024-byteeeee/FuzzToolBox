@@ -183,13 +183,15 @@ LONG_ALIASES = {"net": "network"}
 RUNTIME_ONLY = {
     "attach": "Compose 只能控制是否收集日志，不能保留指定的附加流",
     "cidfile": "Compose 不输出容器 ID 文件",
-    "detach": "Compose 的前台或后台运行由启动命令决定",
     "detach-keys": "这是 CLI 会话参数",
-    "help": "这是 CLI 帮助参数",
     "publish-all": "Compose 无法预先表示随机宿主机端口",
-    "quiet": "这是 CLI 输出参数",
     "rm": "Compose 没有自动删除已退出服务容器的服务字段",
     "sig-proxy": "这是 CLI 信号代理参数",
+}
+INFORMATIONAL_OPTIONS = {
+    "detach": "无需写入 Compose；是否后台运行由 docker compose up -d 决定",
+    "help": "CLI 帮助开关，无需写入 Compose",
+    "quiet": "CLI 输出控制参数，无需写入 Compose",
 }
 
 
@@ -199,6 +201,7 @@ class ConversionResult:
     service_count: int
     mapped_option_count: int
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 def _split(command: str) -> list[str]:
@@ -469,12 +472,15 @@ def _gpu_reservation(value: str):
     return {"resources": {"reservations": {"devices": [request]}}}
 
 
-def _build_service(image, command, options, warnings):
+def _build_service(image, command, options, warnings, notes):
     service: dict[str, Any] = {"image": image}
     mapped = 0
     for option, reason in RUNTIME_ONLY.items():
         if option in options:
-            warnings.append(f"--{option} 未转换：{reason}")
+            warnings.append(f"--{option} 无法写入 Compose：{reason}")
+    for option, explanation in INFORMATIONAL_OPTIONS.items():
+        if option in options:
+            notes.append(f"--{option}：{explanation}")
 
     logging = {}
     if "log-driver" in options:
@@ -727,14 +733,19 @@ def convert_docker_run(source: str) -> ConversionResult:
     top_volumes = {}
     used = set()
     warnings = []
+    notes = []
     mapped = 0
     for command_text in commands:
         image, command, options, command_warnings = _parse_run(command_text)
         name = _service_name(image, used)
-        service, count = _build_service(image, command, options, command_warnings)
+        command_notes = []
+        service, count = _build_service(
+            image, command, options, command_warnings, command_notes
+        )
         services[name] = service
         mapped += count
         warnings.extend(command_warnings)
+        notes.extend(command_notes)
         for network in options.get("network", []):
             if network not in {"host", "none", "bridge"} and not network.startswith("container:"):
                 top_networks[network] = {"external": True}
@@ -767,4 +778,10 @@ def convert_docker_run(source: str) -> ConversionResult:
     if top_volumes:
         document["volumes"] = top_volumes
     yaml = "version: '3.9'\n" + "\n".join(_yaml(document)) + "\n"
-    return ConversionResult(yaml, len(services), mapped, warnings)
+    return ConversionResult(
+        yaml=yaml,
+        service_count=len(services),
+        mapped_option_count=mapped,
+        warnings=warnings,
+        notes=notes,
+    )

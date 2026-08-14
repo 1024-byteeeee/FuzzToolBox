@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -39,10 +39,6 @@ class DockerComposeConverterPage(QWidget):
     def _build_ui(self):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea()
-        scroll.setObjectName("dockerComposeScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         content.setObjectName("dockerComposeContent")
         root = QVBoxLayout(content)
@@ -102,7 +98,8 @@ class DockerComposeConverterPage(QWidget):
         self.output.setPlaceholderText("转换后的 compose.yaml 将显示在这里")
         for editor in (self.input, self.output):
             editor.setFont(fixed_font)
-            editor.setMinimumHeight(400)
+            editor.setMinimumHeight(180)
+            editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             editor.setLineWrapMode(LineNumberEditor.NoWrap)
         self.input_highlighter = CodeSyntaxHighlighter(self.input.document(), "shell")
         self.output_highlighter = CodeSyntaxHighlighter(self.output.document(), "yaml")
@@ -116,12 +113,23 @@ class DockerComposeConverterPage(QWidget):
         row.setContentsMargins(14, 10, 14, 10)
         self.service_badge = QLabel("服务 0")
         self.option_badge = QLabel("已映射参数 0")
-        self.warning_badge = QLabel("提醒 0")
-        for badge in (self.service_badge, self.option_badge, self.warning_badge):
+        self.note_badge = QLabel("说明 0")
+        self.warning_badge = QLabel("警告 0")
+        for badge in (
+            self.service_badge,
+            self.option_badge,
+            self.note_badge,
+            self.warning_badge,
+        ):
             badge.setObjectName("dockerComposeBadge")
             row.addWidget(badge)
         row.addStretch()
         root.addWidget(summary)
+        self.note_label = QLabel()
+        self.note_label.setObjectName("dockerComposeNotes")
+        self.note_label.setWordWrap(True)
+        self.note_label.hide()
+        root.addWidget(self.note_label)
         self.warning_label = QLabel()
         self.warning_label.setObjectName("dockerComposeWarnings")
         self.warning_label.setWordWrap(True)
@@ -130,9 +138,8 @@ class DockerComposeConverterPage(QWidget):
         self.status = QLabel("等待输入命令")
         self.status.setObjectName("dockerComposeStatus")
         root.addWidget(self.status)
-        root.addStretch()
-        scroll.setWidget(content)
-        outer.addWidget(scroll)
+        root.setStretchFactor(panel, 1)
+        outer.addWidget(content)
 
         self.convert_button.clicked.connect(self.convert)
         self.example_button.clicked.connect(self.load_example)
@@ -151,10 +158,12 @@ class DockerComposeConverterPage(QWidget):
     def clear(self):
         self.input.clear()
         self.output.clear()
+        self.note_label.hide()
         self.warning_label.hide()
         self.service_badge.setText("服务 0")
         self.option_badge.setText("已映射参数 0")
-        self.warning_badge.setText("提醒 0")
+        self.note_badge.setText("说明 0")
+        self.warning_badge.setText("警告 0")
         self._set_status("内容已清空", "neutral")
         self.input.setFocus()
 
@@ -163,17 +172,28 @@ class DockerComposeConverterPage(QWidget):
             result = convert_docker_run(self.input.toPlainText())
         except ValueError as exc:
             self.output.clear()
+            self.note_label.hide()
             self.warning_label.hide()
+            self.service_badge.setText("服务 0")
+            self.option_badge.setText("已映射参数 0")
+            self.note_badge.setText("说明 0")
+            self.warning_badge.setText("警告 0")
             self._set_status(str(exc), "error")
             return
         self.output.setPlainText(result.yaml)
         self.service_badge.setText(f"服务 {result.service_count}")
         self.option_badge.setText(f"已映射参数 {result.mapped_option_count}")
-        self.warning_badge.setText(f"提醒 {len(result.warnings)}")
+        self.note_badge.setText(f"说明 {len(result.notes)}")
+        self.warning_badge.setText(f"警告 {len(result.warnings)}")
+        if result.notes:
+            self.note_label.setText("\n".join(result.notes))
+            self.note_label.show()
+        else:
+            self.note_label.hide()
         if result.warnings:
-            self.warning_label.setText("\n".join(f"• {item}" for item in result.warnings))
+            self.warning_label.setText("\n".join(result.warnings))
             self.warning_label.show()
-            self._set_status("转换完成，请检查提醒项", "warning")
+            self._set_status("转换完成，请检查警告项", "warning")
         else:
             self.warning_label.hide()
             self._set_status("转换完成", "success")

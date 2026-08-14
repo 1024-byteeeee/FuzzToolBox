@@ -42,6 +42,12 @@ class DockerComposeConverterTests(unittest.TestCase):
         self.assertTrue(any("--rm" in warning for warning in result.warnings))
         self.assertTrue(any("未识别参数" in warning for warning in result.warnings))
 
+    def test_detach_is_an_informational_note_not_a_conversion_warning(self):
+        result = convert_docker_run("docker run -d nginx")
+        self.assertEqual(result.warnings, [])
+        self.assertTrue(any("docker compose up -d" in note for note in result.notes))
+        self.assertFalse(any("未转换" in note for note in result.notes))
+
     def test_preserves_windows_bind_mount_path(self):
         result = convert_docker_run(r"docker run -v C:\data:/data nginx")
         self.assertIn(r"C:\\data:/data", result.yaml)
@@ -79,7 +85,7 @@ class DockerComposeConverterTests(unittest.TestCase):
             with self.subTest(option=option):
                 result = convert_docker_run(f"docker run {argument} alpine")
                 self.assertFalse(any("未识别参数" in item for item in result.warnings))
-                self.assertTrue(result.mapped_option_count > 0 or result.warnings)
+                self.assertTrue(result.mapped_option_count > 0 or result.warnings or result.notes)
 
     def test_official_option_registry_has_expected_surface(self):
         expected = {

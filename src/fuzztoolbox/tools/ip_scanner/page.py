@@ -47,6 +47,9 @@ from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
 from .targets import parse_ports, parse_target
 
+SCAN_SELECTOR_WIDTH = 165
+
+
 class ResultModel(QAbstractTableModel):
     columns = ["IP 地址", "状态", "探测方式", "响应时间", "主机名", "开放端口"]
 
@@ -89,7 +92,7 @@ class ResultModel(QAbstractTableModel):
             result.method.upper(),
             f"{result.response_time_ms:.2f} ms" if result.response_time_ms is not None else "—",
             result.hostname or ("解析中…" if result.details_pending else "—"),
-            (result.mac or "—")
+            (result.mac or ("解析中…" if result.details_pending else "—"))
             if self.show_mac
             else (", ".join(map(str, result.open_ports)) or "—"),
         ]
@@ -268,7 +271,7 @@ class IPScannerPage(QWidget):
         self.range_mode.addItem("起始 IP - 结束 IP", "range")
         self.range_mode.addItem("CIDR / 单 IP", "cidr")
         configure_combo(self.range_mode)
-        self.range_mode.setMinimumWidth(155)
+        self.range_mode.setFixedWidth(SCAN_SELECTOR_WIDTH)
         self.target = QLineEdit(default_cidr)
         self.target.setPlaceholderText("例如：192.168.1.0/24 或 192.168.1.10")
         self.start_ip = QLineEdit(default_start)
@@ -291,7 +294,7 @@ class IPScannerPage(QWidget):
         self.method.addItem("系统 Ping", "ping")
         self.method.addItem("TCP 端口探测", "tcp")
         configure_combo(self.method)
-        self.method.setMinimumWidth(165)
+        self.method.setFixedWidth(SCAN_SELECTOR_WIDTH)
         ports_label = QLabel("探测端口")
         apply_style(ports_label, "tools.ip_scanner.page:298")
         self.ports = QLineEdit("22,80,443,445,3389,8080")

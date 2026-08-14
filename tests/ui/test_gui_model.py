@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QTableView,
 )
 
@@ -200,6 +201,38 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(model.rowCount(), 1)
         self.assertEqual(model.results[0].hostname, "printer.local")
         self.assertEqual(model.results[0].mac, "00:11:22:33:44:55")
+
+    def test_mac_column_tracks_async_detail_resolution_state(self):
+        model = ResultModel()
+        model.add_batch(
+            [
+                ScanResult(
+                    ip="192.168.1.20",
+                    is_alive=True,
+                    method="ping",
+                    details_pending=True,
+                )
+            ]
+        )
+        mac_index = model.index(0, 5)
+        self.assertEqual(model.data(mac_index), "解析中…")
+
+        model.add_batch(
+            [
+                ScanResult(
+                    ip="192.168.1.20",
+                    is_alive=True,
+                    method="ping",
+                    mac="00:11:22:33:44:55",
+                )
+            ]
+        )
+        self.assertEqual(model.data(mac_index), "00:11:22:33:44:55")
+
+        model.add_batch(
+            [ScanResult(ip="192.168.1.20", is_alive=True, method="ping")]
+        )
+        self.assertEqual(model.data(mac_index), "—")
 
     def test_tool_registry_filters_by_keyword_and_category(self):
         self.assertEqual(filter_tools(TOOLS, "Ping")[0].id, "ip-scanner")
@@ -506,6 +539,10 @@ class ResultModelTests(unittest.TestCase):
         self.assertFalse(window.back_button.isHidden())
         self.assertEqual(window.back_button.text(), "←  返回主页")
         self.assertFalse(window.page_icon.pixmap().isNull())
+        self.assertEqual(
+            window.ip_scanner_page.range_mode.width(),
+            window.ip_scanner_page.method.width(),
+        )
         self.assertGreater(
             window.back_button.geometry().center().x(),
             window.page_title.geometry().center().x(),
@@ -973,12 +1010,36 @@ class ResultModelTests(unittest.TestCase):
         self.assertIsInstance(page.output, LineNumberEditor)
         self.assertEqual(page.input_highlighter.language, "shell")
         self.assertEqual(page.output_highlighter.language, "yaml")
+        self.assertEqual(page.findChildren(QScrollArea), [])
+        self.assertLessEqual(page.input.minimumHeight(), 180)
         page.input.setPlainText("docker run --name api -p 9000:80 nginx")
         page.convert()
         self.assertIn("container_name: api", page.output.toPlainText())
         self.assertEqual(page.service_badge.text(), "服务 1")
         page.copy_result()
         self.assertEqual(QGuiApplication.clipboard().text(), page.output.toPlainText())
+        page.close()
+
+    def test_docker_compose_detach_shows_theme_aware_note(self):
+        from fuzztoolbox.tools.docker_compose_converter.page import DockerComposeConverterPage
+
+        page = DockerComposeConverterPage()
+        page.input.setPlainText("docker run -d nginx")
+        page.convert()
+        self.assertEqual(page.note_badge.text(), "说明 1")
+        self.assertFalse(page.note_label.isHidden())
+        self.assertTrue(page.warning_label.isHidden())
+        self.assertIn("docker compose up -d", page.note_label.text())
+        self.assertFalse(page.note_label.text().startswith("•"))
+        self.assertEqual(page.status.text(), "转换完成")
+        self.assertEqual(page.status.property("styleState"), "success")
+        feedback_layout = page.status.parentWidget().layout()
+        editor_panel = page.input.parentWidget()
+        self.assertGreater(feedback_layout.indexOf(page.status), feedback_layout.indexOf(editor_panel))
+        self.assertGreater(feedback_layout.indexOf(page.note_label), feedback_layout.indexOf(editor_panel))
+        self.assertGreater(feedback_layout.indexOf(page.warning_label), feedback_layout.indexOf(editor_panel))
+        self.assertGreater(feedback_layout.indexOf(page.status), feedback_layout.indexOf(page.note_label))
+        self.assertGreater(feedback_layout.indexOf(page.status), feedback_layout.indexOf(page.warning_label))
         page.close()
 
     def test_json_formatter_live_validation_does_not_move_the_cursor(self):
