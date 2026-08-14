@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -17,8 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .tool_registry import TOOLS, ToolDefinition, filter_tools
 from fuzztoolbox.ui.style_loader import apply_style
+
+from .animations import FAST_DURATION
+from .tool_registry import TOOLS, ToolDefinition, filter_tools
 
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
@@ -64,15 +74,18 @@ class ToolCard(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
+        self._content_layout = layout
         layout.setContentsMargins(18, 18, 18, 16)
         layout.setSpacing(9)
         heading = QHBoxLayout()
-        icon = QLabel()
-        icon.setFixedSize(40, 40)
-        icon.setPixmap(QIcon(str(ASSET_DIR / tool.icon)).pixmap(40, 40))
+        self.icon = QLabel()
+        self.icon.setFixedSize(44, 44)
+        self._tool_icon = QIcon(str(ASSET_DIR / tool.icon))
+        self.icon.setPixmap(self._tool_icon.pixmap(40, 40))
+        self.icon.setAlignment(Qt.AlignCenter)
         name = QLabel(tool.name)
         apply_style(name, "ui.home_page:46")
-        heading.addWidget(icon)
+        heading.addWidget(self.icon)
         heading.addSpacing(7)
         heading.addWidget(name)
         heading.addStretch()
@@ -87,10 +100,46 @@ class ToolCard(QFrame):
         apply_style(category, "ui.home_page:59")
         layout.addWidget(category)
 
+        self._hovered = False
+        self._motion_value = 0.0
+        self._motion = QVariantAnimation(self)
+        self._motion.setDuration(FAST_DURATION)
+        self._motion.setEasingCurve(QEasingCurve.OutCubic)
+        self._motion.valueChanged.connect(self._apply_motion)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._animate_motion(2.0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._animate_motion(0.0)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._animate_motion(-1.0)
+        super().mousePressEvent(event)
+
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
             self.activated.emit(self.tool.id)
+        self._animate_motion(2.0 if self._hovered else 0.0)
         super().mouseReleaseEvent(event)
+
+    def _animate_motion(self, target: float):
+        self._motion.stop()
+        self._motion.setStartValue(self._motion_value)
+        self._motion.setEndValue(target)
+        self._motion.start()
+
+    def _apply_motion(self, value):
+        self._motion_value = float(value)
+        offset = self._motion_value
+        self._content_layout.setContentsMargins(18, round(18 - offset), 18, round(16 + offset))
+        icon_size = round(40 + max(0.0, offset) * 1.5)
+        self.icon.setPixmap(self._tool_icon.pixmap(icon_size, icon_size))
 
 
 class ToolboxHomePage(QWidget):

@@ -46,6 +46,7 @@ from ..tools.timer.page import TimerPage
 from ..tools.token_generator.page import TokenGeneratorPage
 from ..tools.uuid_generator.page import UUIDGeneratorPage
 from ..tools.wifi_qr_generator.page import WiFiQRGeneratorPage
+from .animations import PageTransitionController, ThemeTransitionController
 from .home_page import ToolboxHomePage
 from .tool_registry import TOOLS
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
@@ -151,6 +152,8 @@ class MainWindow(QMainWindow):
         self.resize(*DEFAULT_WINDOW_SIZE)
         self._closing_after_worker = False
         self._application_quitting = False
+        self._page_transition = PageTransitionController(self)
+        self._theme_transition = ThemeTransitionController(self)
         self.theme_mode = str(self.settings.value("appearance/theme", "system"))
         if self.theme_mode not in THEME_MODES:
             self.theme_mode = "system"
@@ -264,7 +267,7 @@ class MainWindow(QMainWindow):
         resolved = self._system_theme() if self.theme_mode == "system" else self.theme_mode
         self.theme_mode = "light" if resolved == "dark" else "dark"
         self.settings.setValue("appearance/theme", self.theme_mode)
-        self.apply_theme()
+        self._theme_transition.transition(self.centralWidget(), self.apply_theme)
 
     def apply_theme(self):
         resolved = self._system_theme() if self.theme_mode == "system" else self.theme_mode
@@ -287,6 +290,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.home_page)
         self.top_bar.setVisible(False)
         self.home_page.search.setFocus()
+        self._page_transition.enter(self.home_page, -8)
 
     def open_tool(self, tool_id: str):
         destinations = {
@@ -350,6 +354,7 @@ class MainWindow(QMainWindow):
         self.top_bar.setVisible(True)
         self.pages.setCurrentWidget(page)
         self.page_title.setText(title)
+        self._page_transition.enter(page, 8)
         if page is self.ip_scanner_page:
             self.ip_scanner_page.schedule_result_column_resize()
 

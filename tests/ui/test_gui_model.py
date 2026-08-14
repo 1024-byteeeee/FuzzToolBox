@@ -38,6 +38,7 @@ from fuzztoolbox.core.network_info import NetworkInfo
 from fuzztoolbox.tools.subnet_calculator.calculator import FLSMPlan, parse_network
 from fuzztoolbox.tools.subnet_calculator.page import FETCH_BATCH_SIZE, SubnetResultModel
 from fuzztoolbox.ui.tool_registry import TOOLS, filter_tools
+from fuzztoolbox.ui.animations import PageTransitionController, ThemeTransitionController
 from fuzztoolbox.ui.components import (
     ComboItemDelegate,
     ComboListView,
@@ -323,6 +324,49 @@ class ResultModelTests(unittest.TestCase):
             self.assertIs(card.parentWidget(), page.card_host)
             self.assertFalse(card.isWindow())
 
+        page.close()
+
+    def test_tool_card_hover_uses_short_motion_animation(self):
+        page = ToolboxHomePage()
+        card = next(iter(page.cards.values()))
+
+        card._animate_motion(2.0)
+
+        self.assertEqual(card._motion.duration(), 120)
+        self.assertEqual(card._motion.endValue(), 2.0)
+        page.close()
+
+    def test_page_transition_is_temporary(self):
+        page = ToolboxHomePage()
+        page.show()
+        self.app.processEvents()
+        controller = PageTransitionController()
+
+        controller.enter(page)
+
+        self.assertIsNotNone(controller.animation)
+        self.assertIsNotNone(page.graphicsEffect())
+        controller.animation.setCurrentTime(controller.animation.duration())
+        self.app.processEvents()
+        self.assertIsNone(page.graphicsEffect())
+        page.close()
+
+    def test_theme_transition_cross_fades_a_snapshot(self):
+        page = ToolboxHomePage()
+        page.resize(900, 700)
+        page.show()
+        self.app.processEvents()
+        controller = ThemeTransitionController()
+        changed = []
+
+        controller.transition(page, lambda: changed.append(True))
+
+        self.assertEqual(changed, [True])
+        self.assertIsNotNone(controller.overlay)
+        self.assertEqual(controller.animation.duration(), 220)
+        controller.animation.setCurrentTime(controller.animation.duration())
+        self.app.processEvents()
+        self.assertIsNone(controller.overlay)
         page.close()
 
     def test_ipv4_converter_presents_grouped_cards_and_inline_errors(self):
