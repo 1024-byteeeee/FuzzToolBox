@@ -386,8 +386,48 @@ color: #606266;
 QFrame#uuidPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
 @endstyle */
 
+/* @style tools.uuid_generator.page:workspace
+QWidget#uuidWorkspace { background: #f5f7fa; }
+QWidget#uuidWorkspace QScrollArea#uuidPageScroll,
+QWidget#uuidWorkspace QScrollArea#uuidPageScroll QWidget#qt_scrollarea_viewport,
+QWidget#uuidWorkspace QWidget#uuidScrollContent { background: #f5f7fa; border: 0; }
+QWidget#uuidWorkspace QFrame#uuidSettingsPanel,
+QWidget#uuidWorkspace QFrame#uuidResultsPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QWidget#uuidWorkspace QLabel#uuidSectionTitle { color: #303133; font-size: 15px; font-weight: 700; }
+QWidget#uuidWorkspace QLabel#uuidFieldLabel { color: #606266; font-size: 12px; font-weight: 600; }
+QWidget#uuidWorkspace QLabel#uuidVersionHint { color: #406080; background: #ecf5ff; border: 1px solid #d9ecff; border-radius: 10px; padding: 4px 9px; }
+QWidget#uuidWorkspace QFrame#uuidNamedPanel { background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 8px; }
+QWidget#uuidWorkspace QFrame#uuidFormatPanel { background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 8px; }
+QWidget#uuidWorkspace QLabel#uuidResultBadge { color: #406080; background: #ecf5ff; border: 1px solid #d9ecff; border-radius: 10px; padding: 3px 8px; font-size: 11px; }
+QWidget#uuidWorkspace QLabel#uuidResultSummary { color: #909399; font-size: 12px; }
+QWidget#uuidWorkspace QTableView#uuidResultTable { background: white; alternate-background-color: #fbfcfe; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; gridline-color: transparent; outline: 0; }
+QWidget#uuidWorkspace QTableView#uuidResultTable::item { color: #303133; border: 0; border-bottom: 1px solid #e4e7ed; padding: 7px 10px; }
+QWidget#uuidWorkspace QTableView#uuidResultTable::item:hover { background: #f4f9ff; }
+QWidget#uuidWorkspace QTableView#uuidResultTable::item:selected { color: #303133; background: #ecf5ff; }
+@endstyle */
+
 /* @style tools.wifi_qr_generator.page:42
 color: #606266;
+@endstyle */
+
+/* @style tools.docker_compose_converter.page:workspace
+QWidget#dockerComposeWorkspace { background: #f5f7fa; }
+QWidget#dockerComposeWorkspace QScrollArea#dockerComposeScroll,
+QWidget#dockerComposeWorkspace QScrollArea#dockerComposeScroll QWidget#qt_scrollarea_viewport,
+QWidget#dockerComposeWorkspace QWidget#dockerComposeContent { background: #f5f7fa; border: 0; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeIntro { color: #606266; font-size: 14px; }
+QWidget#dockerComposeWorkspace QFrame#dockerComposeToolbar,
+QWidget#dockerComposeWorkspace QFrame#dockerComposeEditors,
+QWidget#dockerComposeWorkspace QFrame#dockerComposeSummary { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeSectionTitle { color: #303133; font-size: 15px; font-weight: 700; }
+QWidget#dockerComposeWorkspace QPlainTextEdit { color: #303133; background: #fbfcfe; border: 1px solid #dcdfe6; border-radius: 9px; padding: 10px; selection-background-color: #409eff; }
+QWidget#dockerComposeWorkspace QPlainTextEdit:focus { border-color: #409eff; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeBadge { color: #406080; background: #ecf5ff; border: 1px solid #d9ecff; border-radius: 10px; padding: 4px 9px; font-size: 11px; font-weight: 600; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeWarnings { color: #8a6116; background: #fdf6ec; border: 1px solid #faecd8; border-radius: 9px; padding: 10px 12px; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeStatus { color: #606266; background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 8px; padding: 9px 12px; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeStatus[state="success"] { color: #1d7a42; background: #f0f9eb; border-color: #c2e7b0; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeStatus[state="error"] { color: #c45656; background: #fef0f0; border-color: #fbc4c4; }
+QWidget#dockerComposeWorkspace QLabel#dockerComposeStatus[state="warning"] { color: #8a6116; background: #fdf6ec; border-color: #faecd8; }
 @endstyle */
 
 /* @style tools.wifi_qr_generator.page:143
@@ -445,4 +485,29 @@ QPushButton#colorPicker:hover {{ background: {hover}; border-color: #409eff; }}
 
 /* @style tools.subnet_calculator.page:calculator-panel
 QFrame#calculatorPanel { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+@endstyle */
+
+/* @style tools.subnet_calculator.page:workspace
+QWidget#subnetWorkspace { background: #f5f7fa; }
+QWidget#subnetWorkspace QScrollArea#subnetPageScroll,
+QWidget#subnetWorkspace QScrollArea#subnetPageScroll QWidget#qt_scrollarea_viewport,
+QWidget#subnetWorkspace QWidget#subnetScrollContent { background: #f5f7fa; border: 0; }
+QWidget#subnetWorkspace QLabel#networkInfo { background: #ecf5ff; color: #406080; border: 1px solid #d9ecff; border-radius: 8px; padding: 8px 12px; }
+QWidget#subnetWorkspace QFrame#subnetInputPanel,
+QWidget#subnetWorkspace QFrame#subnetSummaryPanel,
+QWidget#subnetWorkspace QFrame#subnetResultsPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QWidget#subnetWorkspace QLabel#subnetSectionTitle { color: #303133; font-size: 15px; font-weight: 700; }
+QWidget#subnetWorkspace QLabel#subnetSectionHint { color: #909399; font-size: 12px; }
+QWidget#subnetWorkspace QLabel#subnetFieldLabel { color: #606266; font-size: 12px; font-weight: 600; }
+QWidget#subnetWorkspace QLabel#subnetSummaryNetwork { color: #1677d2; background: #ecf5ff; border-radius: 10px; padding: 4px 9px; font-weight: 600; }
+QWidget#subnetWorkspace QFrame#subnetMetricCard { background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 9px; }
+QWidget#subnetWorkspace QLabel#subnetMetricTitle { color: #909399; font-size: 11px; font-weight: 600; }
+QWidget#subnetWorkspace QLabel#subnetMetricValue { color: #1677d2; font-size: 16px; font-weight: 700; }
+QWidget#subnetWorkspace QFrame#subnetDetailStrip { background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 8px; }
+QWidget#subnetWorkspace QLabel#subnetDetailLabel { color: #909399; font-size: 11px; font-weight: 600; }
+QWidget#subnetWorkspace QLabel#subnetDetailValue { color: #303133; font-weight: 600; }
+QWidget#subnetWorkspace QLabel#subnetResultBadge { color: #406080; background: #ecf5ff; border: 1px solid #d9ecff; border-radius: 10px; padding: 3px 8px; font-size: 11px; }
+QWidget#subnetWorkspace QFrame#subnetToolbarDivider { color: #dcdfe6; background: #dcdfe6; border: 0; min-width: 1px; max-width: 1px; margin: 4px 5px; }
+QWidget#subnetWorkspace QTableView#subnetResultTable { border-left: 0; border-right: 0; border-radius: 0; }
+QWidget#subnetWorkspace QLabel#subnetStatus { color: #606266; background: #fbfcfe; border-top: 1px solid #e4e7ed; padding: 8px 14px; }
 @endstyle */

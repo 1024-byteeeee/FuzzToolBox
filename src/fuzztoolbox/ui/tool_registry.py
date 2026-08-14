@@ -81,6 +81,14 @@ TOOLS = (
         keywords=("json", "格式化", "压缩", "校验", "验证", "语法", "美化"),
     ),
     ToolDefinition(
+        id="docker-compose-converter",
+        name="Docker Run 转 Compose",
+        description="将 Docker Run 命令转换为结构清晰的 Docker Compose YAML。",
+        category="开发工具",
+        icon="tool-docker-compose-converter.svg",
+        keywords=("docker", "run", "compose", "yaml", "容器", "转换"),
+    ),
+    ToolDefinition(
         id="text-comparer",
         name="文本对比工具",
         description="逐行比较两段文本，高亮增删改并生成标准 Diff。",

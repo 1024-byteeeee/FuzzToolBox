@@ -218,6 +218,7 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(filter_tools(TOOLS, "Unified")[0].id, "text-comparer")
         self.assertEqual(filter_tools(TOOLS, "字数")[0].id, "text-statistics")
         self.assertEqual(filter_tools(TOOLS, "时间戳")[0].id, "datetime-converter")
+        self.assertEqual(filter_tools(TOOLS, "Compose")[0].id, "docker-compose-converter")
 
     def test_every_tool_has_a_unique_existing_svg_icon(self):
         assets = Path(__file__).resolve().parents[2] / "src" / "fuzztoolbox" / "assets"
@@ -291,9 +292,15 @@ class ResultModelTests(unittest.TestCase):
         self.assertTrue(page.reset_window_button.isEnabled())
         self.assertIn("本机网络  Ethernet", page.network_label.text())
         self.assertIn("IP 192.168.8.42", page.network_label.text())
-        self.assertEqual(page.input_layout.columnMinimumWidth(0), 78)
-        self.assertEqual(page.input_layout.columnStretch(1), 3)
-        self.assertTrue(page.base_network_label.alignment() & Qt.AlignRight)
+        self.assertEqual(page.objectName(), "subnetWorkspace")
+        self.assertEqual(page.scroll_area.objectName(), "subnetPageScroll")
+        self.assertTrue(page.scroll_area.widgetResizable())
+        self.assertEqual(page.input_layout.columnStretch(0), 2)
+        self.assertEqual(page.summary_frame.objectName(), "subnetSummaryPanel")
+        self.assertEqual(page.table.objectName(), "subnetResultTable")
+        self.assertGreaterEqual(page.table.minimumHeight(), 420)
+        self.assertIsNotNone(page.table.verticalScrollBar())
+        self.assertEqual(set(page.metric_values), {"规划模式", "子网数量", "前缀规划", "可用容量"})
         self.assertGreaterEqual(page.table.columnWidth(2), 150)
         for column in (4, 5, 6):
             self.assertGreaterEqual(page.table.columnWidth(column), 125)
@@ -301,6 +308,9 @@ class ResultModelTests(unittest.TestCase):
         page.base_network.setText("2001:db8::/32")
         page.flsm_value.setText("64")
         page.calculate()
+        self.assertEqual(page.metric_values["规划模式"].text(), "FLSM")
+        self.assertEqual(page.metric_values["前缀规划"].text(), "/64")
+        self.assertIn("IPv6", page.summary_network.text())
         page.locate_ip.setText("2001:db8:ffff:ffff::1")
         page.locate()
         self.assertGreater(page.model.window_start, 0)
@@ -512,6 +522,9 @@ class ResultModelTests(unittest.TestCase):
         window.open_tool("uuid-generator")
         self.assertIs(window.pages.currentWidget(), window.uuid_generator_page)
         self.assertIn("UUID 生成器", window.page_title.text())
+        window.open_tool("docker-compose-converter")
+        self.assertIs(window.pages.currentWidget(), window.docker_compose_converter_page)
+        self.assertIn("Docker Run 转 Compose", window.page_title.text())
         window.open_tool("roman-numeral")
         self.assertIs(window.pages.currentWidget(), window.roman_numeral_page)
         self.assertIn("罗马数字转换器", window.page_title.text())
@@ -628,10 +641,19 @@ class ResultModelTests(unittest.TestCase):
         from fuzztoolbox.tools.uuid_generator.page import UUIDGeneratorPage
 
         page = UUIDGeneratorPage()
+        self.assertEqual(page.objectName(), "uuidWorkspace")
+        self.assertTrue(page.scroll_area.widgetResizable())
+        self.assertGreaterEqual(page.table.minimumHeight(), 440)
+        self.assertFalse(page.table.showGrid())
+        self.assertTrue(page.table.horizontalHeader().isHidden())
+        self.assertEqual(page.table.verticalHeader().defaultSectionSize(), 40)
+        self.assertEqual(page.table.selectionBehavior(), QTableView.SelectRows)
+        self.assertIn("UUID v4", page.result_format.text())
         page.version.setCurrentIndex(page.version.findData(5))
         self.assertEqual(page.count.value(), 1)
         self.assertFalse(page.count.isEnabled())
         self.assertIn("确定性", page.count.toolTip())
+        self.assertTrue(page.named_panel.isVisibleTo(page))
         page.version.setCurrentIndex(page.version.findData(4))
         self.assertTrue(page.count.isEnabled())
 
@@ -941,6 +963,22 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(page.input._error_line, 2)
         page.input.insertPlainText("e")
         self.assertIsNone(page.input._error_line)
+        page.close()
+
+    def test_docker_compose_converter_page_converts_and_copies(self):
+        from fuzztoolbox.tools.docker_compose_converter.page import DockerComposeConverterPage
+
+        page = DockerComposeConverterPage()
+        self.assertIsInstance(page.input, LineNumberEditor)
+        self.assertIsInstance(page.output, LineNumberEditor)
+        self.assertEqual(page.input_highlighter.language, "shell")
+        self.assertEqual(page.output_highlighter.language, "yaml")
+        page.input.setPlainText("docker run --name api -p 9000:80 nginx")
+        page.convert()
+        self.assertIn("container_name: api", page.output.toPlainText())
+        self.assertEqual(page.service_badge.text(), "服务 1")
+        page.copy_result()
+        self.assertEqual(QGuiApplication.clipboard().text(), page.output.toPlainText())
         page.close()
 
     def test_json_formatter_live_validation_does_not_move_the_cursor(self):

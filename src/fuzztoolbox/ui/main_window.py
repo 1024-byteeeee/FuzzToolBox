@@ -31,6 +31,7 @@ except ImportError as exc:  # pragma: no cover
 from .. import __version__
 from ..tools.color_picker.page import ColorPickerPage
 from ..tools.datetime_converter.page import DateTimeConverterPage
+from ..tools.docker_compose_converter.page import DockerComposeConverterPage
 from ..tools.ip_scanner.page import IPScannerPage
 from ..tools.ip_lookup.page import IPLookupPage
 from ..tools.ipv4_converter.page import IPv4ConverterPage
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
         self.uuid_generator_page = UUIDGeneratorPage()
         self.token_generator_page = TokenGeneratorPage()
         self.json_formatter_page = JSONFormatterPage()
+        self.docker_compose_converter_page = DockerComposeConverterPage()
         self.text_comparer_page = TextComparerPage()
         self.text_statistics_page = TextStatisticsPage()
         self.ipv4_converter_page = IPv4ConverterPage(network_info)
@@ -209,6 +211,7 @@ class MainWindow(QMainWindow):
             self.uuid_generator_page,
             self.token_generator_page,
             self.json_formatter_page,
+            self.docker_compose_converter_page,
             self.text_comparer_page,
             self.text_statistics_page,
             self.ipv4_converter_page,
@@ -308,6 +311,10 @@ class MainWindow(QMainWindow):
             "json-formatter": (
                 self.json_formatter_page,
                 "JSON 格式化与校验器 · 开发工具",
+            ),
+            "docker-compose-converter": (
+                self.docker_compose_converter_page,
+                "Docker Run 转 Compose · 开发工具",
             ),
             "text-comparer": (
                 self.text_comparer_page,

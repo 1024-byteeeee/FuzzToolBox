@@ -1,20 +1,25 @@
 import csv
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt
+from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
+    QAbstractItemView,
     QComboBox,
     QFileDialog,
     QFrame,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QStyledItemDelegate,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -50,10 +55,12 @@ class UUIDResultModel(QAbstractTableModel):
         if not index.isValid():
             return None
         if role == Qt.TextAlignmentRole:
-            return Qt.AlignCenter
+            return Qt.AlignVCenter | (Qt.AlignLeft if index.column() == 1 else Qt.AlignCenter)
+        if role == Qt.FontRole and index.column() == 1:
+            return QFontDatabase.systemFont(QFontDatabase.FixedFont)
         if role != Qt.DisplayRole:
             return None
-        return (index.row() + 1, self.values[index.row()], f"v{self.version}")[index.column()]
+        return (f"#{index.row() + 1}", self.values[index.row()], f"v{self.version}")[index.column()]
 
     def set_values(self, values, version):
         self.beginResetModel()
@@ -73,20 +80,39 @@ class UUIDGeneratorPage(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        self.setObjectName("uuidWorkspace")
+        apply_style(self, "tools.uuid_generator.page:workspace")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setObjectName("uuidPageScroll")
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("uuidScrollContent")
+        root = QVBoxLayout(content)
         root.setContentsMargins(20, 18, 20, 14)
-        root.setSpacing(12)
-
-        intro = QLabel("批量生成符合 RFC 标准的多版本 UUID")
-        apply_style(intro, "tools.uuid_generator.page:80")
-        root.addWidget(intro)
+        root.setSpacing(10)
+        root.setSizeConstraint(QLayout.SetMinimumSize)
+        self.scroll_area.setWidget(content)
+        outer.addWidget(self.scroll_area)
 
         panel = QFrame()
-        panel.setObjectName("uuidPanel")
-        apply_style(panel, "tools.uuid_generator.page:85")
+        panel.setObjectName("uuidSettingsPanel")
         form = QVBoxLayout(panel)
-        form.setContentsMargins(16, 14, 16, 14)
-        form.setSpacing(10)
+        form.setContentsMargins(18, 14, 18, 16)
+        form.setSpacing(12)
+        heading = QHBoxLayout()
+        title = QLabel("生成配置")
+        title.setObjectName("uuidSectionTitle")
+        self.version_hint = QLabel()
+        self.version_hint.setObjectName("uuidVersionHint")
+        heading.addWidget(title)
+        heading.addStretch()
+        heading.addWidget(self.version_hint)
+        form.addLayout(heading)
 
         self.version = QComboBox()
         for label, value in (
@@ -131,26 +157,34 @@ class UUIDGeneratorPage(QWidget):
         self.clear_button.setObjectName("neutral")
 
         version_label = QLabel("UUID 版本")
+        version_label.setObjectName("uuidFieldLabel")
         version_label.setBuddy(self.version)
         count_label = QLabel("生成数量")
+        count_label.setObjectName("uuidFieldLabel")
         count_label.setBuddy(self.count)
-        top_row = QHBoxLayout()
-        top_row.setSpacing(8)
-        top_row.addWidget(version_label)
-        top_row.addWidget(self.version, 2)
-        top_row.addSpacing(8)
-        top_row.addWidget(count_label)
-        top_row.addWidget(self.count)
-        top_row.addStretch(1)
-        top_row.addWidget(self.generate_button)
-        top_row.addWidget(self.clear_button)
-        form.addLayout(top_row)
+        settings_grid = QGridLayout()
+        settings_grid.setContentsMargins(0, 0, 0, 0)
+        settings_grid.setHorizontalSpacing(12)
+        settings_grid.setVerticalSpacing(7)
+        settings_grid.addWidget(version_label, 0, 0)
+        settings_grid.addWidget(count_label, 0, 2)
+        settings_grid.addWidget(self.version, 1, 0, 1, 2)
+        settings_grid.addWidget(self.count, 1, 2)
+        settings_grid.addWidget(self.generate_button, 1, 3)
+        settings_grid.addWidget(self.clear_button, 1, 4)
+        settings_grid.setColumnStretch(0, 2)
+        settings_grid.setColumnStretch(1, 2)
+        settings_grid.setColumnStretch(2, 1)
+        form.addLayout(settings_grid)
 
         self.namespace_label = QLabel("命名空间")
         self.namespace_label.setBuddy(self.namespace)
         self.name_label = QLabel("名称")
         self.name_label.setBuddy(self.name)
-        self.named_row = QHBoxLayout()
+        self.named_panel = QFrame()
+        self.named_panel.setObjectName("uuidNamedPanel")
+        self.named_row = QHBoxLayout(self.named_panel)
+        self.named_row.setContentsMargins(12, 10, 12, 10)
         self.named_row.setSpacing(8)
         self.named_row.addWidget(self.namespace_label)
         self.named_row.addWidget(self.namespace)
@@ -158,45 +192,77 @@ class UUIDGeneratorPage(QWidget):
         self.named_row.addSpacing(8)
         self.named_row.addWidget(self.name_label)
         self.named_row.addWidget(self.name, 2)
-        form.addLayout(self.named_row)
+        form.addWidget(self.named_panel)
 
         format_label = QLabel("输出格式")
+        format_label.setObjectName("uuidFieldLabel")
         format_label.setBuddy(self.uppercase)
-        format_row = QHBoxLayout()
+        format_panel = QFrame()
+        format_panel.setObjectName("uuidFormatPanel")
+        format_row = QHBoxLayout(format_panel)
+        format_row.setContentsMargins(12, 8, 12, 8)
         format_row.setSpacing(22)
         format_row.addWidget(format_label)
         format_row.addWidget(self.uppercase)
         format_row.addWidget(self.hyphens)
         format_row.addWidget(self.braces)
         format_row.addStretch()
-        form.addLayout(format_row)
+        form.addWidget(format_panel)
         root.addWidget(panel)
 
+        results_panel = QFrame()
+        results_panel.setObjectName("uuidResultsPanel")
+        results_layout = QVBoxLayout(results_panel)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(0)
         actions = QHBoxLayout()
+        actions.setContentsMargins(14, 11, 14, 10)
+        result_title = QLabel("生成结果")
+        result_title.setObjectName("uuidSectionTitle")
         self.status = QLabel("尚未生成 UUID")
+        self.status.setObjectName("uuidResultBadge")
+        self.result_format = QLabel("等待生成")
+        self.result_format.setObjectName("uuidResultSummary")
         self.copy_selected_button = QPushButton("复制选中")
         self.copy_all_button = QPushButton("复制全部")
         self.export_button = QPushButton("导出")
         for button in (self.copy_selected_button, self.copy_all_button, self.export_button):
             button.setObjectName("secondary")
+        actions.addWidget(result_title)
+        actions.addSpacing(6)
         actions.addWidget(self.status)
         actions.addStretch()
+        actions.addWidget(self.result_format)
+        actions.addSpacing(6)
         actions.addWidget(self.copy_selected_button)
+        actions.addSpacing(6)
         actions.addWidget(self.copy_all_button)
+        actions.addSpacing(6)
         actions.addWidget(self.export_button)
-        root.addLayout(actions)
+        results_layout.addLayout(actions)
 
         self.table = QTableView()
+        self.table.setObjectName("uuidResultTable")
+        self.table.setMinimumHeight(440)
         self.table.setModel(self.model)
         configure_table(self.table)
+        self.table.setItemDelegate(QStyledItemDelegate(self.table))
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.verticalHeader().setDefaultSectionSize(40)
         header = self.table.horizontalHeader()
+        header.hide()
         header.setMinimumSectionSize(70)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.Fixed)
-        header.resizeSection(0, 90)
-        header.resizeSection(2, 100)
-        root.addWidget(self.table, 1)
+        header.resizeSection(0, 72)
+        header.resizeSection(2, 84)
+        self.table.viewport().installEventFilter(self)
+        results_layout.addWidget(self.table)
+        root.addWidget(results_panel)
 
         self.version.currentIndexChanged.connect(self._update_namespace_inputs)
         self.namespace.currentIndexChanged.connect(self._update_namespace_inputs)
@@ -208,9 +274,33 @@ class UUIDGeneratorPage(QWidget):
         self._update_namespace_inputs()
         self.generate()
 
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport() and event.type() == QEvent.Wheel:
+            scrollbar = self.table.verticalScrollBar()
+            pixel_delta = event.pixelDelta().y()
+            if pixel_delta:
+                scrollbar.setValue(scrollbar.value() - pixel_delta)
+            else:
+                steps = event.angleDelta().y() / 120
+                scrollbar.setValue(
+                    scrollbar.value() - round(steps * scrollbar.singleStep() * 3)
+                )
+            event.accept()
+            return True
+        return super().eventFilter(watched, event)
+
     def _update_namespace_inputs(self):
         named = self.version.currentData() in {3, 5}
         custom = named and self.namespace.currentData() == "custom"
+        hints = {
+            1: "基于时间和节点信息",
+            3: "命名空间 + 名称 · MD5",
+            4: "安全随机 · 通用场景推荐",
+            5: "命名空间 + 名称 · SHA-1",
+            7: "毫秒时间有序 · 适合数据库索引",
+        }
+        self.version_hint.setText(hints[self.version.currentData()])
+        self.named_panel.setVisible(named)
         for widget in (self.namespace_label, self.namespace, self.name_label, self.name):
             widget.setVisible(named)
         self.custom_namespace.setVisible(custom)
@@ -251,12 +341,18 @@ class UUIDGeneratorPage(QWidget):
             return
         self.model.set_values(values, version)
         self.status.setText(f"已生成 {len(values):,} 个 UUID v{version}")
+        format_parts = [f"UUID v{version}", "大写" if options.uppercase else "小写"]
+        format_parts.append("保留连字符" if options.hyphens else "无连字符")
+        if options.braces:
+            format_parts.append("带大括号")
+        self.result_format.setText(" · ".join(format_parts))
         if values:
             self.table.selectRow(0)
 
     def clear(self):
         self.model.clear()
         self.status.setText("尚未生成 UUID")
+        self.result_format.setText("等待生成")
 
     def copy_selected(self):
         rows = sorted({index.row() for index in self.table.selectionModel().selectedIndexes()})
