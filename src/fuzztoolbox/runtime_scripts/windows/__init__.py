@@ -1,0 +1,1 @@
+"""Windows runtime script resources."""

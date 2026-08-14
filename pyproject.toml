@@ -26,7 +26,12 @@ fuzztoolbox-gui = "fuzztoolbox.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-fuzztoolbox = ["assets/*.svg", "assets/*.png", "styles/*.qss"]
+fuzztoolbox = [
+    "assets/*.svg",
+    "assets/*.png",
+    "styles/*.qss",
+    "runtime_scripts/windows/*.ps1",
+]
 
 [tool.ruff]
 line-length = 100

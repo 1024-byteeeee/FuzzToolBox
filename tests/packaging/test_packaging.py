@@ -30,14 +30,47 @@ class PackagingTests(unittest.TestCase):
         layout = (PROJECT_DIR / "packaging" / "dmg_layout.py").read_text(
             encoding="utf-8"
         )
+        configure_script = (
+            PROJECT_DIR / "packaging" / "scripts" / "configure_dmg.applescript"
+        ).read_text(encoding="utf-8")
+        close_script = (
+            PROJECT_DIR / "packaging" / "scripts" / "close_dmg_window.applescript"
+        ).read_text(encoding="utf-8")
         background = PROJECT_DIR / "packaging" / "dmg-background.svg"
         self.assertTrue(background.is_file())
-        self.assertIn("set background picture of opts", layout)
-        self.assertIn('set position of item "{app_path.name}"', layout)
-        self.assertIn('set position of item "Applications"', layout)
+        self.assertIn("configure_dmg.applescript", layout)
+        self.assertIn("close_dmg_window.applescript", layout)
+        self.assertIn("set background picture of opts", configure_script)
+        self.assertIn("set position of item applicationName", configure_script)
+        self.assertIn('set position of item "Applications"', configure_script)
+        self.assertIn("close every window", close_script)
         self.assertIn('"-format", "UDZO"', layout)
         self.assertIn('shutil.which("sync")', layout)
         self.assertIn('"detach", "-force", device', layout)
+
+    def test_system_scripts_are_external_resources(self):
+        network_info = (
+            PROJECT_DIR / "src" / "fuzztoolbox" / "core" / "network_info.py"
+        ).read_text(encoding="utf-8")
+        dmg_layout = (PROJECT_DIR / "packaging" / "dmg_layout.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Get-NetIPConfiguration", network_info)
+        self.assertNotIn('tell application "Finder"', dmg_layout)
+
+        runtime_scripts = (
+            PROJECT_DIR / "src" / "fuzztoolbox" / "runtime_scripts" / "windows"
+        )
+        self.assertTrue((runtime_scripts / "get_network_info.ps1").is_file())
+        self.assertTrue((runtime_scripts / "get_interface_gateway.ps1").is_file())
+
+    def test_runtime_scripts_are_included_in_package_and_pyinstaller(self):
+        project_config = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+        release_builder = (PROJECT_DIR / "packaging" / "build_release.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"runtime_scripts/windows/*.ps1"', project_config)
+        self.assertIn("fuzztoolbox/runtime_scripts", release_builder)
 
     def test_macos_dmg_background_is_full_size_and_solid(self):
         background = PROJECT_DIR / "packaging" / "dmg-background.svg"

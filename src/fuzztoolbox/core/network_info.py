@@ -4,6 +4,7 @@ import re
 import socket
 import subprocess
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import List, Optional
 
 from .subprocess_utils import hidden_subprocess_kwargs
@@ -41,6 +42,20 @@ VIRTUAL_INTERFACE_HINTS = (
     "hamachi",
     "ppp",
 )
+WINDOWS_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "runtime_scripts" / "windows"
+
+
+def _powershell_script_command(script_name: str, *arguments: str) -> List[str]:
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(WINDOWS_SCRIPT_DIR / script_name),
+        *arguments,
+    ]
 
 
 @dataclass(frozen=True)
@@ -239,13 +254,8 @@ def _gateway_for_interface(interface: str) -> Optional[str]:
         if route_interface and route_interface.group(1) == interface and gateway:
             return gateway.group(1)
     elif system == "Windows":
-        escaped = interface.replace("'", "''")
-        script = (
-            f"$c=Get-NetIPConfiguration -InterfaceAlias '{escaped}' -ErrorAction SilentlyContinue; "
-            "if ($c.IPv4DefaultGateway) {Write-Output $c.IPv4DefaultGateway.NextHop}"
-        )
         output = _run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            _powershell_script_command("get_interface_gateway.ps1", interface),
             timeout=5.0,
         ).strip()
         if re.fullmatch(r"\d+(?:\.\d+){3}", output):
@@ -284,14 +294,7 @@ def _macos_network_info() -> NetworkInfo:
 
 
 def _windows_network_info() -> NetworkInfo:
-    script = (
-        "$c=Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -and $_.IPv4Address} "
-        "| Select-Object -First 1; if ($c) {$a=$c.IPv4Address | Select-Object -First 1; "
-        "$m=(Get-NetAdapter -InterfaceIndex $c.InterfaceIndex).MacAddress; "
-        "Write-Output ($c.InterfaceAlias+'|'+$a.IPAddress+'|'+$a.PrefixLength+'|'"
-        "+$c.IPv4DefaultGateway.NextHop+'|'+$m)}"
-    )
-    output = _run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]).strip()
+    output = _run(_powershell_script_command("get_network_info.ps1")).strip()
     if output:
         parts = output.split("|", 4)
         if len(parts) == 5:

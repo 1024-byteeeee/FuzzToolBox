@@ -73,6 +73,7 @@ def build() -> Path:
     environment["PYINSTALLER_CONFIG_DIR"] = str(BUILD_DIR / ".pyinstaller-config")
     assets = PROJECT_DIR / "src" / "fuzztoolbox" / "assets"
     styles = PROJECT_DIR / "src" / "fuzztoolbox" / "styles"
+    runtime_scripts = PROJECT_DIR / "src" / "fuzztoolbox" / "runtime_scripts"
     entry = PROJECT_DIR / "packaging" / "macos_entry.py"
     command = [
         sys.executable,
@@ -97,6 +98,8 @@ def build() -> Path:
         f"{assets}{os.pathsep}fuzztoolbox/assets",
         "--add-data",
         f"{styles}{os.pathsep}fuzztoolbox/styles",
+        "--add-data",
+        f"{runtime_scripts}{os.pathsep}fuzztoolbox/runtime_scripts",
     ]
     command.append(str(entry))
     if system == "Darwin":

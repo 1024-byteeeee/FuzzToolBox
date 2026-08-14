@@ -15,6 +15,7 @@ ICON_SIZE = 112
 APP_POSITION = (190, 220)
 APPLICATIONS_POSITION = (530, 220)
 FINDER_DPI = 72
+SCRIPT_DIR = Path(__file__).resolve().with_name("scripts")
 
 
 def _detach_dmg(device: str, attempts: int = 6) -> None:
@@ -106,39 +107,32 @@ def create_styled_dmg(app_path: Path, output_path: Path, volume_name: str) -> No
         )
         mount_point = Path(entity["mount-point"])
         device = entity["dev-entry"]
-        script = f'''
-tell application "Finder"
-  tell disk "{volume_name}"
-    open
-    set current view of container window to icon view
-    set toolbar visible of container window to false
-    set statusbar visible of container window to false
-    set pathbar visible of container window to false
-    set the bounds of container window to {{120, 120, {120 + WINDOW_WIDTH}, {120 + WINDOW_HEIGHT}}}
-    set opts to the icon view options of container window
-    set arrangement of opts to not arranged
-    set icon size of opts to {ICON_SIZE}
-    set text size of opts to 14
-    set background picture of opts to file ".background:background.png"
-    set position of item "{app_path.name}" to {{{APP_POSITION[0]}, {APP_POSITION[1]}}}
-    set position of item "Applications" to {{{APPLICATIONS_POSITION[0]}, {APPLICATIONS_POSITION[1]}}}
-    close
-    open
-    update without registering applications
-    delay 2
-  end tell
-end tell
-'''
         try:
-            subprocess.run(["/usr/bin/osascript", "-e", script], check=True)
+            subprocess.run(
+                [
+                    "/usr/bin/osascript",
+                    str(SCRIPT_DIR / "configure_dmg.applescript"),
+                    volume_name,
+                    app_path.name,
+                    str(120 + WINDOW_WIDTH),
+                    str(120 + WINDOW_HEIGHT),
+                    str(ICON_SIZE),
+                    str(APP_POSITION[0]),
+                    str(APP_POSITION[1]),
+                    str(APPLICATIONS_POSITION[0]),
+                    str(APPLICATIONS_POSITION[1]),
+                ],
+                check=True,
+            )
         finally:
             # Finder can keep the background image or .DS_Store open briefly,
             # especially on hosted macOS runners. Ask it to release the disk,
             # then retry the detach before falling back to a forced detach.
             subprocess.run(
                 [
-                    "/usr/bin/osascript", "-e",
-                    f'tell application "Finder" to close every window whose target is disk "{volume_name}"',
+                    "/usr/bin/osascript",
+                    str(SCRIPT_DIR / "close_dmg_window.applescript"),
+                    volume_name,
                 ],
                 check=False,
             )

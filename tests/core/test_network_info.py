@@ -7,6 +7,7 @@ import socket
 
 from fuzztoolbox.core.network_info import (
     NetworkInfo,
+    _gateway_for_interface,
     _macos_network_info,
     _prefix_from_hex_netmask,
     _psutil_network_info,
@@ -54,12 +55,27 @@ class NetworkInfoTests(unittest.TestCase):
 
     def test_windows_network_parsing(self):
         output = "Ethernet|10.2.2.20|24|10.2.2.1|AA-BB-CC-DD-EE-FF\n"
-        with patch("fuzztoolbox.core.network_info._run", return_value=output):
+        with patch("fuzztoolbox.core.network_info._run", return_value=output) as run:
             info = _windows_network_info()
+        command = run.call_args.args[0]
+        self.assertIn("-File", command)
+        self.assertTrue(command[-1].endswith("get_network_info.ps1"))
+        self.assertNotIn("-Command", command)
         self.assertEqual(info.interface, "Ethernet")
         self.assertEqual(info.ip, "10.2.2.20")
         self.assertEqual(info.prefix_length, 24)
         self.assertEqual(info.mac, "AA:BB:CC:DD:EE:FF")
+
+    @patch("fuzztoolbox.core.network_info.platform.system", return_value="Windows")
+    def test_windows_gateway_script_receives_interface_as_an_argument(self, _system):
+        interface = "Ethernet 'Office'"
+        with patch("fuzztoolbox.core.network_info._run", return_value="10.2.2.1\n") as run:
+            gateway = _gateway_for_interface(interface)
+        command = run.call_args.args[0]
+        self.assertEqual(gateway, "10.2.2.1")
+        self.assertTrue(command[-2].endswith("get_interface_gateway.ps1"))
+        self.assertEqual(command[-1], interface)
+        self.assertNotIn("-Command", command)
 
     def test_physical_lan_wins_over_vpn_when_route_lookup_fails(self):
         interfaces = {
