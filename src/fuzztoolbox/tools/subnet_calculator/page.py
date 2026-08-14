@@ -413,6 +413,9 @@ class SubnetCalculatorPage(QWidget):
         self.model.load_state_changed.connect(self._update_navigation)
         self._basis_changed()
         self._update_navigation()
+        # Establish cross-platform minimums synchronously.  Windows may not
+        # deliver the zero-delay resize timer before the first event flush.
+        self._resize_result_columns()
         self.schedule_result_column_resize()
 
     def showEvent(self, event):
