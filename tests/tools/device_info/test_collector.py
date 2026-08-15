@@ -38,8 +38,8 @@ class DeviceInfoCollectorTests(unittest.TestCase):
         frequency = SimpleNamespace(current=3200, max=4000)
         with patch("fuzztoolbox.tools.device_info.collector.psutil.virtual_memory", return_value=memory), patch(
             "fuzztoolbox.tools.device_info.collector.psutil.disk_usage", return_value=disk
-        ), patch("fuzztoolbox.tools.device_info.collector.psutil.cpu_freq", return_value=frequency), patch(
-            "fuzztoolbox.tools.device_info.collector.psutil.sensors_battery", return_value=battery
+        ), patch("fuzztoolbox.tools.device_info.collector.psutil.cpu_freq", return_value=frequency, create=True), patch(
+            "fuzztoolbox.tools.device_info.collector.psutil.sensors_battery", return_value=battery, create=True
         ), patch("fuzztoolbox.tools.device_info.collector.psutil.cpu_count", side_effect=[8, 10]), patch(
             "fuzztoolbox.tools.device_info.collector.psutil.cpu_percent", return_value=12.5
         ), patch("fuzztoolbox.tools.device_info.collector.psutil.boot_time", return_value=0), patch(
@@ -62,9 +62,9 @@ class DeviceInfoCollectorTests(unittest.TestCase):
         with patch("fuzztoolbox.tools.device_info.collector.psutil.virtual_memory", return_value=memory), patch(
             "fuzztoolbox.tools.device_info.collector.psutil.disk_usage", return_value=disk
         ), patch(
-            "fuzztoolbox.tools.device_info.collector.psutil.cpu_freq", side_effect=NotImplementedError
+            "fuzztoolbox.tools.device_info.collector.psutil.cpu_freq", side_effect=NotImplementedError, create=True
         ), patch(
-            "fuzztoolbox.tools.device_info.collector.psutil.sensors_battery", side_effect=AttributeError
+            "fuzztoolbox.tools.device_info.collector.psutil.sensors_battery", side_effect=AttributeError, create=True
         ), patch("fuzztoolbox.tools.device_info.collector.psutil.cpu_count", return_value=None), patch(
             "fuzztoolbox.tools.device_info.collector.psutil.cpu_percent", return_value=0
         ), patch("fuzztoolbox.tools.device_info.collector.psutil.boot_time", return_value=0), patch(
