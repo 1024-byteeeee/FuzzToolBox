@@ -40,7 +40,6 @@ from ..tools.password_strength.page import PasswordStrengthPage
 from ..tools.qr_generator.page import QRGeneratorPage
 from ..tools.random_port.page import RandomPortPage
 from ..tools.roman_numeral.page import RomanNumeralPage
-from ..tools.speed_test.page import SpeedTestPage
 from ..tools.subnet_calculator.page import SubnetCalculatorPage
 from ..tools.text_comparer.page import TextComparerPage
 from ..tools.text_statistics.page import TextStatisticsPage
@@ -187,7 +186,6 @@ class MainWindow(QMainWindow):
         self.home_page = ToolboxHomePage()
         self.ip_scanner_page = IPScannerPage()
         self.ip_lookup_page = IPLookupPage()
-        self.speed_test_page = SpeedTestPage()
         network_info = self.ip_scanner_page.network_info
         self.subnet_calculator_page = SubnetCalculatorPage(network_info)
         self.uuid_generator_page = UUIDGeneratorPage()
@@ -209,7 +207,6 @@ class MainWindow(QMainWindow):
             self.home_page,
             self.ip_scanner_page,
             self.ip_lookup_page,
-            self.speed_test_page,
             self.subnet_calculator_page,
             self.uuid_generator_page,
             self.token_generator_page,
@@ -302,7 +299,6 @@ class MainWindow(QMainWindow):
         destinations = {
             "ip-scanner": (self.ip_scanner_page, "IP Scanner · 网络扫描"),
             "ip-lookup": (self.ip_lookup_page, "公网IP信息查询 · 网络工具"),
-            "speed-test": (self.speed_test_page, "网络测速 · 网络工具"),
             "subnet-calculator": (
                 self.subnet_calculator_page,
                 "子网划分计算器 · 网络规划",
@@ -383,7 +379,6 @@ class MainWindow(QMainWindow):
             for page in (
                 self.ip_scanner_page,
                 self.ip_lookup_page,
-                self.speed_test_page,
             )
         ]
         workers_ready = all(worker_states)
