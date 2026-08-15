@@ -98,6 +98,30 @@ color: #606266;
 font-weight: 600;
 @endstyle */
 
+/* @style tools.speed_test.page:root
+QLabel#speedHeading { color: #303133; font-size: 16px; font-weight: 700; }
+QLabel#speedSubtitle { color: #718096; font-size: 13px; }
+QFrame#speedHero { background: #176b87; border: 0; border-radius: 14px; }
+QFrame#speedHero[styleState="running"] { background: #176b87; }
+QFrame#speedHero[styleState="complete"] { background: #176b87; }
+QFrame#speedHero[styleState="error"] { background: #633139; }
+QLabel#speedHeroCaption { color: #bdecea; font-size: 13px; font-weight: 700; }
+QLabel#speedHeroValue { color: white; font-size: 38px; font-weight: 750; }
+QLabel#speedHeroUnit { color: #d5f8f6; font-size: 16px; font-weight: 700; }
+QLabel#speedPhaseBadge { color: #e8ffff; background: #2a7d96; border-radius: 10px; padding: 4px 10px; font-weight: 650; }
+QProgressBar#speedProgress { min-height: 6px; max-height: 6px; background: #2a7d96; border: 0; border-radius: 3px; }
+QProgressBar#speedProgress::chunk { background: #65e6d8; border-radius: 3px; }
+QFrame#speedMetricCard { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QFrame#speedMetricCard:hover { background: #f0f8ff; border-color: #a8d3ff; }
+QFrame#speedMetricCard[accent="download"] { border-left: 4px solid #409eff; }
+QFrame#speedMetricCard[accent="upload"] { border-left: 4px solid #24b47e; }
+QLabel#speedMetricTitle { color: #718096; font-size: 13px; font-weight: 650; }
+QLabel#speedMetricValue { color: #263445; font-size: 27px; font-weight: 750; }
+QLabel#speedMetricUnit { color: #718096; font-size: 13px; font-weight: 650; }
+QFrame#speedDetails { background: white; border: 1px solid #e4e7ed; border-radius: 10px; }
+QFrame#speedDetails QLabel { color: #606266; font-size: 13px; font-weight: 600; }
+@endstyle */
+
 /* @style tools.ipv4_converter.page:64
 QScrollArea#ipv4PageScroll { background: transparent; border: 0; }QWidget#ipv4ScrollContent { background: transparent; }
 @endstyle */

@@ -41,6 +41,14 @@ TOOLS = (
         keywords=("ip", "geo", "asn", "isp", "ptr", "rdns", "公网", "归属地"),
     ),
     ToolDefinition(
+        id="speed-test",
+        name="网络测速",
+        description="检测当前网络的延迟、抖动、下载速度与上传速度。",
+        category="网络工具",
+        icon="tool-speed-test.svg",
+        keywords=("speed", "test", "network", "测速", "网速", "延迟", "抖动", "下载", "上传"),
+    ),
+    ToolDefinition(
         id="subnet-calculator",
         name="子网划分计算器",
         description="计算 IPv4/IPv6 网络信息，完成 FLSM 与 VLSM 子网规划。",
