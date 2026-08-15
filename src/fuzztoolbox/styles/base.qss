@@ -92,6 +92,14 @@ QPushButton#themeToggle:pressed,
 QPushButton#themeToggle:focus {
   background: transparent; border: 0; padding: 8px;
 }
+QPushButton#favoriteButton,
+QPushButton#favoriteButton:hover,
+QPushButton#favoriteButton:pressed,
+QPushButton#favoriteButton:focus,
+QPushButton#favoriteButton:checked {
+  background: transparent; border: 0; padding: 6px;
+}
+QPushButton#favoriteButton:hover { background: #f5f7fa; border-radius: 17px; }
 QPushButton#categoryButton {
   background: white; color: #606266; border: 1px solid #dcdfe6;
 }

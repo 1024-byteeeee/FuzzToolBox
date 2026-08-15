@@ -32,7 +32,7 @@
 
 - **IP Scanner（旗舰功能）**：基于 `asyncio` 的有界并发扫描引擎，支持 TCP 端口探测和系统 Ping 探测，内置 DNS/mDNS/NetBIOS 分层主机名解析、MAC 地址获取、CSV/JSON 导出、SQLite 历史存储
 - **跨平台 GUI**：统一的 PySide6 界面，支持 macOS（.app）和 Windows（.exe + Inno Setup 安装包）原生打包
-- **双入口**：无 GUI 依赖的命令行入口 `fuzztoolbox` 和桌面 GUI 入口 `fuzztoolbox-gui`
+- **纯 GUI 入口**：安装后通过无控制台的 `fuzztoolbox` 图形入口启动
 - **主题系统**：支持亮色/深色/跟随系统三种模式，QSS 样式表 + 语义化颜色变量
 - **模块化设计**：每个工具遵循"核心逻辑 + UI 页面"分离模式，便于测试和扩展
 
@@ -441,7 +441,6 @@ tools/ip_scanner/
 ├── hostname.py        # 主机名解析
 ├── exporters.py       # 导出功能
 ├── storage.py         # SQLite 历史存储
-├── cli.py             # 命令行入口
 └── page.py            # GUI 页面
 ```
 
@@ -610,37 +609,7 @@ tools/ip_scanner/
 `scan_results` — 扫描结果
 - `id`, `task_id` (FK), `ip`, `method`, `response_time_ms`, `hostname`, `mac`, `open_ports_json`
 
-#### 7.1.7 `cli.py` — 命令行入口
-
-**`main()`** — 命令行主入口
-
-**CLI 参数**：
-
-| 参数 | 说明 |
-|------|------|
-| `target` | 扫描目标（CIDR/单 IP/范围） |
-| `--method` | 探测方式：`tcp`（默认）或 `ping` |
-| `--ports` | TCP 端口列表（默认 `22,80,443,445,3389,8080`） |
-| `--timeout` | 超时时间（默认 0.5s） |
-| `--concurrency` | 并发数（默认 256） |
-| `--retries` | 重试次数（默认 0） |
-| `--resolve-hostname` | 启用主机名解析 |
-| `--include-dead` | 包含离线主机 |
-| `--json` | JSON Lines 输出格式 |
-
-**使用示例**：
-```bash
-# TCP 扫描
-fuzztoolbox 192.168.1.0/24 --method tcp --ports 80,443
-
-# 系统 Ping 扫描
-fuzztoolbox 192.168.1.0/24 --method ping
-
-# JSON 输出 + 主机名解析
-fuzztoolbox 192.168.1.0/24 --resolve-hostname --json
-```
-
-#### 7.1.8 `page.py` — GUI 页面
+#### 7.1.7 `page.py` — GUI 页面
 
 **`ResultModel(QAbstractTableModel)`** — 表格数据模型
 
@@ -947,25 +916,18 @@ theme_colors.py          style_loader.py           styles/
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 安装（含 GUI 依赖）
-pip install -e '.[gui]'
-
-# 仅安装核心（CLI 使用）
+# 安装桌面应用及其 GUI 依赖
 pip install -e '.'
 ```
 
 ### 10.2 开发运行
 
 ```bash
-# GUI 模式
-fuzztoolbox-gui
-
-# CLI 模式
-fuzztoolbox 192.168.1.0/24 --method ping
+# 启动图形界面
+fuzztoolbox
 
 # 不安装直接运行
 PYTHONPATH=src python3 -m fuzztoolbox.app
-PYTHONPATH=src python3 -m fuzztoolbox.tools.ip_scanner.cli 192.168.1.0/24
 ```
 
 ### 10.3 测试
@@ -1147,21 +1109,12 @@ tests/
 
 utun, tun, tap, wireguard, tailscale, zerotier, docker, bridge, br-, br0, veth, virbr, vmnet, vbox, vethernet, hyper-v, awdl, llw, loopback, hamachi, ppp
 
-### 13.3 CLI 退出码
-
-| 退出码 | 说明 |
-|--------|------|
-| 0 | 成功 |
-| 2 | 参数错误 |
-| 130 | 扫描被用户取消 |
-
-### 13.4 关键文件索引
+### 13.3 关键文件索引
 
 | 用途 | 文件路径 |
 |------|---------|
 | 项目配置 | `pyproject.toml` |
 | 包入口 | `src/fuzztoolbox/app.py` |
-| CLI 入口 | `src/fuzztoolbox/tools/ip_scanner/cli.py` |
 | 主窗口 | `src/fuzztoolbox/ui/main_window.py` |
 | 扫描引擎 | `src/fuzztoolbox/tools/ip_scanner/engine.py` |
 | 样式加载 | `src/fuzztoolbox/ui/style_loader.py` |

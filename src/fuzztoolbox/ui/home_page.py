@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import current_theme
 
 from .animations import FAST_DURATION
 from .tool_registry import TOOLS, ToolDefinition, filter_tools
@@ -61,8 +62,48 @@ class ThemeToggleButton(QPushButton):
         self._icon_animation.start()
 
 
+class FavoriteButton(QPushButton):
+    """Compact heart control with theme-aware icons and click feedback."""
+
+    NORMAL_ICON_SIZE = QSize(20, 20)
+    ACTIVE_ICON_SIZE = QSize(25, 25)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("favoriteButton")
+        self.setCheckable(True)
+        self.setFixedSize(34, 34)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setIconSize(self.NORMAL_ICON_SIZE)
+        self._animation = QPropertyAnimation(self, b"iconSize", self)
+        self._animation.setDuration(150)
+        self._animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.clicked.connect(self._animate_click)
+        self.refresh_icon()
+
+    def setChecked(self, checked):
+        super().setChecked(checked)
+        self.refresh_icon()
+
+    def refresh_icon(self):
+        if self.isChecked():
+            name = "favorite-filled.svg"
+        else:
+            name = "favorite-outline-dark.svg" if current_theme() == "dark" else "favorite-outline.svg"
+        self.setIcon(QIcon(str(ASSET_DIR / name)))
+        self.setToolTip("取消收藏" if self.isChecked() else "添加到收藏")
+
+    def _animate_click(self):
+        self.refresh_icon()
+        self._animation.stop()
+        self._animation.setStartValue(self.ACTIVE_ICON_SIZE)
+        self._animation.setEndValue(self.NORMAL_ICON_SIZE)
+        self._animation.start()
+
+
 class ToolCard(QFrame):
     activated = Signal(str)
+    favorite_toggled = Signal(str, bool)
 
     def __init__(self, tool: ToolDefinition, parent=None):
         super().__init__(parent)
@@ -89,6 +130,11 @@ class ToolCard(QFrame):
         heading.addSpacing(7)
         heading.addWidget(name)
         heading.addStretch()
+        self.favorite_button = FavoriteButton(self)
+        self.favorite_button.clicked.connect(
+            lambda checked: self.favorite_toggled.emit(self.tool.id, checked)
+        )
+        heading.addWidget(self.favorite_button)
         layout.addLayout(heading)
 
         description = QLabel(tool.description)
@@ -106,6 +152,9 @@ class ToolCard(QFrame):
         self._motion.setDuration(FAST_DURATION)
         self._motion.setEasingCurve(QEasingCurve.OutCubic)
         self._motion.valueChanged.connect(self._apply_motion)
+
+    def set_favorite(self, favorite: bool):
+        self.favorite_button.setChecked(favorite)
 
     def enterEvent(self, event):
         self._hovered = True
@@ -145,10 +194,13 @@ class ToolCard(QFrame):
 class ToolboxHomePage(QWidget):
     tool_requested = Signal(str)
     theme_requested = Signal()
+    favorite_changed = Signal(str, bool)
 
-    def __init__(self, tools=TOOLS):
+    def __init__(self, tools=TOOLS, favorite_ids=()):
         super().__init__()
         self.tools = tuple(tools)
+        valid_ids = {tool.id for tool in self.tools}
+        self.favorite_ids = {tool_id for tool_id in favorite_ids if tool_id in valid_ids}
         self.category = "all"
 
         root = QVBoxLayout(self)
@@ -180,7 +232,11 @@ class ToolboxHomePage(QWidget):
         categories.setSpacing(8)
         self.category_buttons = {}
         category_values = tuple(dict.fromkeys(tool.category for tool in self.tools))
-        for label, value in (("全部", "all"), *((value, value) for value in category_values)):
+        for label, value in (
+            ("全部", "all"),
+            ("收藏", "favorites"),
+            *((value, value) for value in category_values),
+        ):
             button = QPushButton(label)
             button.setObjectName("categoryButton")
             button.setCheckable(True)
@@ -221,8 +277,24 @@ class ToolboxHomePage(QWidget):
 
         for card in self.cards.values():
             card.activated.connect(self.tool_requested.emit)
+            card.favorite_toggled.connect(self._favorite_toggled)
+            card.set_favorite(card.tool.id in self.favorite_ids)
         self.search.textChanged.connect(self.refresh_tools)
         self.refresh_tools()
+
+    def _favorite_toggled(self, tool_id: str, favorite: bool):
+        if favorite:
+            self.favorite_ids.add(tool_id)
+        else:
+            self.favorite_ids.discard(tool_id)
+        self.cards[tool_id].set_favorite(favorite)
+        self.favorite_changed.emit(tool_id, favorite)
+        if self.category == "favorites":
+            self.refresh_tools()
+
+    def refresh_favorite_icons(self):
+        for card in self.cards.values():
+            card.favorite_button.refresh_icon()
 
     def set_category(self, category: str):
         self.category = category
@@ -231,7 +303,10 @@ class ToolboxHomePage(QWidget):
         self.refresh_tools()
 
     def refresh_tools(self):
-        visible = filter_tools(self.tools, self.search.text(), self.category)
+        filter_category = "all" if self.category == "favorites" else self.category
+        visible = filter_tools(self.tools, self.search.text(), filter_category)
+        if self.category == "favorites":
+            visible = tuple(tool for tool in visible if tool.id in self.favorite_ids)
         visible_ids = {tool.id for tool in visible}
         for card in self.cards.values():
             self.card_grid.removeWidget(card)
@@ -239,7 +314,13 @@ class ToolboxHomePage(QWidget):
         columns = max(1, min(3, max(1, self.width() - 56) // 310))
         for index, tool in enumerate(visible):
             self.card_grid.addWidget(self.cards[tool.id], index // columns, index % columns)
-        self.empty_label.setText("没有找到匹配的工具" if not visible else "")
+        if visible:
+            empty_text = ""
+        elif self.category == "favorites" and not self.favorite_ids:
+            empty_text = "还没有收藏工具"
+        else:
+            empty_text = "没有找到匹配的工具"
+        self.empty_label.setText(empty_text)
         self.empty_label.setVisible(not visible)
 
     def resizeEvent(self, event):

@@ -12,15 +12,14 @@ dependencies = [
     "psutil>=5.9,<8",
     "getmac>=0.9,<1",
     "segno>=1.6,<2",
+    "PySide6>=6.5,<7",
 ]
 
 [project.optional-dependencies]
-gui = ["PySide6>=6.5,<7"]
 dev = ["pytest>=7", "ruff>=0.5", "pyinstaller>=6,<7"]
 
-[project.scripts]
-fuzztoolbox = "fuzztoolbox.tools.ip_scanner.cli:main"
-fuzztoolbox-gui = "fuzztoolbox.app:main"
+[project.gui-scripts]
+fuzztoolbox = "fuzztoolbox.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

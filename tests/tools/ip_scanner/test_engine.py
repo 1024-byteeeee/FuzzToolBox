@@ -275,14 +275,37 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
             side_effect=[
                 ScanResult(ip="192.168.1.20", is_alive=False, method="ping"),
                 ScanResult(ip="192.168.1.20", is_alive=True, method="ping"),
+                ScanResult(ip="192.168.1.20", is_alive=True, method="ping"),
             ]
         )
         scanner._lookup_mac = AsyncMock(return_value="AA:BB:CC:DD:EE:FF")
         result = await scanner._probe("192.168.1.20")
         self.assertTrue(result.is_alive)
-        self.assertEqual(scanner._ping_probe.await_count, 2)
+        self.assertEqual(scanner._ping_probe.await_count, 3)
         self.assertEqual(scanner._ping_probe.await_args_list[0].args[1], 0.5)
         self.assertEqual(scanner._ping_probe.await_args_list[1].args[1], 1.0)
+        self.assertEqual(scanner._ping_probe.await_args_list[2].args[1], 1.0)
+
+    async def test_transient_ping_reply_requires_independent_confirmation(self):
+        scanner = Scanner(
+            ScanConfig(method="ping", timeout=0.5, retries=0, include_dead=True)
+        )
+        scanner._ping_probe = AsyncMock(
+            side_effect=[
+                ScanResult(
+                    ip="192.168.1.156",
+                    is_alive=True,
+                    method="ping",
+                    response_time_ms=4.75,
+                ),
+                ScanResult(ip="192.168.1.156", is_alive=False, method="ping"),
+            ]
+        )
+        with patch("fuzztoolbox.tools.ip_scanner.engine.asyncio.sleep", new_callable=AsyncMock):
+            result = await scanner._probe_liveness("192.168.1.156")
+        self.assertFalse(result.is_alive)
+        self.assertEqual(result.error, "initial echo reply was not confirmed")
+        self.assertEqual(scanner._ping_probe.await_count, 2)
 
     async def test_ping_uses_two_adaptive_bursts_before_offline(self):
         scanner = Scanner(

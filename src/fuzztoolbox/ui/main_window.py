@@ -26,21 +26,24 @@ try:
         QWidget,
     )
 except ImportError as exc:  # pragma: no cover
-    raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.[gui]'") from exc
+    raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.'") from exc
 
 from .. import __version__
 from ..tools.color_picker.page import ColorPickerPage
 from ..tools.datetime_converter.page import DateTimeConverterPage
 from ..tools.docker_compose_converter.page import DockerComposeConverterPage
+from ..tools.device_info.page import DeviceInfoPage
 from ..tools.ip_scanner.page import IPScannerPage
 from ..tools.ip_lookup.page import IPLookupPage
 from ..tools.ipv4_converter.page import IPv4ConverterPage
 from ..tools.json_formatter.page import JSONFormatterPage
+from ..tools.lorem_ipsum.page import LoremIpsumPage
 from ..tools.password_strength.page import PasswordStrengthPage
 from ..tools.qr_generator.page import QRGeneratorPage
 from ..tools.random_port.page import RandomPortPage
 from ..tools.roman_numeral.page import RomanNumeralPage
 from ..tools.subnet_calculator.page import SubnetCalculatorPage
+from ..tools.subnet_mask_inverse.page import SubnetMaskInversePage
 from ..tools.text_comparer.page import TextComparerPage
 from ..tools.text_statistics.page import TextStatisticsPage
 from ..tools.timer.page import TimerPage
@@ -183,17 +186,23 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.top_bar)
 
         self.pages = QStackedWidget()
-        self.home_page = ToolboxHomePage()
+        stored_favorites = self.settings.value("home/favorites", [])
+        if isinstance(stored_favorites, str):
+            stored_favorites = [stored_favorites] if stored_favorites else []
+        self.home_page = ToolboxHomePage(favorite_ids=stored_favorites or [])
         self.ip_scanner_page = IPScannerPage()
+        self.device_info_page = DeviceInfoPage()
         self.ip_lookup_page = IPLookupPage()
         network_info = self.ip_scanner_page.network_info
         self.subnet_calculator_page = SubnetCalculatorPage(network_info)
+        self.subnet_mask_inverse_page = SubnetMaskInversePage()
         self.uuid_generator_page = UUIDGeneratorPage()
         self.token_generator_page = TokenGeneratorPage()
         self.json_formatter_page = JSONFormatterPage()
         self.docker_compose_converter_page = DockerComposeConverterPage()
         self.text_comparer_page = TextComparerPage()
         self.text_statistics_page = TextStatisticsPage()
+        self.lorem_ipsum_page = LoremIpsumPage()
         self.ipv4_converter_page = IPv4ConverterPage(network_info)
         self.qr_generator_page = QRGeneratorPage()
         self.wifi_qr_generator_page = WiFiQRGeneratorPage()
@@ -205,15 +214,18 @@ class MainWindow(QMainWindow):
         self.datetime_converter_page = DateTimeConverterPage()
         for page in (
             self.home_page,
+            self.device_info_page,
             self.ip_scanner_page,
             self.ip_lookup_page,
             self.subnet_calculator_page,
+            self.subnet_mask_inverse_page,
             self.uuid_generator_page,
             self.token_generator_page,
             self.json_formatter_page,
             self.docker_compose_converter_page,
             self.text_comparer_page,
             self.text_statistics_page,
+            self.lorem_ipsum_page,
             self.ipv4_converter_page,
             self.qr_generator_page,
             self.wifi_qr_generator_page,
@@ -236,6 +248,7 @@ class MainWindow(QMainWindow):
 
         self.home_page.tool_requested.connect(self.open_tool)
         self.home_page.theme_requested.connect(self.cycle_theme)
+        self.home_page.favorite_changed.connect(self._save_favorites)
         quit_action = QAction(self)
         quit_action.setText("退出 FuzzToolBox")
         quit_action.setMenuRole(QAction.QuitRole)
@@ -250,6 +263,10 @@ class MainWindow(QMainWindow):
 
     def show_in_saved_state(self) -> None:
         show_main_window(self)
+
+    def _save_favorites(self, _tool_id=None, _favorite=None):
+        ordered = [tool.id for tool in TOOLS if tool.id in self.home_page.favorite_ids]
+        self.settings.setValue("home/favorites", ordered)
 
     def _system_theme(self) -> str:
         hints = QApplication.styleHints()
@@ -277,6 +294,7 @@ class MainWindow(QMainWindow):
         set_theme(resolved)
         QApplication.instance().setStyleSheet(load_qss("base.qss"))
         refresh_widget_styles(QApplication.allWidgets())
+        self.home_page.refresh_favorite_icons()
         self.home_page.theme_button.setText("")
         next_mode = "light" if resolved == "dark" else "dark"
         icon_name = "theme-sun-dark.svg" if resolved == "dark" else "theme-moon.svg"
@@ -297,11 +315,16 @@ class MainWindow(QMainWindow):
 
     def open_tool(self, tool_id: str):
         destinations = {
+            "device-info": (self.device_info_page, "设备信息 · 系统工具"),
             "ip-scanner": (self.ip_scanner_page, "IP Scanner · 网络扫描"),
             "ip-lookup": (self.ip_lookup_page, "公网IP信息查询 · 网络工具"),
             "subnet-calculator": (
                 self.subnet_calculator_page,
                 "子网划分计算器 · 网络规划",
+            ),
+            "subnet-mask-inverse": (
+                self.subnet_mask_inverse_page,
+                "子网掩码逆算器 · 网络工具",
             ),
             "uuid-generator": (self.uuid_generator_page, "UUID 生成器 · 开发工具"),
             "token-generator": (
@@ -323,6 +346,10 @@ class MainWindow(QMainWindow):
             "text-statistics": (
                 self.text_statistics_page,
                 "文本统计工具 · 实用工具",
+            ),
+            "lorem-ipsum": (
+                self.lorem_ipsum_page,
+                "Lorem Ipsum 生成器 · 实用工具",
             ),
             "ipv4-converter": (
                 self.ipv4_converter_page,
@@ -364,6 +391,8 @@ class MainWindow(QMainWindow):
         self._page_transition.enter(page, 8)
         if page is self.ip_scanner_page:
             self.ip_scanner_page.schedule_result_column_resize()
+        elif page is self.device_info_page:
+            self.device_info_page.refresh()
 
     def closeEvent(self, event):
         normal_geometry = self.normalGeometry() if self.isMaximized() else self.geometry()

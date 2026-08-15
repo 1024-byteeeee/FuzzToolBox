@@ -25,6 +25,14 @@ class ToolDefinition:
 
 TOOLS = (
     ToolDefinition(
+        id="device-info",
+        name="设备信息",
+        description="查看当前设备的系统、CPU、GPU、内存、屏幕和存储信息。",
+        category="系统工具",
+        icon="tool-device-info.svg",
+        keywords=("device", "system", "cpu", "gpu", "memory", "display", "设备", "显卡", "屏幕"),
+    ),
+    ToolDefinition(
         id="ip-scanner",
         name="IP Scanner",
         description="扫描指定网段，发现在线设备、主机名、MAC 地址与开放端口。",
@@ -47,6 +55,14 @@ TOOLS = (
         category="网络工具",
         icon="tool-subnet-calculator.svg",
         keywords=("subnet", "cidr", "掩码", "flsm", "vlsm", "ipv4", "ipv6"),
+    ),
+    ToolDefinition(
+        id="subnet-mask-inverse",
+        name="子网掩码逆算器",
+        description="换算 IPv4 子网掩码、通配符掩码、CIDR 前缀与地址容量。",
+        category="网络工具",
+        icon="tool-subnet-mask-inverse.svg",
+        keywords=("subnet", "mask", "wildcard", "cidr", "反掩码", "通配符", "子网掩码"),
     ),
     ToolDefinition(
         id="ipv4-converter",
@@ -103,6 +119,14 @@ TOOLS = (
         category="实用工具",
         icon="tool-text-statistics.svg",
         keywords=("text", "statistics", "count", "文本", "统计", "字数", "字符", "单词", "行数", "大小"),
+    ),
+    ToolDefinition(
+        id="lorem-ipsum",
+        name="Lorem Ipsum 生成器",
+        description="按单词、句子或段落生成排版与原型设计所需的占位文本。",
+        category="实用工具",
+        icon="tool-lorem-ipsum.svg",
+        keywords=("lorem", "ipsum", "placeholder", "dummy", "占位", "文本", "段落", "排版"),
     ),
     ToolDefinition(
         id="qr-generator",

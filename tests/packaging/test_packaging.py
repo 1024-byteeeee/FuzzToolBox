@@ -8,6 +8,16 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_package_exposes_only_the_gui_entry_point(self):
+        config = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+        self.assertIn("[project.gui-scripts]", config)
+        self.assertIn('fuzztoolbox = "fuzztoolbox.app:main"', config)
+        self.assertNotIn("[project.scripts]", config)
+        self.assertNotIn("fuzztoolbox-gui", config)
+        self.assertFalse(
+            (PROJECT_DIR / "src" / "fuzztoolbox" / "tools" / "ip_scanner" / "cli.py").exists()
+        )
+
     def test_desktop_entry_point_defers_main_window_import_until_after_splash(self):
         script = (PROJECT_DIR / "src" / "fuzztoolbox" / "app.py").read_text(
             encoding="utf-8"
@@ -63,6 +73,12 @@ class PackagingTests(unittest.TestCase):
         )
         self.assertTrue((runtime_scripts / "get_network_info.ps1").is_file())
         self.assertTrue((runtime_scripts / "get_interface_gateway.ps1").is_file())
+        self.assertTrue((runtime_scripts / "get_device_hardware.ps1").is_file())
+
+        device_collector = (
+            PROJECT_DIR / "src" / "fuzztoolbox" / "tools" / "device_info" / "collector.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("Get-CimInstance", device_collector)
 
     def test_runtime_scripts_are_included_in_package_and_pyinstaller(self):
         project_config = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")

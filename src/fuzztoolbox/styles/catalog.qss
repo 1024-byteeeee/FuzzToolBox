@@ -146,6 +146,22 @@ font-size: 15px; font-weight: 700;
 QPlainTextEdit { background: #fbfcfe; color: #303133; border: 1px solid #dcdfe6; border-radius: 8px; padding: 10px; font-size: 13px; selection-background-color: #409eff; }QPlainTextEdit:focus { border-color: #409eff; }
 @endstyle */
 
+/* @style tools.lorem_ipsum.page:intro
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.lorem_ipsum.page:settings
+QFrame#loremSettings { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }QLabel#loremSliderTitle { color: #303133; font-weight: 600; min-width: 92px; }QLabel#loremSliderValue { color: #1677d2; background: #ecf5ff; border: 1px solid #b3d8ff; border-radius: 8px; padding: 3px 7px; font-weight: 700; }QSlider#loremSlider { background: transparent; min-height: 22px; }QSlider#loremSlider::groove:horizontal { height: 6px; background: #dcdfe6; border-radius: 3px; }QSlider#loremSlider::sub-page:horizontal { background: #409eff; border-radius: 3px; }QSlider#loremSlider::handle:horizontal { background: white; border: 2px solid #409eff; width: 16px; height: 16px; margin: -6px 0; border-radius: 9px; }QSlider#loremSlider::handle:horizontal:hover { background: #ecf5ff; border-color: #1677d2; }
+@endstyle */
+
+/* @style tools.lorem_ipsum.page:result
+QFrame#loremResult { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }QLabel#loremHeading { color: #303133; font-size: 15px; font-weight: 700; }QLabel#loremStats { color: #718096; font-size: 12px; font-weight: 600; }QLabel#loremStatus { color: #606266; }
+@endstyle */
+
+/* @style tools.lorem_ipsum.page:output
+QPlainTextEdit { color: #303133; background: #fbfcfe; border: 1px solid #dcdfe6; border-radius: 9px; padding: 13px; font-size: 14px; selection-background-color: #409eff; }QPlainTextEdit:focus { border-color: #409eff; }
+@endstyle */
+
 /* @style tools.password_strength.page:26
 QFrame#strengthMetric { background: #fafcff; border: 1px solid #e4e7ed; border-radius: 9px; }
 @endstyle */
@@ -509,4 +525,41 @@ QWidget#subnetWorkspace QLabel#subnetResultBadge { color: #406080; background: #
 QWidget#subnetWorkspace QFrame#subnetToolbarDivider { color: #dcdfe6; background: #dcdfe6; border: 0; min-width: 1px; max-width: 1px; margin: 4px 5px; }
 QWidget#subnetWorkspace QTableView#subnetResultTable { border-left: 0; border-right: 0; border-radius: 0; }
 QWidget#subnetWorkspace QLabel#subnetStatus { color: #606266; background: #fbfcfe; border-top: 1px solid #e4e7ed; padding: 8px 14px; }
+@endstyle */
+
+/* @style tools.subnet_mask_inverse.page:workspace
+QWidget#maskInverseWorkspace { background: #f5f7fa; }
+QWidget#maskInverseWorkspace QScrollArea#maskInverseScroll,
+QWidget#maskInverseWorkspace QScrollArea#maskInverseScroll QWidget#qt_scrollarea_viewport,
+QWidget#maskInverseWorkspace QWidget#maskInverseContent { background: #f5f7fa; border: 0; }
+QWidget#maskInverseWorkspace QLabel#maskInverseIntro { color: #606266; font-size: 14px; font-weight: 600; }
+QWidget#maskInverseWorkspace QFrame#maskInverseInputPanel,
+QWidget#maskInverseWorkspace QFrame#maskInverseResults { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QWidget#maskInverseWorkspace QFrame#maskInverseHero { background: #087f91; border: 0; border-radius: 12px; }
+QWidget#maskInverseWorkspace QLabel#maskInverseHeroTitle { color: #bdf7ef; font-size: 11px; font-weight: 600; }
+QWidget#maskInverseWorkspace QLabel#maskInverseHeroValue { color: white; font-size: 20px; font-weight: 700; }
+QWidget#maskInverseWorkspace QLabel#maskInverseBadge { color: #075c69; background: #bdf7ef; border-radius: 10px; padding: 5px 9px; font-weight: 700; }
+QWidget#maskInverseWorkspace QLabel#maskInverseSectionTitle { color: #303133; font-size: 15px; font-weight: 700; }
+QWidget#maskInverseWorkspace QFrame#maskInverseCard,
+QWidget#maskInverseWorkspace QFrame#maskInverseCardWide { background: #fbfcfe; border: 1px solid #e4e7ed; border-radius: 9px; }
+QWidget#maskInverseWorkspace QLabel#maskInverseCardTitle { color: #909399; font-size: 11px; font-weight: 600; }
+QWidget#maskInverseWorkspace QLabel#maskInverseCardValue { color: #303133; font-size: 14px; font-weight: 700; }
+QWidget#maskInverseWorkspace QPushButton#maskInverseCopy { color: #0f8ca3; background: transparent; border: 0; padding: 3px 5px; font-weight: 600; }
+QWidget#maskInverseWorkspace QPushButton#maskInverseCopy:hover { color: #076d7d; background: #e8f8fa; border-radius: 5px; }
+QWidget#maskInverseWorkspace QLabel#maskInverseStatus { color: #606266; font-weight: 600; }
+QWidget#maskInverseWorkspace QLabel#maskInverseStatus[styleState="success"] { color: #0b8f64; }
+QWidget#maskInverseWorkspace QLabel#maskInverseStatus[styleState="error"] { color: #e45656; }
+@endstyle */
+
+/* @style tools.device_info.page:workspace
+QWidget#deviceInfoWorkspace { background: #f5f7fa; }
+QWidget#deviceInfoWorkspace QScrollArea#deviceInfoScroll,
+QWidget#deviceInfoWorkspace QScrollArea#deviceInfoScroll QWidget#qt_scrollarea_viewport,
+QWidget#deviceInfoWorkspace QWidget#deviceInfoContent { background: #f5f7fa; border: 0; }
+QWidget#deviceInfoWorkspace QLabel#deviceInfoIntro { color: #606266; font-size: 14px; font-weight: 600; }
+QWidget#deviceInfoWorkspace QLabel#deviceInfoStatus { color: #7a8798; padding: 2px 1px; }
+QWidget#deviceInfoWorkspace QFrame#deviceInfoSection { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QWidget#deviceInfoWorkspace QLabel#deviceInfoSectionTitle { color: #303133; font-size: 15px; font-weight: 700; padding-bottom: 4px; }
+QWidget#deviceInfoWorkspace QLabel#deviceInfoKey { color: #909399; font-size: 12px; font-weight: 600; min-width: 96px; }
+QWidget#deviceInfoWorkspace QLabel#deviceInfoValue { color: #303133; font-size: 13px; font-weight: 600; }
 @endstyle */

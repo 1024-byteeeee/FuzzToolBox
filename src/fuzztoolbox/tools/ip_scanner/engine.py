@@ -212,6 +212,20 @@ class Scanner:
                 # cost of starting several more processes per address.
                 probe_timeout = min(self.config.timeout * (2**attempt), 2.0)
                 last = await self._ping_probe(ip, probe_timeout)
+                if last.is_alive:
+                    # A single burst can catch a transient reply from a roaming,
+                    # sleeping, or recently disconnected Wi-Fi client. Confirm
+                    # liveness with a separate burst before publishing it.
+                    await asyncio.sleep(0.08)
+                    confirmation = await self._ping_probe(ip, probe_timeout)
+                    if confirmation.is_alive:
+                        return confirmation
+                    last = ScanResult(
+                        ip=ip,
+                        is_alive=False,
+                        method="ping",
+                        error="initial echo reply was not confirmed",
+                    )
             if last.is_alive:
                 return last
             if attempt < self.config.retries:

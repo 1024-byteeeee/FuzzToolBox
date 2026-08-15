@@ -25,6 +25,12 @@ class SubnetCalculatorTests(unittest.TestCase):
         self.assertEqual(summary["最后可用地址"], "192.0.2.1")
         self.assertEqual(summary["可用地址数"], 2)
 
+    def test_ipv4_single_host_network_has_one_usable_address(self):
+        summary = network_summary(parse_network("192.0.2.9/32"))
+        self.assertEqual(summary["首个可用地址"], "192.0.2.9")
+        self.assertEqual(summary["最后可用地址"], "192.0.2.9")
+        self.assertEqual(summary["可用地址数"], 1)
+
     def test_ipv6_summary_has_no_broadcast(self):
         summary = network_summary(parse_network("2001:db8::/126"))
         self.assertEqual(summary["广播地址"], "—")
@@ -54,6 +60,19 @@ class SubnetCalculatorTests(unittest.TestCase):
         rows = allocate_vlsm(parse_network("2001:db8::/120"), [50, 100])
         self.assertEqual(rows[0].network.with_prefixlen, "2001:db8::/121")
         self.assertEqual(rows[1].network.with_prefixlen, "2001:db8::80/122")
+
+    def test_vlsm_allocations_do_not_overlap_and_stay_inside_base_network(self):
+        base = parse_network("10.20.0.0/20")
+        rows = allocate_vlsm(base, [1, 2, 3, 30, 62, 100, 500])
+        networks = [row.network for row in rows]
+        self.assertTrue(all(network.subnet_of(base) for network in networks))
+        self.assertTrue(all(row.usable >= row.requested_hosts for row in rows))
+        for index, network in enumerate(networks):
+            self.assertTrue(all(not network.overlaps(other) for other in networks[index + 1 :]))
+
+    def test_equal_vlsm_requirements_keep_input_order(self):
+        rows = allocate_vlsm(parse_network("10.0.0.0/24"), [10, 10, 10])
+        self.assertEqual([row.request_index for row in rows], [1, 2, 3])
 
     def test_vlsm_reports_insufficient_space(self):
         with self.assertRaisesRegex(ValueError, "空间不足|超出"):

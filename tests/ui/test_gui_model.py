@@ -2,6 +2,7 @@ import math
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEasingCurve, QRect, Qt
@@ -308,7 +309,7 @@ class ResultModelTests(unittest.TestCase):
         self.assertIsNone(editor._error_line)
         editor.close()
 
-    def test_subnet_page_keeps_return_button_available_and_shows_network(self):
+    def test_subnet_page_defaults_to_vlsm_and_shows_network(self):
         from fuzztoolbox.tools.subnet_calculator.page import SubnetCalculatorPage
 
         info = NetworkInfo(
@@ -322,7 +323,10 @@ class ResultModelTests(unittest.TestCase):
         page.show()
         self.app.processEvents()
 
-        self.assertTrue(page.reset_window_button.isEnabled())
+        self.assertEqual(page.mode.currentData(), "vlsm")
+        self.assertEqual(page.parameter_pages.currentIndex(), 1)
+        self.assertFalse(page.locate_button.isEnabled())
+        self.assertFalse(page.reset_window_button.isEnabled())
         self.assertIn("本机网络  Ethernet", page.network_label.text())
         self.assertIn("IP 192.168.8.42", page.network_label.text())
         self.assertEqual(page.objectName(), "subnetWorkspace")
@@ -339,6 +343,7 @@ class ResultModelTests(unittest.TestCase):
             self.assertGreaterEqual(page.table.columnWidth(column), 125)
 
         page.base_network.setText("2001:db8::/32")
+        page.mode.setCurrentIndex(page.mode.findData("flsm"))
         page.flsm_value.setText("64")
         page.calculate()
         self.assertEqual(page.metric_values["规划模式"].text(), "FLSM")
@@ -350,7 +355,47 @@ class ResultModelTests(unittest.TestCase):
         page.return_to_start()
         self.assertEqual(page.model.window_start, 0)
         self.assertEqual(page.table.currentIndex().row(), 0)
-        self.assertTrue(page.reset_window_button.isEnabled())
+        self.assertFalse(page.reset_window_button.isEnabled())
+        page.reset()
+        self.assertEqual(page.mode.currentData(), "vlsm")
+        self.assertEqual(page.vlsm_requirements.text(), "120, 60, 30, 10")
+        page.close()
+
+    def test_subnet_failed_calculation_preserves_previous_consistent_result(self):
+        from fuzztoolbox.tools.subnet_calculator.page import SubnetCalculatorPage
+
+        page = SubnetCalculatorPage(NetworkInfo())
+        page.vlsm_requirements.setText("100, 50")
+        page.calculate()
+        previous_summary = page.summary_network.text()
+        previous_networks = [row.network for row in page.model.allocations]
+
+        page.base_network.setText("10.0.0.0/30")
+        page.vlsm_requirements.setText("100")
+        with patch("fuzztoolbox.tools.subnet_calculator.page.QMessageBox.warning") as warning:
+            page.calculate()
+
+        warning.assert_called_once()
+        self.assertEqual(page.summary_network.text(), previous_summary)
+        self.assertEqual([row.network for row in page.model.allocations], previous_networks)
+        page.close()
+
+    def test_subnet_mask_inverse_page_updates_results_in_real_time(self):
+        from fuzztoolbox.tools.subnet_mask_inverse.page import SubnetMaskInversePage
+
+        page = SubnetMaskInversePage()
+        self.assertEqual(page.input.text(), "255.255.255.0")
+        self.assertEqual(page.cards["通配符掩码"].value, "0.0.0.255")
+        self.assertEqual(page.cards["CIDR 前缀"].value, "/24")
+        self.assertTrue(page.copy_all_button.isEnabled())
+
+        page.input.setText("0.0.15.255")
+        self.assertEqual(page.cards["子网掩码"].value, "255.255.240.0")
+        self.assertIn("通配符掩码", page.hero_badge.text())
+
+        page.input.setText("255.0.255.0")
+        self.assertFalse(page.copy_all_button.isEnabled())
+        self.assertEqual(page.cards["CIDR 前缀"].value, "—")
         page.close()
 
     def test_home_page_search_hides_unmatched_tool(self):
@@ -368,6 +413,45 @@ class ResultModelTests(unittest.TestCase):
             self.assertFalse(card.isWindow())
 
         page.close()
+
+    def test_home_page_favorites_filter_search_and_card_click_isolation(self):
+        page = ToolboxHomePage(favorite_ids=("ip-scanner", "missing-tool"))
+        self.assertEqual(page.favorite_ids, {"ip-scanner"})
+        self.assertTrue(page.cards["ip-scanner"].favorite_button.isChecked())
+        self.assertFalse(page.cards["json-formatter"].favorite_button.isChecked())
+
+        activated = []
+        changed = []
+        page.tool_requested.connect(activated.append)
+        page.favorite_changed.connect(lambda tool_id, state: changed.append((tool_id, state)))
+        page.cards["json-formatter"].favorite_button.click()
+        self.assertEqual(activated, [])
+        self.assertEqual(changed, [("json-formatter", True)])
+        self.assertIn("json-formatter", page.favorite_ids)
+
+        page.set_category("favorites")
+        visible = {tool_id for tool_id, card in page.cards.items() if not card.isHidden()}
+        self.assertEqual(visible, {"ip-scanner", "json-formatter"})
+        page.search.setText("JSON")
+        visible = {tool_id for tool_id, card in page.cards.items() if not card.isHidden()}
+        self.assertEqual(visible, {"json-formatter"})
+
+        page.search.clear()
+        page.cards["ip-scanner"].favorite_button.click()
+        page.cards["json-formatter"].favorite_button.click()
+        self.assertEqual(page.empty_label.text(), "还没有收藏工具")
+        page.close()
+
+    def test_main_window_saves_favorites_in_registry_order(self):
+        settings = Mock()
+        window_state = SimpleNamespace(
+            settings=settings,
+            home_page=SimpleNamespace(favorite_ids={"json-formatter", "ip-scanner"}),
+        )
+        MainWindow._save_favorites(window_state)
+        settings.setValue.assert_called_once_with(
+            "home/favorites", ["ip-scanner", "json-formatter"]
+        )
 
     def test_tool_card_hover_uses_short_motion_animation(self):
         page = ToolboxHomePage()
@@ -543,6 +627,7 @@ class ResultModelTests(unittest.TestCase):
             window.ip_scanner_page.range_mode.width(),
             window.ip_scanner_page.method.width(),
         )
+        self.assertGreaterEqual(window.ip_scanner_page.range_mode.width(), 180)
         self.assertGreater(
             window.back_button.geometry().center().x(),
             window.page_title.geometry().center().x(),

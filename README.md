@@ -7,7 +7,7 @@ FuzzToolBox 是面向 Windows 与 macOS 的桌面 IT 工具箱。内置 IP Scann
 - TCP 探测与严格的系统 Ping 探测（只有目标 Echo Reply 才判定在线）
 - DNS、mDNS、NetBIOS 分层主机名解析及本地网络 MAC 地址获取
 - 可停止的实时扫描、异步设备信息补全、精确 IP 搜索与 CSV/JSON 导出
-- PySide6 桌面界面，以及无 GUI 依赖的命令行入口
+- PySide6 桌面图形界面
 
 子网划分计算器支持 IPv4 与 IPv6 网络摘要、FLSM 等长划分、VLSM 可变长规划、
 超大网段连续按需加载、IP 所属子网定位、复制和 CSV 导出。
@@ -36,20 +36,8 @@ WiFi 二维码生成器支持 WPA/WPA2/WPA3、WEP、无密码与隐藏网络配�
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[gui]'
-fuzztoolbox-gui
-```
-
-不安装 GUI 也可直接运行：
-
-```bash
-PYTHONPATH=src python3 -m fuzztoolbox.tools.ip_scanner.cli 192.168.1.0/24 --method tcp --ports 80,443
-```
-
-系统 Ping 模式调用当前平台自带的 `ping` 程序，不要求 Python raw socket 权限：
-
-```bash
-PYTHONPATH=src python3 -m fuzztoolbox.tools.ip_scanner.cli 192.168.1.0/24 --method ping
+pip install -e '.'
+fuzztoolbox
 ```
 
 ## 结果判定与功能边界

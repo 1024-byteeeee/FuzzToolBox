@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
     QTableView,
 )
+
 from fuzztoolbox.ui.style_loader import apply_style, on_theme_changed, theme_color
 
 

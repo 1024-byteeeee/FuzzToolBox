@@ -222,8 +222,8 @@ class SubnetCalculatorPage(QWidget):
         self.base_network = QLineEdit("192.168.1.0/24")
         self.base_network.setPlaceholderText("192.168.1.10/24、192.168.1.10/255.255.255.0 或 2001:db8::/48")
         self.mode = QComboBox()
-        self.mode.addItem("等长子网划分（FLSM）", "flsm")
         self.mode.addItem("可变长子网划分（VLSM）", "vlsm")
+        self.mode.addItem("等长子网划分（FLSM）", "flsm")
         configure_combo(self.mode)
         self.parameter_pages = QStackedWidget()
 
@@ -244,6 +244,7 @@ class SubnetCalculatorPage(QWidget):
         vlsm_layout.setContentsMargins(0, 0, 0, 0)
         self.vlsm_requirements = QLineEdit()
         self.vlsm_requirements.setPlaceholderText("各子网地址需求，例如 120, 60, 30, 10")
+        self.vlsm_requirements.setText("120, 60, 30, 10")
         vlsm_layout.addWidget(self.vlsm_requirements)
 
         self.parameter_pages.addWidget(flsm_widget)
@@ -357,7 +358,7 @@ class SubnetCalculatorPage(QWidget):
         self.loaded_label.setObjectName("subnetResultBadge")
         self.copy_button = QPushButton("复制选中")
         self.copy_button.setObjectName("secondary")
-        self.export_button = QPushButton("导出结果")
+        self.export_button = QPushButton("导出已加载")
         self.export_button.setObjectName("secondary")
         result_heading.addWidget(result_title)
         result_heading.addSpacing(6)
@@ -411,6 +412,7 @@ class SubnetCalculatorPage(QWidget):
         self.copy_button.clicked.connect(self.copy_selected)
         self.export_button.clicked.connect(self.export_loaded_results)
         self.model.load_state_changed.connect(self._update_navigation)
+        self._mode_changed()
         self._basis_changed()
         self._update_navigation()
         # Establish cross-platform minimums synchronously.  Windows may not
@@ -484,15 +486,21 @@ class SubnetCalculatorPage(QWidget):
     def calculate(self):
         try:
             network = parse_network(self.base_network.text())
-            self._show_summary(network)
             if self.mode.currentData() == "flsm":
-                value = int(self.flsm_value.text().strip().lstrip("/"))
+                raw_value = self.flsm_value.text().strip().lstrip("/")
+                if not raw_value:
+                    raise ValueError("请输入目标前缀或子网数量")
+                try:
+                    value = int(raw_value)
+                except ValueError as exc:
+                    raise ValueError("目标前缀或子网数量必须是整数") from exc
                 if self.flsm_basis.currentData() == "prefix":
                     plan = FLSMPlan(network, value)
                 else:
                     plan = flsm_by_count(network, value)
-                self.model.set_flsm(plan)
                 _first, _last, usable = usable_range(plan.subnet_at(0))
+                self._show_summary(network)
+                self.model.set_flsm(plan)
                 self._show_plan_metrics(
                     "FLSM", plan.total, f"/{plan.target_prefix}", f"{usable:,} / 子网"
                 )
@@ -502,12 +510,13 @@ class SubnetCalculatorPage(QWidget):
             else:
                 requirements = parse_host_requirements(self.vlsm_requirements.text())
                 allocations = allocate_vlsm(network, requirements)
-                self.model.set_vlsm(allocations)
                 prefixes = [allocation.network.prefixlen for allocation in allocations]
                 prefix_text = (
                     f"/{prefixes[0]}" if len(set(prefixes)) == 1
                     else f"/{min(prefixes)} – /{max(prefixes)}"
                 )
+                self._show_summary(network)
+                self.model.set_vlsm(allocations)
                 self._show_plan_metrics(
                     "VLSM", len(allocations), prefix_text, f"{sum(requirements):,} 个需求地址"
                 )
@@ -541,7 +550,7 @@ class SubnetCalculatorPage(QWidget):
         self.mode.setCurrentIndex(0)
         self.flsm_basis.setCurrentIndex(0)
         self.flsm_value.setText("28")
-        self.vlsm_requirements.clear()
+        self.vlsm_requirements.setText("120, 60, 30, 10")
         self.locate_ip.clear()
         for label in self.summary_labels.values():
             label.setText("—")
@@ -562,7 +571,9 @@ class SubnetCalculatorPage(QWidget):
             )
         else:
             self.loaded_label.setText("尚未生成结果")
-        self.reset_window_button.setEnabled(True)
+        self.reset_window_button.setEnabled(
+            bool(self.model.plan and self.model.window_start > 0)
+        )
         self.copy_button.setEnabled(has_results)
         self.export_button.setEnabled(has_results)
 

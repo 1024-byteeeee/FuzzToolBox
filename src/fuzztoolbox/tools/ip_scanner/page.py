@@ -38,7 +38,7 @@ try:
         QWidget,
     )
 except ImportError as exc:  # pragma: no cover
-    raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.[gui]'") from exc
+    raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.'") from exc
 
 from ...core.network_info import NetworkInfo, get_network_info
 from ...ui.components import configure_combo, configure_table
@@ -47,7 +47,7 @@ from .exporters import export_results
 from .models import ScanConfig, ScanProgress, ScanResult
 from .targets import parse_ports, parse_target
 
-SCAN_SELECTOR_WIDTH = 165
+SCAN_SELECTOR_WIDTH = 180
 
 
 class ResultModel(QAbstractTableModel):
