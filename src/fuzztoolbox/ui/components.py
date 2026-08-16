@@ -1,6 +1,8 @@
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPalette
-from PySide6.QtWidgets import (
+import weakref
+
+from PySide6.QtCore import QObject, QRectF, QSize, Qt, QVariantAnimation  # type: ignore[import-not-found]
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPalette  # type: ignore[import-not-found]
+from PySide6.QtWidgets import (  # type: ignore[import-not-found]
     QAbstractItemView,
     QComboBox,
     QHeaderView,
@@ -9,8 +11,10 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QTableView,
+    QWidget,
 )
 
+from fuzztoolbox.ui.animations import motion_enabled
 from fuzztoolbox.ui.style_loader import apply_style, on_theme_changed, theme_color
 
 
@@ -127,3 +131,99 @@ def configure_table(table: QTableView) -> None:
     table.verticalHeader().setVisible(False)
     table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+
+
+class _ShimmerDriver(QObject):
+    """Drive one shared animation phase for every visible skeleton bar."""
+
+    def __init__(self):
+        super().__init__()
+        self.phase = 0.0
+        self._listeners = set()
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(1400)
+        self._animation.setStartValue(0.0)
+        self._animation.setEndValue(1.0)
+        self._animation.setLoopCount(-1)
+        self._animation.valueChanged.connect(self._broadcast)
+
+    def _broadcast(self, value):
+        self.phase = float(value)
+        alive = set()
+        for listener in self._listeners:
+            callback = listener()
+            if callback is not None:
+                alive.add(listener)
+                callback()
+        self._listeners = alive
+
+    def attach(self, listener):
+        self._listeners.add(listener)
+        if self._animation.state() != QVariantAnimation.Running:
+            self._animation.start()
+
+    def detach(self, listener):
+        self._listeners.discard(listener)
+        if not self._listeners:
+            self._animation.stop()
+
+
+_shimmer_driver = None
+
+
+def _shimmer() -> _ShimmerDriver:
+    global _shimmer_driver
+    if _shimmer_driver is None:
+        _shimmer_driver = _ShimmerDriver()
+    return _shimmer_driver
+
+
+class SkeletonBar(QWidget):
+    """Rounded loading placeholder bar with a moving shimmer highlight."""
+
+    def __init__(self, height: int = 12, width_ratio: float = 1.0, radius=None, parent=None):
+        super().__init__(parent)
+        self._width_ratio = max(0.05, min(1.0, width_ratio))
+        self._radius = radius
+        self.setFixedHeight(height)
+        self.setMinimumWidth(24)
+        self._tick = weakref.WeakMethod(self._repaint)
+        on_theme_changed(self._repaint)
+
+    def _repaint(self):
+        self.update()
+
+    def sizeHint(self):
+        return QSize(160, self.height())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if motion_enabled():
+            _shimmer().attach(self._tick)
+        self.update()
+
+    def hideEvent(self, event):
+        _shimmer().detach(self._tick)
+        super().hideEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        bounds = QRectF(self.rect())
+        rect = QRectF(0, 0, bounds.width() * self._width_ratio, bounds.height())
+        radius = self._radius if self._radius is not None else rect.height() / 2
+        base = QColor(theme_color("skeleton"))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(base)
+        painter.drawRoundedRect(rect, radius, radius)
+        if not motion_enabled():
+            return
+        # 微光高亮带从左向右循环扫过硬占位条。
+        band = max(48.0, rect.width() * 0.4)
+        center = -band + _shimmer().phase * (rect.width() + band * 2)
+        gradient = QLinearGradient(center - band, 0, center + band, 0)
+        gradient.setColorAt(0.0, base)
+        gradient.setColorAt(0.5, QColor(theme_color("skeleton_shimmer")))
+        gradient.setColorAt(1.0, base)
+        painter.setBrush(QBrush(gradient))
+        painter.drawRoundedRect(rect, radius, radius)

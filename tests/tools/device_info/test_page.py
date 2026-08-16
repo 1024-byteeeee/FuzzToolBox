@@ -1,9 +1,10 @@
 import unittest
+from unittest.mock import patch
 
 from PySide6.QtWidgets import QApplication
 
 from fuzztoolbox.tools.device_info.collector import DeviceReport, InfoSection
-from fuzztoolbox.tools.device_info.page import DeviceInfoPage, collect_screen_section
+from fuzztoolbox.tools.device_info.page import DeviceInfoPage, DeviceInfoWorker, collect_screen_section
 
 
 class DeviceInfoPageTests(unittest.TestCase):
@@ -78,6 +79,29 @@ class DeviceInfoPageTests(unittest.TestCase):
         page._refresh_timer.start()
         self.assertTrue(page.prepare_close(lambda: None))
         self.assertFalse(page._refresh_timer.isActive())
+        page.deleteLater()
+
+    def test_first_refresh_shows_skeleton_until_report_arrives(self):
+        from PySide6.QtWidgets import QLabel
+
+        page = DeviceInfoPage()
+        with patch.object(DeviceInfoWorker, "start"):
+            page.refresh()
+        # 首次加载期间用骨架卡片占位，还没有任何真实数值标签。
+        self.assertGreaterEqual(page.sections_layout.count(), 3)
+        self.assertIsNone(page.report)
+        self.assertEqual(page._value_labels, [])
+        self.assertFalse([
+            label
+            for index in range(page.sections_layout.count())
+            for label in page.sections_layout.itemAt(index).widget().findChildren(QLabel)
+            if label.objectName() == "deviceInfoValue"
+        ])
+
+        page._loaded(DeviceReport((InfoSection("设备概览", (("设备名称", "Example"),)),)))
+        self.assertIsNotNone(page.report)
+        self.assertEqual(page.sections_layout.count(), 2)
+        self.assertEqual(page._value_labels[0].text(), "Example")
         page.deleteLater()
 
 

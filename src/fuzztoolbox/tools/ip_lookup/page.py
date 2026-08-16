@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
 )
 
 from .service import LookupReport, discover_public_ips, lookup
-from fuzztoolbox.ui.style_loader import apply_style, clear_style
+from fuzztoolbox.ui.components import SkeletonBar
+from fuzztoolbox.ui.style_loader import apply_style
 
 
 class IPValueCard(QFrame):
@@ -171,6 +172,10 @@ class IPLookupPage(QWidget):
         self.result_state.setAlignment(Qt.AlignCenter)
         result_layout.addWidget(self.result_state)
 
+        self.skeleton_content = self._build_skeleton_content()
+        self.skeleton_content.setVisible(False)
+        result_layout.addWidget(self.skeleton_content)
+
         self.result_content = QWidget()
         content = QVBoxLayout(self.result_content)
         content.setContentsMargins(0, 0, 0, 0)
@@ -219,11 +224,6 @@ class IPLookupPage(QWidget):
         result_layout.addWidget(self.result_content)
         root.addWidget(self.result_card, 1)
 
-        self.loading_timer = QTimer(self)
-        self.loading_timer.setInterval(350)
-        self.loading_timer.timeout.connect(self._animate_loading)
-        self._loading_step = 0
-
         actions = QHBoxLayout()
         actions.addStretch()
         self.copy_button = QPushButton("复制检测报告")
@@ -263,6 +263,59 @@ class IPLookupPage(QWidget):
             grid.addWidget(card, index // 2, index % 2)
         layout.addLayout(grid)
         return group, grid
+
+    def _build_skeleton_content(self):
+        """Build a skeleton placeholder mirroring the real result layout."""
+        content = QWidget()
+        content.setObjectName("ipSkeletonContent")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        hero = QFrame()
+        hero.setObjectName("ipSkeletonHero")
+        hero_layout = QVBoxLayout(hero)
+        hero_layout.setContentsMargins(18, 14, 18, 16)
+        hero_layout.setSpacing(6)
+        # 与真实 hero 一致：标题行 23px（含状态点）、地址 29px、徽章 21px、行距 6px。
+        hero_layout.addWidget(SkeletonBar(height=23, width_ratio=0.18))
+        hero_layout.addWidget(SkeletonBar(height=29, width_ratio=0.42))
+        badge_row = QHBoxLayout()
+        badge_row.setSpacing(8)
+        badge_row.addWidget(SkeletonBar(height=21, width_ratio=1.0))
+        badge_row.addWidget(SkeletonBar(height=21, width_ratio=1.0))
+        badge_row.addStretch()
+        hero_layout.addLayout(badge_row)
+        layout.addWidget(hero)
+
+        for card_count in (2, 5):
+            group = QFrame()
+            group.setObjectName("ipSkeletonGroup")
+            group_layout = QVBoxLayout(group)
+            group_layout.setContentsMargins(14, 12, 14, 14)
+            group_layout.setSpacing(9)
+            # 与真实分组标题一致：21px。
+            group_layout.addWidget(SkeletonBar(height=21, width_ratio=0.22))
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(10)
+            grid.setVerticalSpacing(10)
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            for index in range(card_count):
+                card = QFrame()
+                card.setObjectName("ipSkeletonCard")
+                card_layout = QVBoxLayout(card)
+                card_layout.setContentsMargins(14, 11, 12, 12)
+                card_layout.setSpacing(5)
+                # 与真实值卡片一致：标题 23px、值 17px。
+                card_layout.addWidget(SkeletonBar(height=23, width_ratio=0.30))
+                card_layout.addWidget(SkeletonBar(height=17, width_ratio=0.65))
+                grid.addWidget(card, index // 2, index % 2)
+            group_layout.addLayout(grid)
+            layout.addWidget(group)
+
+        layout.addStretch()
+        return content
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -347,7 +400,6 @@ class IPLookupPage(QWidget):
         self.query_button.setEnabled(True)
         self.my_ip_button.setEnabled(True)
         self.progress.setVisible(False)
-        self.loading_timer.stop()
 
     def _show_report(self, report: LookupReport):
         def shown(value, fallback="未提供"):
@@ -376,6 +428,7 @@ class IPLookupPage(QWidget):
         self.version_badge.setText(classification_parts[0])
         self.classification_badge.setText(" · ".join(classification_parts[1:]) or "公网地址")
         self.result_state.setVisible(False)
+        self.skeleton_content.setVisible(False)
         self.result_content.setVisible(True)
         self.status.setText("查询完成")
         self.copy_button.setEnabled(True)
@@ -383,8 +436,8 @@ class IPLookupPage(QWidget):
     def _show_error(self, message: str):
         self._report_text = ""
         self.copy_button.setEnabled(False)
-        self.loading_timer.stop()
         self.result_content.setVisible(False)
+        self.skeleton_content.setVisible(False)
         self.result_state.setText(f"查询失败\n{message}")
         apply_style(self.result_state, "tools.ip_lookup.page:405")
         self.result_state.setVisible(True)
@@ -396,15 +449,9 @@ class IPLookupPage(QWidget):
 
     def _show_loading_state(self):
         self.result_content.setVisible(False)
-        clear_style(self.result_state)
-        self._loading_step = 0
-        self.result_state.setText("正在整理查询结果")
-        self.result_state.setVisible(True)
-        self.loading_timer.start()
-
-    def _animate_loading(self):
-        self._loading_step = (self._loading_step + 1) % 4
-        self.result_state.setText("正在整理查询结果" + "." * self._loading_step)
+        self.result_state.setVisible(False)
+        # 查询期间用骨架屏占位，结构贴近最终结果，减少加载完成后的跳变。
+        self.skeleton_content.setVisible(True)
 
     def _copy_value(self, card):
         if card.value in {"—", "未检测到", "未提供", "未找到 PTR 记录"}:

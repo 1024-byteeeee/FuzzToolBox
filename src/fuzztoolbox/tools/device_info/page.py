@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from .collector import DeviceReport, InfoSection, collect_device_info
+from ...ui.components import SkeletonBar
 from ...ui.style_loader import apply_style
 
 # 设备信息实时刷新间隔。
@@ -133,6 +134,9 @@ class DeviceInfoPage(QWidget):
     def _start_refresh(self, manual: bool):
         if self.worker and self.worker.isRunning():
             return
+        if self.report is None:
+            # 首次加载还没有任何数据，用骨架屏卡片占位表示正在读取。
+            self._show_skeleton()
         if manual:
             self.progress.setVisible(True)
             self.refresh_button.setEnabled(False)
@@ -144,6 +148,51 @@ class DeviceInfoPage(QWidget):
         worker.failed.connect(self._failed)
         worker.finished.connect(worker.deleteLater)
         worker.start()
+
+    def _clear_sections(self):
+        while self.sections_layout.count():
+            item = self.sections_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._value_labels = []
+        self._structure = None
+
+    def _show_skeleton(self):
+        self._clear_sections()
+        # 骨架分区数量、行数与行高贴近真实报告结构，减少加载完成后的尺寸跳变。
+        # 长文本行（系统版本、显示器详情）用更高的占位条近似其换行后的高度。
+        skeleton_structure = (
+            [17, 17, 17, 17, 80, 17, 19],  # 设备概览（系统版本为长文本）
+            [17] * 6,                        # 处理器
+            [17],                            # 图形处理器
+            [17] * 4,                        # 内存
+            [17] * 4,                        # 磁盘
+            [17] * 3,                        # 网络
+            [17, 19],                        # 电池
+            [111],                           # 显示器（长文本详情）
+        )
+        for row_heights in skeleton_structure:
+            self._add_skeleton_panel(row_heights)
+
+    def _add_skeleton_panel(self, row_heights):
+        panel = QFrame()
+        panel.setObjectName("deviceInfoSection")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 13, 16, 15)
+        layout.setSpacing(9)
+        # 标题 25px，与真实分区标题一致。
+        layout.addWidget(SkeletonBar(height=25, width_ratio=0.24))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(8)
+        for row, height in enumerate(row_heights):
+            key = SkeletonBar(height=height)
+            key.setFixedWidth(96)
+            grid.addWidget(key, row, 0)
+            grid.addWidget(SkeletonBar(height=height, width_ratio=0.62), row, 1)
+        grid.setColumnStretch(1, 1)
+        layout.addLayout(grid)
+        self.sections_layout.addWidget(panel)
 
     def _loaded(self, report: DeviceReport):
         screen_section = collect_screen_section()
@@ -180,11 +229,7 @@ class DeviceInfoPage(QWidget):
                     self._value_labels[index].setText(value)
                     index += 1
             return
-        while self.sections_layout.count():
-            item = self.sections_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._value_labels = []
+        self._clear_sections()
         for section in report.sections:
             panel = QFrame()
             panel.setObjectName("deviceInfoSection")

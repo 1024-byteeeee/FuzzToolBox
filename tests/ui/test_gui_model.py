@@ -945,8 +945,9 @@ class ResultModelTests(unittest.TestCase):
 
         page = IPLookupPage()
         page._show_loading_state()
-        self.assertTrue(page.loading_timer.isActive())
-        self.assertIn("正在整理", page.result_state.text())
+        self.assertTrue(page.skeleton_content.isVisibleTo(page.result_card))
+        self.assertFalse(page.result_content.isVisibleTo(page.result_card))
+        self.assertFalse(page.result_state.isVisibleTo(page.result_card))
         report = LookupReport(
             ip="8.8.8.8",
             classification="IPv4 · 公网地址",
@@ -959,6 +960,7 @@ class ResultModelTests(unittest.TestCase):
         )
         page._show_report(report)
         self.assertFalse(page.result_state.isVisibleTo(page))
+        self.assertFalse(page.skeleton_content.isVisibleTo(page.result_card))
         self.assertEqual(page.hero_ip.text(), "8.8.8.8")
         self.assertEqual(page.version_badge.text(), "IPv4")
         self.assertEqual(page.result_values["ptr"].value, "dns.google")
