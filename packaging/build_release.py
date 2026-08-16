@@ -33,6 +33,115 @@ def platform_label() -> str:
     }.get(platform.system(), platform.system())
 
 
+SIGN_IDENTITY = "FuzzToolBox Code Signing"
+SIGN_PASSWORD = "fuzztoolbox"
+
+
+def ensure_stable_signing_identity() -> tuple:
+    """Create (once) a stable self-signed codesign certificate.
+
+    macOS TCC grants (e.g. screen recording) are tied to the signing
+    identity. Ad-hoc signatures change every build and reset the grants,
+    so we sign with a persistent self-signed certificate instead.
+    """
+    cert_dir = PROJECT_DIR / "packaging" / "codesign"
+    keychain = cert_dir / "codesign.keychain-db"
+    p12 = cert_dir / "cert.p12"
+
+    check = subprocess.run(
+        ["security", "find-identity", "-v", "-p", "codesigning", str(keychain)],
+        capture_output=True,
+        text=True,
+    )
+    if check.returncode == 0 and SIGN_IDENTITY in check.stdout:
+        subprocess.run(
+            ["security", "unlock-keychain", "-p", SIGN_PASSWORD, str(keychain)],
+            check=True,
+        )
+        _add_keychain_to_search_list(keychain)
+        return SIGN_IDENTITY, keychain
+
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    if not p12.exists():
+        key = cert_dir / "key.pem"
+        cert = cert_dir / "cert.pem"
+        subprocess.run(
+            [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key), "-out", str(cert), "-days", "3650",
+                "-nodes", "-subj", f"/CN={SIGN_IDENTITY}",
+                "-addext", "keyUsage=digitalSignature",
+                "-addext", "extendedKeyUsage=codeSigning",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        # Legacy 3DES/SHA1 PKCS12 so macOS `security import` accepts it.
+        subprocess.run(
+            [
+                "openssl", "pkcs12", "-export", "-out", str(p12),
+                "-inkey", str(key), "-in", str(cert),
+                "-passout", f"pass:{SIGN_PASSWORD}",
+                "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES",
+                "-macalg", "sha1",
+            ],
+            check=True,
+            capture_output=True,
+        )
+    if not keychain.exists():
+        subprocess.run(
+            ["security", "create-keychain", "-p", SIGN_PASSWORD, str(keychain)],
+            check=True,
+        )
+    subprocess.run(
+        ["security", "unlock-keychain", "-p", SIGN_PASSWORD, str(keychain)],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "security", "import", str(p12), "-k", str(keychain),
+            "-P", SIGN_PASSWORD, "-T", "/usr/bin/codesign",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "security", "add-trusted-cert", "-d", "-r", "trustRoot",
+            "-k", str(keychain), str(cert_dir / "cert.pem"),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "security", "set-key-partition-list", "-S",
+            "apple-tool:,apple:,codesign:", "-s", "-k", SIGN_PASSWORD,
+            str(keychain),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    _add_keychain_to_search_list(keychain)
+    return SIGN_IDENTITY, keychain
+
+
+def _add_keychain_to_search_list(keychain: Path) -> None:
+    """Add the codesign keychain to the user keychain search list so that
+    `codesign` can locate the identity without the deprecated --keychain."""
+    current = subprocess.run(
+        ["security", "list-keychains", "-d", "user"],
+        capture_output=True,
+        text=True,
+    )
+    existing = [path.strip().strip('"') for path in current.stdout.splitlines()]
+    target = str(keychain)
+    if target in existing:
+        return
+    subprocess.run(
+        ["security", "list-keychains", "-d", "user", "-s", target, *existing],
+        check=True,
+    )
+
+
 def find_inno_setup() -> Path:
     resolved = shutil.which("ISCC.exe") or shutil.which("iscc")
     candidates = [Path(resolved)] if resolved else []
@@ -140,8 +249,12 @@ def build() -> Path:
         plist["CFBundleName"] = "FuzzToolBox"
         with plist_path.open("wb") as handle:
             plistlib.dump(plist, handle)
+        ensure_stable_signing_identity()
         subprocess.run(
-            ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(built_path)],
+            [
+                "/usr/bin/codesign", "--force", "--deep", "--sign",
+                SIGN_IDENTITY, str(built_path),
+            ],
             check=True,
         )
         release_path = RELEASE_DIR / f"{APP_NAME}-v{__version__}-{label}-{arch}.dmg"

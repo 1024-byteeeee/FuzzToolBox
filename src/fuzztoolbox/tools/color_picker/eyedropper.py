@@ -1,38 +1,71 @@
 """Full-screen eyedropper overlay for sampling a color from anywhere on screen."""
 
-import platform
 import ctypes
-import ctypes.util
+import os
+import platform
+import subprocess
+import tempfile
+import threading
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QWidget
 
 
-def _has_screen_capture_access() -> bool:
-    """Check macOS screen capture permission (10.15.4+)."""
+def _raise_window_level(widget) -> None:
+    """Raise the native NSWindow level above dock (20) and menu bar (24).
+
+    kCGScreenSaverWindowLevel (26) makes the overlay cover the whole screen
+    like a screenshot tool, freezing everything below it.
+    """
     if platform.system() != "Darwin":
-        return True
+        return
     try:
-        lib = ctypes.CDLL(ctypes.util.find_library("ApplicationServices"))
-        func = lib.CGPreflightScreenCaptureAccess
-        func.restype = ctypes.c_bool
-        return func()
+        objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+        objc.objc_msgSend.restype = ctypes.c_void_p
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        win_id = widget.winId()
+        ns_view = objc.objc_msgSend(win_id, ctypes.c_void_p(
+            objc.sel_registerName(b"window")))
+        if ns_view:
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
+            objc.objc_msgSend(ns_view, ctypes.c_void_p(
+                objc.sel_registerName(b"setLevel:")), 26)
     except Exception:
-        return True
+        pass
 
 
-def _request_screen_capture_access() -> bool:
-    """Request macOS screen capture permission (10.15.4+)."""
+def _grab_screen(screen) -> QPixmap:
+    """Capture a single screen. Uses screencapture on macOS, Qt fallback elsewhere."""
     if platform.system() != "Darwin":
-        return True
+        return screen.grabWindow(0)
+
+    screen_rect = screen.geometry()
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".png")
+    os.close(tmp_fd)
     try:
-        lib = ctypes.CDLL(ctypes.util.find_library("ApplicationServices"))
-        func = lib.CGRequestScreenCaptureAccess
-        func.restype = ctypes.c_bool
-        return func()
+        result = subprocess.run(
+            [
+                "screencapture", "-x",
+                "-R", f"{screen_rect.x()},{screen_rect.y()},{screen_rect.width()},{screen_rect.height()}",
+                tmp_path,
+            ],
+            capture_output=True, timeout=5,
+        )
+        if result.returncode == 0 and os.path.exists(tmp_path):
+            pixmap = QPixmap(tmp_path)
+            if not pixmap.isNull():
+                return pixmap
     except Exception:
-        return True
+        pass
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    return screen.grabWindow(0)
 
 
 class EyedropperOverlay(QWidget):
@@ -40,6 +73,7 @@ class EyedropperOverlay(QWidget):
 
     color_picked = Signal(QColor)
     cancelled = Signal()
+    _screens_ready = Signal(list)
 
     # Magnifier sample radius and display size.
     SAMPLE_RADIUS = 32
@@ -47,9 +81,8 @@ class EyedropperOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        )
+        # Simple frameless window - let macOS handle window management
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMouseTracking(True)
         self.setCursor(Qt.CrossCursor)
@@ -57,22 +90,11 @@ class EyedropperOverlay(QWidget):
         self._virtual = QRect()
         self._cursor_pos = QPoint()
         self._active = False
+        self._screens_ready.connect(self._show_overlay)
 
     def begin(self) -> None:
-        """Capture every screen and show the overlay across the virtual desktop."""
-        if not _has_screen_capture_access():
-            _request_screen_capture_access()
-            # Re-check after request; if still denied, show a warning.
-            if not _has_screen_capture_access():
-                QMessageBox.warning(
-                    None,
-                    "需要屏幕录制权限",
-                    "屏幕取色需要屏幕录制权限。\n\n"
-                    "请前往 系统设置 > 隐私与安全性 > 屏幕录制，"
-                    "允许 FuzzToolBox 访问屏幕。",
-                )
-                self.cancelled.emit()
-                return
+        """Capture every screen in a background thread, then show the overlay."""
+        from PySide6.QtGui import QGuiApplication
 
         screens = QGuiApplication.screens()
         if not screens:
@@ -81,16 +103,26 @@ class EyedropperOverlay(QWidget):
 
         self._virtual = QRect()
         for screen in screens:
+            # Use geometry() to cover entire screen including dock
             self._virtual = self._virtual.united(screen.geometry())
 
-        self._screen_shots = []
-        for screen in screens:
-            pixmap = screen.grabWindow(0)
-            self._screen_shots.append((screen.geometry(), pixmap))
+        # Capture screens in a background thread
+        def _do_capture():
+            shots = []
+            for screen in screens:
+                pixmap = _grab_screen(screen)
+                shots.append((screen.geometry(), pixmap))
+            self._screens_ready.emit(shots)
 
+        threading.Thread(target=_do_capture, daemon=True).start()
+
+    def _show_overlay(self, shots: list) -> None:
+        """Called on the main thread via signal to display the overlay."""
+        self._screen_shots = shots
         self._active = True
         self.setGeometry(self._virtual)
-        self.showFullScreen()
+        self.show()
+        _raise_window_level(self)
         self.raise_()
         self.activateWindow()
 
