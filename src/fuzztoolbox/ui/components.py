@@ -1,7 +1,19 @@
 import weakref
 
-from PySide6.QtCore import QObject, QRectF, QSize, Qt, QVariantAnimation  # type: ignore[import-not-found]
-from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPalette  # type: ignore[import-not-found]
+from PySide6.QtCore import (  # type: ignore[import-not-found]
+    QObject,
+    QRectF,
+    QSize,
+    Qt,
+    QVariantAnimation,
+)
+from PySide6.QtGui import (  # type: ignore[import-not-found]
+    QBrush,
+    QColor,
+    QLinearGradient,
+    QPainter,
+    QPalette,
+)
 from PySide6.QtWidgets import (  # type: ignore[import-not-found]
     QAbstractItemView,
     QComboBox,

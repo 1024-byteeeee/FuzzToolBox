@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -34,6 +35,18 @@ class TokenGeneratorPage(QWidget):
         intro = QLabel("使用安全随机源和自选字符集生成长度可配置的随机 Token")
         apply_style(intro, "tools.token_generator.page:34")
         root.addWidget(intro)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("tokenScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        apply_style(scroll, "tools.token_generator.page:scroll")
+        scroll_content = QWidget()
+        scroll_content.setObjectName("tokenScrollContent")
+        body = QVBoxLayout(scroll_content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(16)
 
         settings = QFrame()
         settings.setObjectName("tokenSettings")
@@ -78,7 +91,7 @@ class TokenGeneratorPage(QWidget):
         form.addWidget(custom_label, 2, 0)
         form.addWidget(self.custom_characters, 2, 1, 1, 2)
         form.setColumnStretch(2, 1)
-        root.addWidget(settings)
+        body.addWidget(settings)
 
         result = QFrame()
         result.setObjectName("tokenResult")
@@ -111,9 +124,11 @@ class TokenGeneratorPage(QWidget):
         actions.addWidget(self.generate_button)
         actions.addWidget(self.copy_button)
         result_layout.addLayout(actions)
-        root.addWidget(result)
+        body.addWidget(result)
 
-        root.addStretch()
+        body.addStretch()
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll, 1)
 
         self.generate_button.clicked.connect(self.generate)
         self.copy_button.clicked.connect(self.copy_token)

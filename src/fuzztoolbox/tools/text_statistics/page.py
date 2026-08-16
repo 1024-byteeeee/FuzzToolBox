@@ -1,6 +1,6 @@
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFontDatabase, QGuiApplication
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from ...ui.components import configure_combo
 from ...ui.line_number_editor import LineNumberEditor
@@ -34,6 +34,18 @@ class TextStatisticsPage(QWidget):
         apply_style(intro, "tools.text_statistics.page:33")
         root.addWidget(intro)
 
+        scroll = QScrollArea()
+        scroll.setObjectName("statisticsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        apply_style(scroll, "tools.text_statistics.page:scroll")
+        scroll_content = QWidget()
+        scroll_content.setObjectName("statisticsScrollContent")
+        body = QVBoxLayout(scroll_content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(12)
+
         actions = QHBoxLayout()
         title = QLabel("文本内容")
         apply_style(title, "tools.text_statistics.page:38")
@@ -59,14 +71,14 @@ class TextStatisticsPage(QWidget):
         actions.addWidget(self.paste_button)
         actions.addWidget(self.clear_button)
         actions.addWidget(self.copy_button)
-        root.addLayout(actions)
+        body.addLayout(actions)
 
         self.input = LineNumberEditor()
         self.input.setPlaceholderText("在此输入或粘贴需要统计的文本……")
         self.input.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
         self.input.setMinimumHeight(250)
         apply_style(self.input, "tools.text_statistics.page:67")
-        root.addWidget(self.input, 1)
+        body.addWidget(self.input, 1)
         self.syntax_highlighter = CodeSyntaxHighlighter(self.input.document())
 
         cards = QFrame()
@@ -94,7 +106,9 @@ class TextStatisticsPage(QWidget):
             grid.addWidget(card, index // 4, index % 4)
         for column in range(4):
             grid.setColumnStretch(column, 1)
-        root.addWidget(cards)
+        body.addWidget(cards)
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll, 1)
 
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)

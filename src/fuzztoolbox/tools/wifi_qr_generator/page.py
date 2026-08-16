@@ -108,9 +108,14 @@ class WiFiQRGeneratorPage(QWidget):
         ):
             self.error_level.addItem(label, value)
         configure_combo(self.error_level)
-        self.error_level.setMinimumWidth(190)
+        self.error_level.setMinimumWidth(150)
         actions.addWidget(self.error_level)
         actions.addStretch()
+        form.addLayout(actions)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        buttons.addStretch()
         self.generate_button = QPushButton("生成二维码")
         self.save_button = QPushButton("保存 PNG")
         self.copy_button = QPushButton("复制图片")
@@ -124,9 +129,9 @@ class WiFiQRGeneratorPage(QWidget):
             self.copy_button,
             self.clear_button,
         ):
-            actions.addWidget(button)
+            buttons.addWidget(button)
         form.addStretch()
-        form.addLayout(actions)
+        form.addLayout(buttons)
         content.addWidget(panel, 3)
 
         preview_panel = QFrame()

@@ -141,7 +141,7 @@ class ResultModelTests(unittest.TestCase):
     def test_visible_full_size_saved_geometry_is_preserved(self):
         window = Mock()
         settings = Mock()
-        normal_geometry = QRect(80, 60, 1180, 760)
+        normal_geometry = QRect(80, 60, 1180, 850)
         settings.value.side_effect = lambda key, *args, **kwargs: {
             "window/normalGeometry": normal_geometry,
             "window/maximized": True,
@@ -850,6 +850,32 @@ class ResultModelTests(unittest.TestCase):
         self.app.processEvents()
 
         self.assertEqual(page.wheel._hue, 217.35)
+        page.close()
+
+    def test_color_picker_eyedropper_applies_picked_color(self):
+        from PySide6.QtGui import QColor
+
+        from fuzztoolbox.tools.color_picker.page import ColorPickerPage
+
+        page = ColorPickerPage()
+        self.assertEqual(page.eyedropper_button.text(), "屏幕取色")
+        # 模拟滴管取色回调，验证颜色被应用到通道与输出。
+        page._eyedropper_picked(QColor(12, 34, 56))
+        self.assertEqual(page.red.value(), 12)
+        self.assertEqual(page.green.value(), 34)
+        self.assertEqual(page.blue.value(), 56)
+        self.assertEqual(page.outputs["hex"].text(), "#0C2238")
+        self.assertIn("已从屏幕取色", page.status.text())
+        self.assertIsNone(page._eyedropper)
+        page.close()
+
+    def test_color_picker_eyedropper_cancel_restores_state(self):
+        from fuzztoolbox.tools.color_picker.page import ColorPickerPage
+
+        page = ColorPickerPage()
+        page._eyedropper_cancelled()
+        self.assertIn("已取消", page.status.text())
+        self.assertIsNone(page._eyedropper)
         page.close()
 
     def test_color_wheel_uses_antialiased_vector_gradient(self):

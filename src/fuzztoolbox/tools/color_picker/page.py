@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QSpinBox,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from .color_wheel import ColorWheel
 from .converter import ColorValue
+from .eyedropper import EyedropperOverlay
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 
@@ -25,7 +27,8 @@ class ColorPreview(QWidget):
         self._color = QColor("#409EFF")
         self._alpha = 100
         self._label = "#409EFF"
-        self.setMinimumHeight(92)
+        self.setMinimumHeight(64)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def set_color(self, color: QColor, alpha: int, label: str) -> None:
         self._color = QColor(color)
@@ -109,22 +112,28 @@ class ColorPickerPage(QWidget):
         wheel_layout.setContentsMargins(18, 18, 18, 18)
         self.wheel = ColorWheel()
         wheel_layout.addWidget(self.wheel, 1)
-        content.addWidget(wheel_panel, 3)
+        content.addWidget(wheel_panel, 1)
 
         details = QFrame()
         details.setObjectName("colorDetailsPanel")
         apply_style(details, "tools.color_picker.page:118")
-        details.setMinimumWidth(480)
+        details.setMinimumWidth(380)
         details.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        detail_layout = QVBoxLayout(details)
-        detail_layout.setContentsMargins(20, 16, 20, 16)
+        details_layout = QVBoxLayout(details)
+        details_layout.setContentsMargins(0, 0, 0, 0)
+
+        detail_content = QWidget()
+        detail_layout = QVBoxLayout(detail_content)
+        detail_layout.setContentsMargins(16, 12, 16, 12)
         detail_layout.setSpacing(10)
 
         self.preview = ColorPreview()
+        self.preview.setFixedHeight(64)
         detail_layout.addWidget(self.preview)
 
         channel_title = QLabel("颜色通道")
         apply_style(channel_title, "tools.color_picker.page:132")
+        channel_title.setMinimumHeight(22)
         detail_layout.addWidget(channel_title)
         channels = QHBoxLayout()
         channels.setSpacing(10)
@@ -141,14 +150,20 @@ class ColorPickerPage(QWidget):
         opacity_label = QLabel("透明度")
         opacity_label.setFixedWidth(52)
         self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setObjectName("colorOpacitySlider")
         self.opacity_slider.setRange(0, 100)
         self.opacity_slider.setValue(100)
+        apply_style(self.opacity_slider, "tools.color_picker.page:opacity_slider")
         opacity_row.addWidget(opacity_label)
         opacity_row.addWidget(self.opacity_slider, 1)
         detail_layout.addLayout(opacity_row)
 
+        spacer = QWidget()
+        spacer.setFixedHeight(6)
+        detail_layout.addWidget(spacer)
         output_title = QLabel("颜色值")
         apply_style(output_title, "tools.color_picker.page:156")
+        output_title.setMinimumHeight(22)
         detail_layout.addWidget(output_title)
         self.outputs = {}
         for label, key in (
@@ -165,7 +180,7 @@ class ColorPickerPage(QWidget):
             name.setFixedWidth(52)
             value = QLineEdit()
             value.setReadOnly(True)
-            value.setMinimumHeight(34)
+            value.setMinimumHeight(28)
             copy_button = QPushButton("复制")
             copy_button.setObjectName("secondary")
             copy_button.clicked.connect(
@@ -178,13 +193,25 @@ class ColorPickerPage(QWidget):
             self.outputs[key] = value
 
         actions = QHBoxLayout()
+        actions.setSpacing(10)
         self.status = QLabel("拖动色轮或修改颜色通道")
+        self.eyedropper_button = QPushButton("屏幕取色")
+        self.eyedropper_button.setObjectName("secondary")
         self.copy_all_button = QPushButton("复制全部")
         self.copy_all_button.setObjectName("secondary")
         actions.addWidget(self.status)
         actions.addStretch()
+        actions.addWidget(self.eyedropper_button)
         actions.addWidget(self.copy_all_button)
         detail_layout.addLayout(actions)
+        detail_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidget(detail_content)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setObjectName("colorDetailsScroll")
+        details_layout.addWidget(scroll)
         content.addWidget(details, 2)
         root.addLayout(content, 1)
 
@@ -194,6 +221,8 @@ class ColorPickerPage(QWidget):
         self.alpha.valueChanged.connect(self._sync_opacity_slider)
         self.opacity_slider.valueChanged.connect(self._set_alpha_from_slider)
         self.copy_all_button.clicked.connect(self.copy_all)
+        self.eyedropper_button.clicked.connect(self._start_eyedropper)
+        self._eyedropper = None
 
     @staticmethod
     def _channel_input(
@@ -201,7 +230,7 @@ class ColorPickerPage(QWidget):
     ) -> QSpinBox:
         name = QLabel(label)
         name.setAlignment(Qt.AlignCenter)
-        name.setFixedWidth(16)
+        name.setFixedWidth(20)
         apply_style(name, "tools.color_picker.page:210")
         value = QSpinBox()
         value.setObjectName("colorChannelInput")
@@ -209,7 +238,7 @@ class ColorPickerPage(QWidget):
         value.setSuffix(suffix)
         value.setButtonSymbols(QAbstractSpinBox.NoButtons)
         value.setAlignment(Qt.AlignCenter)
-        value.setFixedSize(76 if suffix else 70, 38)
+        value.setFixedSize(76 if suffix else 70, 30)
         apply_style(value, "tools.color_picker.page:218")
         layout.addWidget(name)
         layout.addWidget(value)
@@ -290,3 +319,28 @@ class ColorPickerPage(QWidget):
         )
         QGuiApplication.clipboard().setText(text)
         self.status.setText("已复制全部颜色值")
+
+    def _start_eyedropper(self) -> None:
+        if self._eyedropper is not None:
+            return
+        self.status.setText("移动鼠标预览颜色，点击取色，Esc 取消")
+        overlay = EyedropperOverlay()
+        self._eyedropper = overlay
+        overlay.color_picked.connect(self._eyedropper_picked)
+        overlay.cancelled.connect(self._eyedropper_cancelled)
+        overlay.begin()
+
+    def _eyedropper_picked(self, color: QColor) -> None:
+        if self._eyedropper is not None:
+            self._eyedropper.deleteLater()
+            self._eyedropper = None
+        self._apply_value(
+            ColorValue(color.red(), color.green(), color.blue(), self.alpha.value())
+        )
+        self.status.setText(f"已从屏幕取色 {color.name().upper()}")
+
+    def _eyedropper_cancelled(self) -> None:
+        if self._eyedropper is not None:
+            self._eyedropper.deleteLater()
+            self._eyedropper = None
+        self.status.setText("已取消屏幕取色")

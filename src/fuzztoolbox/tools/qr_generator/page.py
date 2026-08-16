@@ -81,9 +81,14 @@ class QRGeneratorPage(QWidget):
         ):
             self.error_level.addItem(label, value)
         configure_combo(self.error_level)
-        self.error_level.setMinimumWidth(190)
+        self.error_level.setMinimumWidth(150)
         options.addWidget(self.error_level)
         options.addStretch()
+        form.addLayout(options)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+        buttons.addStretch()
         self.generate_button = QPushButton("生成二维码")
         self.save_button = QPushButton("保存 PNG")
         self.copy_button = QPushButton("复制图片")
@@ -97,8 +102,8 @@ class QRGeneratorPage(QWidget):
             self.copy_button,
             self.clear_button,
         ):
-            options.addWidget(button)
-        form.addLayout(options)
+            buttons.addWidget(button)
+        form.addLayout(buttons)
         content.addWidget(panel, 3)
 
         preview_panel = QFrame()

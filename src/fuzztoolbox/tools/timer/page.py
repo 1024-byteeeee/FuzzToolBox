@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -46,6 +47,18 @@ class TimerPage(QWidget):
         intro = QLabel("支持精准倒计时与正计时，计时过程中切换页面或最小化窗口不会中断")
         apply_style(intro, "tools.timer.page:46")
         root.addWidget(intro)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("timerScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        apply_style(scroll, "tools.timer.page:scroll")
+        scroll_content = QWidget()
+        scroll_content.setObjectName("timerScrollContent")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(0)
 
         panel = QFrame()
         panel.setObjectName("timerPanel")
@@ -155,8 +168,9 @@ class TimerPage(QWidget):
         apply_style(self.stopwatch_tip, "tools.timer.page:163")
         self.stopwatch_tip.setVisible(False)
         content.addWidget(self.stopwatch_tip)
-        root.addWidget(panel)
-        root.addStretch()
+        scroll_layout.addWidget(panel)
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll, 1)
 
         self.hours.valueChanged.connect(self.duration_changed)
         self.minutes.valueChanged.connect(self.duration_changed)

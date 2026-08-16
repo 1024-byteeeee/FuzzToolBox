@@ -26,6 +26,10 @@ font-weight: 700; color: #303133;
 QSpinBox#colorChannelInput { font-size: 14px; font-weight: 600; padding: 0 6px; }
 @endstyle */
 
+/* @style tools.color_picker.page:opacity_slider
+QSlider#colorOpacitySlider { background: transparent; min-height: 22px; }QSlider#colorOpacitySlider::groove:horizontal { height: 6px; background: #dcdfe6; border-radius: 3px; }QSlider#colorOpacitySlider::sub-page:horizontal { background: #409eff; border-radius: 3px; }QSlider#colorOpacitySlider::handle:horizontal { background: white; border: 2px solid #409eff; width: 16px; height: 16px; margin: -6px 0; border-radius: 9px; }QSlider#colorOpacitySlider::handle:horizontal:hover { background: #ecf5ff; border-color: #1677d2; }
+@endstyle */
+
 /* @style tools.datetime_converter.page:70
 color: #606266; font-size: 14px;
 @endstyle */
@@ -322,6 +326,10 @@ QPlainTextEdit { background: #fbfcfe; color: #303133; border: 1px solid #dcdfe6;
 QFrame#statisticsCards { background: transparent; border: none; }
 @endstyle */
 
+/* @style tools.text_statistics.page:scroll
+QScrollArea#statisticsScroll { background: transparent; border: 0; }QWidget#statisticsScrollContent { background: transparent; }
+@endstyle */
+
 /* @style tools.text_statistics.page:85
 QFrame#statisticsCard { background: white; border: 1px solid #e4e7ed; border-radius: 9px; }
 @endstyle */
@@ -340,6 +348,10 @@ color: #606266; font-size: 14px;
 
 /* @style tools.timer.page:51
 QFrame#timerPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.timer.page:scroll
+QScrollArea#timerScroll { background: transparent; border: 0; }QWidget#timerScrollContent { background: transparent; }
 @endstyle */
 
 /* @style tools.timer.page:74
@@ -376,6 +388,10 @@ color: #606266; font-size: 14px;
 
 /* @style tools.token_generator.page:39
 QFrame#tokenSettings { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+@endstyle */
+
+/* @style tools.token_generator.page:scroll
+QScrollArea#tokenScroll { background: transparent; border: 0; }QWidget#tokenScrollContent { background: transparent; }
 @endstyle */
 
 /* @style tools.token_generator.page:87
