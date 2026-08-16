@@ -26,7 +26,58 @@ class DeviceInfoPageTests(unittest.TestCase):
         self.assertIsNotNone(page.report)
         self.assertGreaterEqual(page.sections_layout.count(), 2)
         self.assertTrue(page.copy_button.isEnabled())
-        self.assertEqual(page.status.text(), "设备信息已更新")
+        self.assertIn("实时更新中", page.status.text())
+        page.deleteLater()
+
+    def test_refresh_updates_values_in_place_without_rebuilding_cards(self):
+        page = DeviceInfoPage()
+        first = DeviceReport((
+            InfoSection("处理器", (("当前使用率", "10.0%"),)),
+            InfoSection("内存", (("使用率", "50.0%"),)),
+        ))
+        page._loaded(first)
+        panels = [
+            page.sections_layout.itemAt(index).widget()
+            for index in range(page.sections_layout.count())
+        ]
+        value_labels = list(page._value_labels)
+
+        second = DeviceReport((
+            InfoSection("处理器", (("当前使用率", "23.0%"),)),
+            InfoSection("内存", (("使用率", "51.0%"),)),
+        ))
+        page._loaded(second)
+
+        # 结构不变时复用原有卡片与标签，避免刷新闪烁。
+        self.assertEqual(
+            panels,
+            [
+                page.sections_layout.itemAt(index).widget()
+                for index in range(page.sections_layout.count())
+            ],
+        )
+        self.assertEqual(value_labels, page._value_labels)
+        self.assertEqual(page._value_labels[0].text(), "23.0%")
+        self.assertEqual(page._value_labels[1].text(), "51.0%")
+        page.deleteLater()
+
+    def test_structure_change_rebuilds_cards(self):
+        page = DeviceInfoPage()
+        page._render(DeviceReport((InfoSection("磁盘 1 · C:", (("总容量", "1 GB"),)),)))
+        self.assertEqual(page.sections_layout.count(), 1)
+
+        page._render(DeviceReport((
+            InfoSection("磁盘 1 · C:", (("总容量", "1 GB"),)),
+            InfoSection("磁盘 2 · D:", (("总容量", "2 GB"),)),
+        )))
+        self.assertEqual(page.sections_layout.count(), 2)
+        page.deleteLater()
+
+    def test_prepare_close_stops_auto_refresh_and_returns_ready_when_idle(self):
+        page = DeviceInfoPage()
+        page._refresh_timer.start()
+        self.assertTrue(page.prepare_close(lambda: None))
+        self.assertFalse(page._refresh_timer.isActive())
         page.deleteLater()
 
 

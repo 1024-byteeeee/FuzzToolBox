@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, QTime, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QProgressBar,
@@ -7,6 +7,9 @@ from PySide6.QtWidgets import (
 
 from .collector import DeviceReport, InfoSection, collect_device_info
 from ...ui.style_loader import apply_style
+
+# 设备信息实时刷新间隔。
+AUTO_REFRESH_INTERVAL_MS = 2000
 
 
 class DeviceInfoWorker(QThread):
@@ -53,7 +56,12 @@ class DeviceInfoPage(QWidget):
         super().__init__()
         self.worker = None
         self.report = None
+        self._structure = None
+        self._value_labels = []
         self._build_ui()
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setInterval(AUTO_REFRESH_INTERVAL_MS)
+        self._refresh_timer.timeout.connect(self._auto_refresh)
 
     def _build_ui(self):
         self.setObjectName("deviceInfoWorkspace")
@@ -75,7 +83,7 @@ class DeviceInfoPage(QWidget):
         outer.addWidget(self.scroll)
 
         heading = QHBoxLayout()
-        intro = QLabel("查看当前设备的系统、硬件、屏幕、存储与网络信息")
+        intro = QLabel("查看当前设备的系统、硬件、屏幕、存储与网络信息，数据实时更新")
         intro.setObjectName("deviceInfoIntro")
         self.copy_button = QPushButton("复制全部")
         self.copy_button.setObjectName("secondary")
@@ -92,7 +100,7 @@ class DeviceInfoPage(QWidget):
         self.progress.setFixedHeight(4)
         self.progress.setVisible(False)
         self.root.addWidget(self.progress)
-        self.status = QLabel("打开工具后将自动读取设备信息")
+        self.status = QLabel("打开工具后将实时更新设备信息")
         self.status.setObjectName("deviceInfoStatus")
         self.root.addWidget(self.status)
         self.sections_host = QWidget()
@@ -106,13 +114,30 @@ class DeviceInfoPage(QWidget):
         self.copy_button.clicked.connect(self.copy_all)
         self.copy_button.setEnabled(False)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_timer.start()
+        if self.report is None:
+            self.refresh()
+
+    def hideEvent(self, event):
+        self._refresh_timer.stop()
+        super().hideEvent(event)
+
     def refresh(self):
+        self._start_refresh(manual=True)
+
+    def _auto_refresh(self):
+        self._start_refresh(manual=False)
+
+    def _start_refresh(self, manual: bool):
         if self.worker and self.worker.isRunning():
             return
-        self.progress.setVisible(True)
-        self.refresh_button.setEnabled(False)
-        self.copy_button.setEnabled(False)
-        self.status.setText("正在读取设备信息…")
+        if manual:
+            self.progress.setVisible(True)
+            self.refresh_button.setEnabled(False)
+            self.copy_button.setEnabled(False)
+            self.status.setText("正在读取设备信息…")
         worker = DeviceInfoWorker(self)
         self.worker = worker
         worker.completed.connect(self._loaded)
@@ -127,20 +152,39 @@ class DeviceInfoPage(QWidget):
         self.progress.setVisible(False)
         self.refresh_button.setEnabled(True)
         self.copy_button.setEnabled(True)
-        self.status.setText("设备信息已更新")
+        updated_at = QTime.currentTime().toString("HH:mm:ss")
+        self.status.setText(f"实时更新中 · 最近刷新 {updated_at}")
         self.worker = None
 
     def _failed(self, message: str):
         self.progress.setVisible(False)
         self.refresh_button.setEnabled(True)
+        self.copy_button.setEnabled(self.report is not None)
         self.status.setText(f"读取失败：{message}")
         self.worker = None
 
+    @staticmethod
+    def _structure_signature(report: DeviceReport):
+        return tuple(
+            (section.title, tuple(name for name, _ in section.rows))
+            for section in report.sections
+        )
+
     def _render(self, report: DeviceReport):
+        signature = self._structure_signature(report)
+        if signature == self._structure and self._value_labels:
+            # 结构未变化时只更新数值，避免重建卡片造成界面闪烁。
+            index = 0
+            for section in report.sections:
+                for _, value in section.rows:
+                    self._value_labels[index].setText(value)
+                    index += 1
+            return
         while self.sections_layout.count():
             item = self.sections_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+        self._value_labels = []
         for section in report.sections:
             panel = QFrame()
             panel.setObjectName("deviceInfoSection")
@@ -162,9 +206,20 @@ class DeviceInfoPage(QWidget):
                 val.setTextInteractionFlags(Qt.TextSelectableByMouse)
                 grid.addWidget(key, row, 0, Qt.AlignTop)
                 grid.addWidget(val, row, 1)
+                self._value_labels.append(val)
             grid.setColumnStretch(1, 1)
             layout.addLayout(grid)
             self.sections_layout.addWidget(panel)
+        self._structure = signature
+
+    def prepare_close(self, on_ready) -> bool:
+        self._refresh_timer.stop()
+        worker = self.worker
+        if worker and worker.isRunning():
+            if not worker.wait(3000):
+                worker.finished.connect(on_ready)
+                return False
+        return True
 
     def copy_all(self):
         if not self.report:

@@ -1,11 +1,12 @@
 import json
 import platform
+import re
 import socket
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import psutil
 
@@ -14,6 +15,14 @@ from ...core.subprocess_utils import hidden_subprocess_kwargs
 
 
 Rows = Tuple[Tuple[str, str], ...]
+
+# 设备型号、CPU 型号等静态硬件信息在实时刷新之间保持不变。
+# 缓存探测结果，避免每次刷新都重新启动 system_profiler / PowerShell。
+_HARDWARE_CACHE = {}
+
+WINDOWS_DRIVE_MOUNT = re.compile(r"^[A-Za-z]:\\?$")
+# macOS 的 VM / Preboot / Data 等系统内部卷对用户没有意义，统一隐藏。
+MACOS_HIDDEN_MOUNT_PREFIX = "/System/Volumes/"
 
 
 @dataclass(frozen=True)
@@ -105,7 +114,7 @@ def _mac_hardware():
 
 
 def _windows_hardware():
-    data = _run_json(_powershell_script_command("get_device_hardware.ps1"))
+    data = _run_json(_powershell_script_command("get_device_hardware.ps1"), timeout=12.0)
     gpu = data.get("GPU") or []
     if isinstance(gpu, dict):
         gpu = [gpu]
@@ -125,17 +134,125 @@ def _windows_hardware():
     }
 
 
+def _windows_system_status() -> dict:
+    """一次 PowerShell 调用同时读取 CPU 负载与各盘符卷标。
+
+    psutil.cpu_percent 依赖进程内两次采样的差值，在部分 Windows 环境
+    （尤其是 PyInstaller 打包后的窗口进程）中会持续返回 0%。
+    Win32_Processor.LoadPercentage 由系统性能计数器直接提供，始终有效。
+    """
+    data = _run_json(_powershell_script_command("get_system_status.ps1"), timeout=10.0)
+    load = data.get("LoadPercentage")
+    try:
+        load_percentage = float(load)
+    except (TypeError, ValueError):
+        load_percentage = None
+    volumes = data.get("Volumes") or []
+    if isinstance(volumes, dict):
+        volumes = [volumes]
+    labels = {}
+    for item in volumes:
+        drive = str(item.get("DriveLetter") or "").strip()
+        label = str(item.get("Label") or "").strip()
+        if drive:
+            labels[drive.rstrip("\\").upper()] = label
+    return {"load_percentage": load_percentage, "labels": labels}
+
+
+def _cpu_usage(system: str, windows_status: Optional[dict]) -> float:
+    if system == "Windows" and windows_status and windows_status["load_percentage"] is not None:
+        return windows_status["load_percentage"]
+    return psutil.cpu_percent(interval=0.1)
+
+
+def _disk_label(partition, system: str) -> str:
+    mountpoint = partition.mountpoint
+    if system == "Windows":
+        # Windows 的卷标由 PowerShell 脚本统一补充，这里只展示盘符。
+        return mountpoint.rstrip("\\") or mountpoint
+    if mountpoint == "/":
+        return "系统磁盘（/）"
+    name = Path(mountpoint).name
+    return f"{name}（{mountpoint}）" if name else mountpoint
+
+
+def _visible_partitions(system: str):
+    try:
+        partitions = psutil.disk_partitions(all=False)
+    except (OSError, PermissionError, NotImplementedError):
+        return []
+    visible = []
+    seen_mounts = set()
+    for partition in partitions:
+        mountpoint = partition.mountpoint
+        if mountpoint in seen_mounts:
+            continue
+        if system == "Windows":
+            # 仅保留盘符根目录（C:\、D:\），排除卷 GUID 挂载点和隐藏分区。
+            if not WINDOWS_DRIVE_MOUNT.match(mountpoint):
+                continue
+        elif system == "Darwin":
+            if mountpoint.startswith(MACOS_HIDDEN_MOUNT_PREFIX):
+                continue
+        elif mountpoint.startswith(("/dev", "/proc", "/sys", "/run", "/snap")):
+            continue
+        try:
+            usage = psutil.disk_usage(mountpoint)
+        except (OSError, PermissionError):
+            continue
+        if usage.total <= 0:
+            continue
+        seen_mounts.add(mountpoint)
+        visible.append((partition, usage))
+    return visible
+
+
+def _disk_sections(system: str, windows_status: Optional[dict]) -> Tuple[InfoSection, ...]:
+    partitions = _visible_partitions(system)
+    labels = (windows_status or {}).get("labels", {}) if system == "Windows" else {}
+    sections = []
+    for index, (partition, usage) in enumerate(partitions, start=1):
+        label = _disk_label(partition, system)
+        if system == "Windows":
+            drive = partition.mountpoint.rstrip("\\").upper()
+            volume_label = labels.get(drive)
+            if volume_label:
+                label = f"{label}（{volume_label}）"
+        title = f"磁盘 {index} · {label}" if len(partitions) > 1 else f"磁盘 · {label}"
+        sections.append(InfoSection(title, (
+            ("总容量", format_bytes(usage.total)),
+            ("已使用", format_bytes(usage.used)),
+            ("可用", format_bytes(usage.free)),
+            ("使用率", f"{usage.percent:.1f}%"),
+        )))
+    if not sections:
+        sections.append(InfoSection("磁盘", (("磁盘", "未检测到"),)))
+    return tuple(sections)
+
+
+def _hardware(system: str) -> dict:
+    if system in _HARDWARE_CACHE:
+        return _HARDWARE_CACHE[system]
+    if system == "Darwin":
+        hardware = _mac_hardware()
+    elif system == "Windows":
+        hardware = _windows_hardware()
+    else:
+        hardware = {
+            "model": platform.node() or "未检测到",
+            "manufacturer": "未检测到",
+            "cpu": platform.processor(),
+            "gpu_rows": [],
+        }
+    _HARDWARE_CACHE[system] = hardware
+    return hardware
+
+
 def collect_device_info(system: str = None) -> DeviceReport:
     system = system or platform.system()
-    hardware = _mac_hardware() if system == "Darwin" else _windows_hardware() if system == "Windows" else {
-        "model": platform.node() or "未检测到",
-        "manufacturer": "未检测到",
-        "cpu": platform.processor(),
-        "gpu_rows": [],
-    }
+    hardware = _hardware(system)
+    windows_status = _windows_system_status() if system == "Windows" else None
     memory = psutil.virtual_memory()
-    disk_root = Path.home().anchor if system == "Windows" else "/"
-    disk = psutil.disk_usage(disk_root or "/")
     try:
         frequency = psutil.cpu_freq()
     except (AttributeError, NotImplementedError):
@@ -162,7 +279,7 @@ def collect_device_info(system: str = None) -> DeviceReport:
             ("逻辑核心", str(psutil.cpu_count(logical=True) or "未检测到")),
             ("当前频率", _frequency_text(getattr(frequency, "current", None))),
             ("最大频率", _frequency_text(getattr(frequency, "max", None))),
-            ("当前使用率", f"{psutil.cpu_percent(interval=0.1):.1f}%"),
+            ("当前使用率", f"{_cpu_usage(system, windows_status):.1f}%"),
         )),
         InfoSection("图形处理器", tuple(hardware["gpu_rows"]) or (("GPU", "未检测到"),)),
         InfoSection("内存", (
@@ -171,12 +288,7 @@ def collect_device_info(system: str = None) -> DeviceReport:
             ("可用", format_bytes(memory.available)),
             ("使用率", f"{memory.percent:.1f}%"),
         )),
-        InfoSection("系统盘", (
-            ("总容量", format_bytes(disk.total)),
-            ("已使用", format_bytes(disk.used)),
-            ("可用", format_bytes(disk.free)),
-            ("使用率", f"{disk.percent:.1f}%"),
-        )),
+        *_disk_sections(system, windows_status),
         InfoSection("网络", (
             ("接口", network.interface or "未检测到"),
             ("IPv4", network.ip or "未检测到"),

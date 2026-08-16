@@ -391,8 +391,6 @@ class MainWindow(QMainWindow):
         self._page_transition.enter(page, 8)
         if page is self.ip_scanner_page:
             self.ip_scanner_page.schedule_result_column_resize()
-        elif page is self.device_info_page:
-            self.device_info_page.refresh()
 
     def closeEvent(self, event):
         normal_geometry = self.normalGeometry() if self.isMaximized() else self.geometry()
@@ -408,6 +406,7 @@ class MainWindow(QMainWindow):
             for page in (
                 self.ip_scanner_page,
                 self.ip_lookup_page,
+                self.device_info_page,
             )
         ]
         workers_ready = all(worker_states)

@@ -74,6 +74,7 @@ class PackagingTests(unittest.TestCase):
         self.assertTrue((runtime_scripts / "get_network_info.ps1").is_file())
         self.assertTrue((runtime_scripts / "get_interface_gateway.ps1").is_file())
         self.assertTrue((runtime_scripts / "get_device_hardware.ps1").is_file())
+        self.assertTrue((runtime_scripts / "get_system_status.ps1").is_file())
 
         device_collector = (
             PROJECT_DIR / "src" / "fuzztoolbox" / "tools" / "device_info" / "collector.py"

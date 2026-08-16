@@ -690,6 +690,7 @@ class ResultModelTests(unittest.TestCase):
         self.app.processEvents()
         window.ip_scanner_page.prepare_close = Mock(return_value=True)
         window.ip_lookup_page.prepare_close = Mock(return_value=True)
+        window.device_info_page.prepare_close = Mock(return_value=True)
 
         with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
             close_event = QCloseEvent()
@@ -706,6 +707,7 @@ class ResultModelTests(unittest.TestCase):
                 self.assertTrue(window._application_quitting)
                 window.ip_scanner_page.prepare_close.assert_called_once()
                 window.ip_lookup_page.prepare_close.assert_called_once()
+                window.device_info_page.prepare_close.assert_called_once()
                 single_shot.assert_called_once()
         window.hide()
 
