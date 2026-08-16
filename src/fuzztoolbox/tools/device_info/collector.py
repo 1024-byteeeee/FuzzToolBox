@@ -67,6 +67,43 @@ def format_duration(seconds: float) -> str:
     return " ".join(parts)
 
 
+def _windows_uptime() -> Optional[float]:
+    """通过 GetTickCount64 读取 Windows 运行时长。
+
+    该计数器在系统睡眠/休眠期间停止计数，返回的是真实活跃时长。
+    """
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetTickCount64.restype = ctypes.c_uint64
+        return kernel32.GetTickCount64() / 1000.0
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
+def system_uptime(system: str = None) -> float:
+    """计算系统真实运行时长（不包含睡眠/休眠时间）。
+
+    直接用 time.time() - psutil.boot_time() 得到的是墙钟差值，
+    会把合盖睡眠的时间也算进运行时长，导致显示值明显偏大。
+    这里优先使用各平台不计入睡眠时间的单调时钟：
+    macOS 的 CLOCK_UPTIME_RAW、Windows 的 GetTickCount64。
+    """
+    system = system or platform.system()
+    if system == "Windows":
+        tick_uptime = _windows_uptime()
+        if tick_uptime is not None:
+            return tick_uptime
+    clock_id = getattr(time, "CLOCK_UPTIME_RAW", None)
+    if clock_id is not None:
+        try:
+            return time.clock_gettime(clock_id)
+        except (OSError, ValueError):
+            pass
+    return max(0.0, time.time() - psutil.boot_time())
+
+
 def _frequency_text(value) -> str:
     return f"{float(value) / 1000:.2f} GHz" if value else "未检测到"
 
@@ -271,7 +308,7 @@ def collect_device_info(system: str = None) -> DeviceReport:
             ("操作系统", f"{platform.system()} {platform.release()}"),
             ("系统版本", platform.version()),
             ("架构", platform.machine()),
-            ("运行时长", format_duration(time.time() - psutil.boot_time())),
+            ("运行时长", format_duration(system_uptime(system))),
         )),
         InfoSection("处理器", (
             ("CPU", cpu_name),
