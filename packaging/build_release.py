@@ -52,11 +52,13 @@ def ensure_stable_signing_identity() -> tuple:
         ["security", "find-identity", "-v", "-p", "codesigning", str(keychain)],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if check.returncode == 0 and SIGN_IDENTITY in check.stdout:
         subprocess.run(
             ["security", "unlock-keychain", "-p", SIGN_PASSWORD, str(keychain)],
             check=True,
+            timeout=60,
         )
         _add_keychain_to_search_list(keychain)
         return SIGN_IDENTITY, keychain
@@ -92,10 +94,12 @@ def ensure_stable_signing_identity() -> tuple:
         subprocess.run(
             ["security", "create-keychain", "-p", SIGN_PASSWORD, str(keychain)],
             check=True,
+            timeout=60,
         )
     subprocess.run(
         ["security", "unlock-keychain", "-p", SIGN_PASSWORD, str(keychain)],
         check=True,
+        timeout=60,
     )
     subprocess.run(
         [
@@ -103,13 +107,21 @@ def ensure_stable_signing_identity() -> tuple:
             "-P", SIGN_PASSWORD, "-T", "/usr/bin/codesign",
         ],
         check=True,
+        timeout=90,
     )
+    # Note: no "-d" flag.  "-d" adds the certificate to the *admin domain*
+    # (system trust store), which prompts for a GUI authorization on macOS.
+    # On headless CI runners that prompt can never be answered, so the
+    # `security` process blocks forever.  The user domain needs no
+    # authorization and is sufficient for codesign to find the identity.
     subprocess.run(
         [
-            "security", "add-trusted-cert", "-d", "-r", "trustRoot",
+            "security", "add-trusted-cert",
+            "-r", "trustRoot",
             "-k", str(keychain), str(cert_dir / "cert.pem"),
         ],
         check=True,
+        timeout=90,
     )
     subprocess.run(
         [
@@ -119,6 +131,7 @@ def ensure_stable_signing_identity() -> tuple:
         ],
         check=True,
         capture_output=True,
+        timeout=60,
     )
     _add_keychain_to_search_list(keychain)
     return SIGN_IDENTITY, keychain
