@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from .color_wheel import ColorWheel
 from .converter import ColorValue
-from .eyedropper import EyedropperOverlay
+from .eyedropper import EyedropperOverlay, hide_window_instantly, show_window_instantly
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 
@@ -324,17 +324,18 @@ class ColorPickerPage(QWidget):
         if self._eyedropper is not None:
             return
         self.status.setText("移动鼠标预览颜色，点击取色，Esc 取消")
-        # Hide the main window so it doesn't block the eyedropper view.
+        # Remove the main window instantly.  Qt hide() / setWindowOpacity()
+        # route through AppKit / Core Animation implicit transitions on macOS,
+        # causing a quick scale/fade flicker that gets captured in the shot.
+        # -[NSWindow orderOut:] is a synchronous composite with no animation.
         main_window = self.window()
         if main_window:
-            main_window.hide()
+            hide_window_instantly(main_window)
         overlay = EyedropperOverlay()
         self._eyedropper = overlay
         overlay.color_picked.connect(self._eyedropper_picked)
         overlay.cancelled.connect(self._eyedropper_cancelled)
-        # Delay slightly to ensure main window is fully hidden before showing overlay.
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(50, overlay.begin)
+        overlay.begin()
 
     def _eyedropper_picked(self, color: QColor) -> None:
         if self._eyedropper is not None:
@@ -344,21 +345,16 @@ class ColorPickerPage(QWidget):
             ColorValue(color.red(), color.green(), color.blue(), self.alpha.value())
         )
         self.status.setText(f"已从屏幕取色 {color.name().upper()}")
-        # Restore the main window.
-        main_window = self.window()
-        if main_window:
-            main_window.show()
-            main_window.raise_()
-            main_window.activateWindow()
+        self._restore_main_window()
 
     def _eyedropper_cancelled(self) -> None:
         if self._eyedropper is not None:
             self._eyedropper.deleteLater()
             self._eyedropper = None
         self.status.setText("已取消屏幕取色")
-        # Restore the main window.
+        self._restore_main_window()
+
+    def _restore_main_window(self) -> None:
         main_window = self.window()
         if main_window:
-            main_window.show()
-            main_window.raise_()
-            main_window.activateWindow()
+            show_window_instantly(main_window)
