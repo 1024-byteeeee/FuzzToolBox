@@ -109,20 +109,11 @@ def ensure_stable_signing_identity() -> tuple:
         check=True,
         timeout=90,
     )
-    # Note: no "-d" flag.  "-d" adds the certificate to the *admin domain*
-    # (system trust store), which prompts for a GUI authorization on macOS.
-    # On headless CI runners that prompt can never be answered, so the
-    # `security` process blocks forever.  The user domain needs no
-    # authorization and is sufficient for codesign to find the identity.
-    subprocess.run(
-        [
-            "security", "add-trusted-cert",
-            "-r", "trustRoot",
-            "-k", str(keychain), str(cert_dir / "cert.pem"),
-        ],
-        check=True,
-        timeout=90,
-    )
+    # No `security add-trusted-cert` here: it routes through Security Server
+    # and can block forever on headless CI (no GUI session to answer the
+    # authorization prompt), even for the user domain.  Trust settings are
+    # not required for codesign to produce a signature and do not transfer
+    # between machines anyway, so the step is skipped entirely.
     subprocess.run(
         [
             "security", "set-key-partition-list", "-S",
