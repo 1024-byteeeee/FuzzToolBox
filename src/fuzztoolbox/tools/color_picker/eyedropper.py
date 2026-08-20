@@ -6,9 +6,10 @@ import platform
 import subprocess
 import tempfile
 import threading
+from typing import Optional
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QColorSpace, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 
@@ -55,6 +56,20 @@ def _ns_window(widget):
         return None
 
 
+def native_window_is_visible(widget) -> Optional[bool]:
+    """Return AppKit's visibility state, or None when unavailable."""
+    ns_window = _ns_window(widget)
+    if ns_window is None:
+        return None
+    try:
+        objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.objc_msgSend.restype = ctypes.c_bool
+        objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        return bool(objc.objc_msgSend(ns_window, objc.sel_registerName(b"isVisible")))
+    except Exception:
+        return None
 def _set_window_opacity_no_animation(widget, opacity: float) -> None:
     """Set NSWindow.alphaValue inside a zero-duration NSAnimationContext.
 
@@ -91,20 +106,77 @@ def _set_window_opacity_no_animation(widget, opacity: float) -> None:
 
 
 def hide_window_instantly(widget) -> None:
-    """Make a window fully transparent with zero animation.
+    """Remove a window from the macOS window server without animation.
 
-    The window stays on-screen (and in Qt's visible state) so no
-    Qt/AppKit desync occurs; only its alpha is set to 0, which removes
-    it from the next composite without any transition.
+    Merely setting alpha to zero leaves the NSWindow ordered and AppKit can
+    re-composite it when the eyedropper overlay becomes active.  ``orderOut``
+    makes the hide operation explicit while Qt can still restore the same
+    widget later.
     """
+    ns_window = _ns_window(widget)
+    if ns_window is not None:
+        try:
+            objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+            objc.sel_registerName.restype = ctypes.c_void_p
+            objc.sel_registerName.argtypes = [ctypes.c_char_p]
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            objc.objc_msgSend(ns_window, objc.sel_registerName(b"orderOut:"), None)
+            # Keep Qt's visibility state in sync with AppKit.  This prevents
+            # Qt from re-ordering the window while the compositor settles.
+            widget.hide()
+            return
+        except Exception:
+            pass
     _set_window_opacity_no_animation(widget, 0.0)
+    widget.hide()
 
 
 def show_window_instantly(widget) -> None:
-    """Restore opacity and bring the window to front, no animation."""
+    """Restore and activate a window without an AppKit animation."""
+    ns_window = _ns_window(widget)
+    if ns_window is not None:
+        try:
+            widget.show()
+            objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+            objc.sel_registerName.restype = ctypes.c_void_p
+            objc.sel_registerName.argtypes = [ctypes.c_char_p]
+            objc.objc_msgSend.restype = None
+            objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            objc.objc_msgSend(ns_window, objc.sel_registerName(b"makeKeyAndOrderFront:"), None)
+            widget.raise_()
+            widget.activateWindow()
+            return
+        except Exception:
+            pass
     _set_window_opacity_no_animation(widget, 1.0)
     widget.raise_()
     widget.activateWindow()
+
+
+def _to_srgb_pixmap(pixmap: QPixmap) -> QPixmap:
+    """Normalize a captured display image to sRGB before sampling pixels.
+
+    Wide-gamut macOS displays commonly return Display P3 CGImages.  Reading
+    those bytes as if they were sRGB makes the picker disagree with Photoshop
+    and other sRGB-oriented color readouts.  Keep the source profile attached
+    until Qt performs an explicit ColorSync conversion, then store the
+    normalized image for both the magnifier and the final picked color.
+    """
+    if pixmap.isNull():
+        return pixmap
+    image = pixmap.toImage()
+    source_space = image.colorSpace()
+    if not source_space.isValid():
+        return pixmap
+    target_space = QColorSpace(QColorSpace.NamedColorSpace.SRgb)
+    if source_space == target_space:
+        return pixmap
+    converted = image.convertedToColorSpace(target_space)
+    if converted.isNull():
+        return pixmap
+    converted.setDevicePixelRatio(pixmap.devicePixelRatio())
+    return QPixmap.fromImage(converted)
 
 
 def _grab_screen_quartz(screen) -> QPixmap:
@@ -200,6 +272,7 @@ def _grab_screen_quartz(screen) -> QPixmap:
     pixmap = QPixmap()
     if png_data and pixmap.loadFromData(png_data, "PNG"):
         pixmap.setDevicePixelRatio(screen.devicePixelRatio())
+        return _to_srgb_pixmap(pixmap)
     return pixmap
 
 
@@ -220,7 +293,7 @@ def _grab_screen(screen) -> QPixmap:
         pixmap = screen.grabWindow(0)
         if pixmap.devicePixelRatio() != screen.devicePixelRatio():
             pixmap.setDevicePixelRatio(screen.devicePixelRatio())
-        return pixmap
+        return _to_srgb_pixmap(pixmap)
 
     # macOS fallback: screencapture(1).
     screen_rect = screen.geometry()
@@ -239,7 +312,7 @@ def _grab_screen(screen) -> QPixmap:
             pixmap = QPixmap(tmp_path)
             if not pixmap.isNull():
                 pixmap.setDevicePixelRatio(screen.devicePixelRatio())
-                return pixmap
+                return _to_srgb_pixmap(pixmap)
     except Exception:
         pass
     finally:
@@ -250,7 +323,7 @@ def _grab_screen(screen) -> QPixmap:
     pixmap = screen.grabWindow(0)
     if pixmap.devicePixelRatio() != screen.devicePixelRatio():
         pixmap.setDevicePixelRatio(screen.devicePixelRatio())
-    return pixmap
+    return _to_srgb_pixmap(pixmap)
 
 
 class EyedropperOverlay(QWidget):
@@ -453,7 +526,12 @@ class EyedropperOverlay(QWidget):
                 x = min(max(int(local_x * ratio), 0), pixmap.width() - 1)
                 y = min(max(int(local_y * ratio), 0), pixmap.height() - 1)
                 image = pixmap.toImage()
-                return QColor(image.pixel(x, y))
+                # pixelColor() preserves Qt's channel interpretation and
+                # rounding for converted/extended-range image formats.  The
+                # older QColor(image.pixel()) path unpacked the QRgb integer
+                # directly and could differ from native pickers by one code
+                # value on a single channel (for example ...55 vs ...54).
+                return image.pixelColor(x, y)
         return QColor(0, 0, 0)
 
     def mouseMoveEvent(self, event):

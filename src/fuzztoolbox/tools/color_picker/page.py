@@ -1,4 +1,6 @@
-from PySide6.QtCore import QRectF, Qt
+import time
+
+from PySide6.QtCore import QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -17,7 +19,12 @@ from PySide6.QtWidgets import (
 
 from .color_wheel import ColorWheel
 from .converter import ColorValue
-from .eyedropper import EyedropperOverlay, hide_window_instantly, show_window_instantly
+from .eyedropper import (
+    EyedropperOverlay,
+    hide_window_instantly,
+    native_window_is_visible,
+    show_window_instantly,
+)
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 
@@ -335,7 +342,25 @@ class ColorPickerPage(QWidget):
         self._eyedropper = overlay
         overlay.color_picked.connect(self._eyedropper_picked)
         overlay.cancelled.connect(self._eyedropper_cancelled)
-        overlay.begin()
+        # AppKit applies orderOut asynchronously to the compositor. Poll the
+        # native visibility state instead of relying on a fixed delay, so a
+        # busy Mac gets enough time while fast machines start immediately.
+        self._wait_for_window_to_hide(overlay, main_window, time.monotonic())
+
+    def _wait_for_window_to_hide(self, overlay, main_window, started_at: float) -> None:
+        elapsed = time.monotonic() - started_at
+        native_visible = native_window_is_visible(main_window)
+        # A false AppKit visibility flag can arrive before the compositor has
+        # removed the old frame. Keep a short minimum settle period, then use
+        # the native state to finish early on fast machines.
+        # CoreGraphics can retain the previous window surface for a few
+        # compositor frames on a busy machine.  Give it a small but bounded
+        # settle window before capturing, even when AppKit reports hidden.
+        settled = elapsed >= 0.35
+        if elapsed >= 1.0 or (settled and (native_visible is False or native_visible is None)):
+            overlay.begin()
+            return
+        QTimer.singleShot(25, lambda: self._wait_for_window_to_hide(overlay, main_window, started_at))
 
     def _eyedropper_picked(self, color: QColor) -> None:
         if self._eyedropper is not None:
