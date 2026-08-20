@@ -12,7 +12,7 @@ from .. import __version__
 
 
 SPLASH_SIZE = (500, 400)
-APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "app-icon.svg"
+APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "app-icon.png"
 
 
 def _font(size: int, weight: QFont.Weight = QFont.Normal) -> QFont:

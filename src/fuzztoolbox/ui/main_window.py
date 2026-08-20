@@ -33,7 +33,11 @@ from .animations import PageTransitionController, ThemeTransitionController
 from .home_page import ToolboxHomePage
 from .tool_registry import TOOLS
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
-APP_ICON_PATH = ASSET_DIR / "app-icon.svg"
+# PNG is used at runtime because the Windows taskbar icon path is more
+# reliable with a raster QIcon than with an SVG loaded through Qt's image
+# plugins in a frozen application.  The SVG remains the source artwork and is
+# still used by the asset/build pipeline.
+APP_ICON_PATH = ASSET_DIR / "app-icon.png"
 WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
 THEME_MODES = ("system", "light", "dark")

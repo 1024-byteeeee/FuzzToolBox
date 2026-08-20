@@ -149,6 +149,10 @@ def show_window_instantly(widget) -> None:
             return
         except Exception:
             pass
+    # On Windows/Linux the native AppKit path is unavailable.  The hide path
+    # used widget.hide(), so restore the Qt visibility state before raising;
+    # changing opacity alone does not remap a hidden widget.
+    widget.show()
     _set_window_opacity_no_animation(widget, 1.0)
     widget.raise_()
     widget.activateWindow()
