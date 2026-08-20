@@ -16,6 +16,33 @@ BUILD_DIR = PROJECT_DIR / "build"
 RELEASE_DIR = BUILD_DIR / "releases"
 APP_NAME = "FuzzToolBox"
 
+# Pages are imported on demand by the desktop shell.  Keep their modules in
+# frozen builds even though the imports are intentionally not executed during
+# startup (PyInstaller cannot infer string-based lazy imports on its own).
+LAZY_TOOL_MODULES = (
+    "fuzztoolbox.tools.device_info.page",
+    "fuzztoolbox.tools.ip_scanner.page",
+    "fuzztoolbox.tools.ip_lookup.page",
+    "fuzztoolbox.tools.subnet_calculator.page",
+    "fuzztoolbox.tools.subnet_mask_inverse.page",
+    "fuzztoolbox.tools.uuid_generator.page",
+    "fuzztoolbox.tools.token_generator.page",
+    "fuzztoolbox.tools.json_formatter.page",
+    "fuzztoolbox.tools.docker_compose_converter.page",
+    "fuzztoolbox.tools.text_comparer.page",
+    "fuzztoolbox.tools.text_statistics.page",
+    "fuzztoolbox.tools.lorem_ipsum.page",
+    "fuzztoolbox.tools.ipv4_converter.page",
+    "fuzztoolbox.tools.qr_generator.page",
+    "fuzztoolbox.tools.wifi_qr_generator.page",
+    "fuzztoolbox.tools.color_picker.page",
+    "fuzztoolbox.tools.roman_numeral.page",
+    "fuzztoolbox.tools.password_strength.page",
+    "fuzztoolbox.tools.random_port.page",
+    "fuzztoolbox.tools.timer.page",
+    "fuzztoolbox.tools.datetime_converter.page",
+)
+
 
 def normalized_architecture() -> str:
     value = platform.machine().lower()
@@ -214,6 +241,8 @@ def build() -> Path:
         "--add-data",
         f"{runtime_scripts}{os.pathsep}fuzztoolbox/runtime_scripts",
     ]
+    for module in LAZY_TOOL_MODULES:
+        command.extend(["--hidden-import", module])
     command.append(str(entry))
     if system == "Darwin":
         command[3:3] = [

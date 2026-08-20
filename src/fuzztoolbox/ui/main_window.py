@@ -29,27 +29,6 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.'") from exc
 
 from .. import __version__
-from ..tools.color_picker.page import ColorPickerPage
-from ..tools.datetime_converter.page import DateTimeConverterPage
-from ..tools.docker_compose_converter.page import DockerComposeConverterPage
-from ..tools.device_info.page import DeviceInfoPage
-from ..tools.ip_scanner.page import IPScannerPage
-from ..tools.ip_lookup.page import IPLookupPage
-from ..tools.ipv4_converter.page import IPv4ConverterPage
-from ..tools.json_formatter.page import JSONFormatterPage
-from ..tools.lorem_ipsum.page import LoremIpsumPage
-from ..tools.password_strength.page import PasswordStrengthPage
-from ..tools.qr_generator.page import QRGeneratorPage
-from ..tools.random_port.page import RandomPortPage
-from ..tools.roman_numeral.page import RomanNumeralPage
-from ..tools.subnet_calculator.page import SubnetCalculatorPage
-from ..tools.subnet_mask_inverse.page import SubnetMaskInversePage
-from ..tools.text_comparer.page import TextComparerPage
-from ..tools.text_statistics.page import TextStatisticsPage
-from ..tools.timer.page import TimerPage
-from ..tools.token_generator.page import TokenGeneratorPage
-from ..tools.uuid_generator.page import UUIDGeneratorPage
-from ..tools.wifi_qr_generator.page import WiFiQRGeneratorPage
 from .animations import PageTransitionController, ThemeTransitionController
 from .home_page import ToolboxHomePage
 from .tool_registry import TOOLS
@@ -190,53 +169,9 @@ class MainWindow(QMainWindow):
         if isinstance(stored_favorites, str):
             stored_favorites = [stored_favorites] if stored_favorites else []
         self.home_page = ToolboxHomePage(favorite_ids=stored_favorites or [])
-        self.ip_scanner_page = IPScannerPage()
-        self.device_info_page = DeviceInfoPage()
-        self.ip_lookup_page = IPLookupPage()
-        network_info = self.ip_scanner_page.network_info
-        self.subnet_calculator_page = SubnetCalculatorPage(network_info)
-        self.subnet_mask_inverse_page = SubnetMaskInversePage()
-        self.uuid_generator_page = UUIDGeneratorPage()
-        self.token_generator_page = TokenGeneratorPage()
-        self.json_formatter_page = JSONFormatterPage()
-        self.docker_compose_converter_page = DockerComposeConverterPage()
-        self.text_comparer_page = TextComparerPage()
-        self.text_statistics_page = TextStatisticsPage()
-        self.lorem_ipsum_page = LoremIpsumPage()
-        self.ipv4_converter_page = IPv4ConverterPage(network_info)
-        self.qr_generator_page = QRGeneratorPage()
-        self.wifi_qr_generator_page = WiFiQRGeneratorPage()
-        self.color_picker_page = ColorPickerPage()
-        self.roman_numeral_page = RomanNumeralPage()
-        self.password_strength_page = PasswordStrengthPage()
-        self.random_port_page = RandomPortPage()
-        self.timer_page = TimerPage()
-        self.datetime_converter_page = DateTimeConverterPage()
-        for page in (
-            self.home_page,
-            self.device_info_page,
-            self.ip_scanner_page,
-            self.ip_lookup_page,
-            self.subnet_calculator_page,
-            self.subnet_mask_inverse_page,
-            self.uuid_generator_page,
-            self.token_generator_page,
-            self.json_formatter_page,
-            self.docker_compose_converter_page,
-            self.text_comparer_page,
-            self.text_statistics_page,
-            self.lorem_ipsum_page,
-            self.ipv4_converter_page,
-            self.qr_generator_page,
-            self.wifi_qr_generator_page,
-            self.color_picker_page,
-            self.roman_numeral_page,
-            self.password_strength_page,
-            self.random_port_page,
-            self.timer_page,
-            self.datetime_converter_page,
-        ):
-            self.pages.addWidget(page)
+        self.pages.addWidget(self.home_page)
+        self._tool_pages = {}
+        self._tool_factories = self._build_tool_factories()
         root_layout.addWidget(self.pages, 1)
 
         self.copyright_label = QLabel()
@@ -313,84 +248,67 @@ class MainWindow(QMainWindow):
         self.home_page.search.setFocus()
         self._page_transition.enter(self.home_page, -8)
 
-    def open_tool(self, tool_id: str):
-        destinations = {
-            "device-info": (self.device_info_page, "设备信息 · 系统工具"),
-            "ip-scanner": (self.ip_scanner_page, "IP Scanner · 网络扫描"),
-            "ip-lookup": (self.ip_lookup_page, "公网IP信息查询 · 网络工具"),
-            "subnet-calculator": (
-                self.subnet_calculator_page,
-                "子网划分计算器 · 网络规划",
-            ),
-            "subnet-mask-inverse": (
-                self.subnet_mask_inverse_page,
-                "子网掩码逆算器 · 网络工具",
-            ),
-            "uuid-generator": (self.uuid_generator_page, "UUID 生成器 · 开发工具"),
-            "token-generator": (
-                self.token_generator_page,
-                "Token 生成器 · 开发工具",
-            ),
-            "json-formatter": (
-                self.json_formatter_page,
-                "JSON 格式化与校验器 · 开发工具",
-            ),
-            "docker-compose-converter": (
-                self.docker_compose_converter_page,
-                "Docker Run 转 Compose · 开发工具",
-            ),
-            "text-comparer": (
-                self.text_comparer_page,
-                "文本对比工具 · 开发工具",
-            ),
-            "text-statistics": (
-                self.text_statistics_page,
-                "文本统计工具 · 实用工具",
-            ),
-            "lorem-ipsum": (
-                self.lorem_ipsum_page,
-                "Lorem Ipsum 生成器 · 实用工具",
-            ),
-            "ipv4-converter": (
-                self.ipv4_converter_page,
-                "IPv4 地址转换器 · 网络工具",
-            ),
-            "qr-generator": (self.qr_generator_page, "二维码生成器 · 开发工具"),
-            "wifi-qr-generator": (
-                self.wifi_qr_generator_page,
-                "WiFi 二维码生成器 · 网络工具",
-            ),
-            "color-picker": (self.color_picker_page, "取色器 · 开发工具"),
-            "roman-numeral": (
-                self.roman_numeral_page,
-                "罗马数字转换器 · 开发工具",
-            ),
-            "password-strength": (
-                self.password_strength_page,
-                "密码强度分析器 · 开发工具",
-            ),
-            "random-port": (
-                self.random_port_page,
-                "随机端口生成器 · 网络工具",
-            ),
-            "timer": (self.timer_page, "计时器 · 实用工具"),
-            "datetime-converter": (
-                self.datetime_converter_page,
-                "日期时间转换器 · 开发工具",
-            ),
+    def _build_tool_factories(self):
+        """Return lazy page factories so the home page starts quickly."""
+        def network_pages():
+            from ..tools.ip_scanner.page import IPScannerPage
+            scanner = self._tool_pages.get("ip-scanner")
+            if scanner is None:
+                scanner = IPScannerPage()
+                self._tool_pages["ip-scanner"] = scanner
+                self.pages.addWidget(scanner)
+            return scanner.network_info
+
+        return {
+            "device-info": lambda: __import__("fuzztoolbox.tools.device_info.page", fromlist=["DeviceInfoPage"]).DeviceInfoPage(),
+            "ip-scanner": lambda: __import__("fuzztoolbox.tools.ip_scanner.page", fromlist=["IPScannerPage"]).IPScannerPage(),
+            "ip-lookup": lambda: __import__("fuzztoolbox.tools.ip_lookup.page", fromlist=["IPLookupPage"]).IPLookupPage(),
+            "subnet-calculator": lambda: __import__("fuzztoolbox.tools.subnet_calculator.page", fromlist=["SubnetCalculatorPage"]).SubnetCalculatorPage(network_pages()),
+            "subnet-mask-inverse": lambda: __import__("fuzztoolbox.tools.subnet_mask_inverse.page", fromlist=["SubnetMaskInversePage"]).SubnetMaskInversePage(),
+            "uuid-generator": lambda: __import__("fuzztoolbox.tools.uuid_generator.page", fromlist=["UUIDGeneratorPage"]).UUIDGeneratorPage(),
+            "token-generator": lambda: __import__("fuzztoolbox.tools.token_generator.page", fromlist=["TokenGeneratorPage"]).TokenGeneratorPage(),
+            "json-formatter": lambda: __import__("fuzztoolbox.tools.json_formatter.page", fromlist=["JSONFormatterPage"]).JSONFormatterPage(),
+            "docker-compose-converter": lambda: __import__("fuzztoolbox.tools.docker_compose_converter.page", fromlist=["DockerComposeConverterPage"]).DockerComposeConverterPage(),
+            "text-comparer": lambda: __import__("fuzztoolbox.tools.text_comparer.page", fromlist=["TextComparerPage"]).TextComparerPage(),
+            "text-statistics": lambda: __import__("fuzztoolbox.tools.text_statistics.page", fromlist=["TextStatisticsPage"]).TextStatisticsPage(),
+            "lorem-ipsum": lambda: __import__("fuzztoolbox.tools.lorem_ipsum.page", fromlist=["LoremIpsumPage"]).LoremIpsumPage(),
+            "ipv4-converter": lambda: __import__("fuzztoolbox.tools.ipv4_converter.page", fromlist=["IPv4ConverterPage"]).IPv4ConverterPage(network_pages()),
+            "qr-generator": lambda: __import__("fuzztoolbox.tools.qr_generator.page", fromlist=["QRGeneratorPage"]).QRGeneratorPage(),
+            "wifi-qr-generator": lambda: __import__("fuzztoolbox.tools.wifi_qr_generator.page", fromlist=["WiFiQRGeneratorPage"]).WiFiQRGeneratorPage(),
+            "color-picker": lambda: __import__("fuzztoolbox.tools.color_picker.page", fromlist=["ColorPickerPage"]).ColorPickerPage(),
+            "roman-numeral": lambda: __import__("fuzztoolbox.tools.roman_numeral.page", fromlist=["RomanNumeralPage"]).RomanNumeralPage(),
+            "password-strength": lambda: __import__("fuzztoolbox.tools.password_strength.page", fromlist=["PasswordStrengthPage"]).PasswordStrengthPage(),
+            "random-port": lambda: __import__("fuzztoolbox.tools.random_port.page", fromlist=["RandomPortPage"]).RandomPortPage(),
+            "timer": lambda: __import__("fuzztoolbox.tools.timer.page", fromlist=["TimerPage"]).TimerPage(),
+            "datetime-converter": lambda: __import__("fuzztoolbox.tools.datetime_converter.page", fromlist=["DateTimeConverterPage"]).DateTimeConverterPage(),
         }
-        destination = destinations.get(tool_id)
-        if destination is None:
+
+    def _load_tool_page(self, tool_id):
+        page = self._tool_pages.get(tool_id)
+        if page is not None:
+            return page
+        factory = self._tool_factories.get(tool_id)
+        if factory is None:
+            return None
+        page = factory()
+        self._tool_pages[tool_id] = page
+        self.pages.addWidget(page)
+        return page
+
+    def open_tool(self, tool_id: str):
+        page = self._load_tool_page(tool_id)
+        if page is None:
             return
-        page, title = destination
+        titles = {tool.id: f"{tool.name} · {tool.category}" for tool in TOOLS}
+        title = titles.get(tool_id, tool_id)
         tool = next(tool for tool in TOOLS if tool.id == tool_id)
         self.page_icon.setPixmap(QIcon(str(ASSET_DIR / tool.icon)).pixmap(32, 32))
         self.top_bar.setVisible(True)
         self.pages.setCurrentWidget(page)
         self.page_title.setText(title)
         self._page_transition.enter(page, 8)
-        if page is self.ip_scanner_page:
-            self.ip_scanner_page.schedule_result_column_resize()
+        if tool_id == "ip-scanner":
+            page.schedule_result_column_resize()
 
     def closeEvent(self, event):
         normal_geometry = self.normalGeometry() if self.isMaximized() else self.geometry()
@@ -403,11 +321,9 @@ class MainWindow(QMainWindow):
             return
         worker_states = [
             page.prepare_close(self._finish_deferred_close)
-            for page in (
-                self.ip_scanner_page,
-                self.ip_lookup_page,
-                self.device_info_page,
-            )
+            for tool_id in ("ip-scanner", "ip-lookup", "device-info")
+            for page in (self._tool_pages.get(tool_id),)
+            if page is not None
         ]
         workers_ready = all(worker_states)
         if workers_ready:
