@@ -364,6 +364,25 @@ class EyedropperOverlay(QWidget):
             # Use geometry() to cover entire screen including dock
             self._virtual = self._virtual.united(screen.geometry())
 
+        # QScreen.grabWindow() and QPixmap are GUI-thread-bound on Windows.
+        # Calling them from a Python worker can terminate a frozen Qt process
+        # in native qwindows/qimage code without raising a Python exception.
+        # Keep the Windows path synchronous and short; the capture is taken
+        # before the overlay is shown, so the user still sees one atomic state
+        # transition and the main window remains hidden during the capture.
+        if platform.system() != "Darwin":
+            try:
+                shots = [
+                    (screen.geometry(), _grab_screen(screen))
+                    for screen in screens
+                ]
+                self._show_overlay(shots)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                self.cancelled.emit()
+            return
+
         # Capture screens in a background thread
         def _do_capture():
             try:
