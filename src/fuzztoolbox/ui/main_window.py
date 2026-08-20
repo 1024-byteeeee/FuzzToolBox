@@ -292,8 +292,21 @@ class MainWindow(QMainWindow):
             return None
         page = factory()
         self._tool_pages[tool_id] = page
+        # Keep the historical attributes available to integrations and tests,
+        # while still creating the page only when it is first requested.
+        setattr(self, f"{tool_id.replace('-', '_')}_page", page)
         self.pages.addWidget(page)
         return page
+
+    def __getattr__(self, name):
+        """Lazily resolve legacy ``<tool>_page`` attributes."""
+        if name.endswith("_page") and "_tool_factories" in self.__dict__:
+            tool_id = name[:-5].replace("_", "-")
+            if tool_id in self._tool_factories:
+                page = self._load_tool_page(tool_id)
+                if page is not None:
+                    return page
+        raise AttributeError(name)
 
     def open_tool(self, tool_id: str):
         page = self._load_tool_page(tool_id)
