@@ -1,8 +1,7 @@
-import unittest
 import struct
+import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
-
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 

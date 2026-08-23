@@ -1,10 +1,9 @@
 """Exact date/time conversion using only the Python standard library."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
-import re
-
 
 UTC = timezone.utc
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)

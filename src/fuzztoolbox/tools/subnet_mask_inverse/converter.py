@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import ipaddress
+from dataclasses import dataclass
 
 
 def _is_subnet_mask(number: int) -> bool:

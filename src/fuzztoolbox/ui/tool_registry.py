@@ -153,6 +153,14 @@ TOOLS = (
         keywords=("color", "picker", "rgb", "hex", "hsl", "hwb", "lch", "cmyk", "色轮", "取色"),
     ),
     ToolDefinition(
+        id="screenshot",
+        name="截图工具",
+        description="选择屏幕区域，使用画笔、图形、文字和马赛克完成截图标注。",
+        category="实用工具",
+        icon="tool-screenshot.svg",
+        keywords=("screenshot", "capture", "截图", "标注", "画笔", "马赛克"),
+    ),
+    ToolDefinition(
         id="roman-numeral",
         name="罗马数字转换器",
         description="将罗马数字转换为数字，并将数字转换为罗马数字。",

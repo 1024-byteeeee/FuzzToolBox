@@ -1,13 +1,23 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton,
-    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
-from .converter import convert_ipv4
-from ...core.network_info import NetworkInfo
 from fuzztoolbox.ui.style_loader import apply_style, clear_style
+
+from ...core.network_info import NetworkInfo
+from .converter import convert_ipv4
 
 
 class ConversionCard(QFrame):

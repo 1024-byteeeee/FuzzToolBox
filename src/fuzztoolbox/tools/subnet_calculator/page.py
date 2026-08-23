@@ -21,6 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style
+
+from ...core.network_info import NetworkInfo, get_network_info
+from ...ui.components import configure_combo, configure_table
 from .calculator import (
     FLSMPlan,
     allocate_vlsm,
@@ -30,10 +34,6 @@ from .calculator import (
     parse_network,
     usable_range,
 )
-from ...core.network_info import NetworkInfo, get_network_info
-from ...ui.components import configure_combo, configure_table
-from fuzztoolbox.ui.style_loader import apply_style
-
 
 FETCH_BATCH_SIZE = 512
 

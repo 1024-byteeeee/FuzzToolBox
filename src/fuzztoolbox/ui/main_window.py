@@ -4,6 +4,7 @@ import contextlib
 import ctypes
 import sys
 from pathlib import Path
+
 from fuzztoolbox.ui.style_loader import (
     apply_style,
     load_qss,
@@ -12,7 +13,7 @@ from fuzztoolbox.ui.style_loader import (
 )
 
 try:
-    from PySide6.QtCore import QSettings, QTimer, Qt
+    from PySide6.QtCore import QSettings, Qt, QTimer
     from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
     from PySide6.QtWidgets import (
         QApplication,
@@ -22,6 +23,7 @@ try:
         QMainWindow,
         QPushButton,
         QStackedWidget,
+        QSystemTrayIcon,
         QVBoxLayout,
         QWidget,
     )
@@ -30,8 +32,12 @@ except ImportError as exc:  # pragma: no cover
 
 from .. import __version__
 from .animations import PageTransitionController, ThemeTransitionController
+from .global_hotkey import GlobalHotkeyManager
 from .home_page import ToolboxHomePage
+from .settings_dialog import SettingsDialog
+from .system_tray import SystemTrayController
 from .tool_registry import TOOLS
+
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 # PNG is used at runtime because the Windows taskbar icon path is more
 # reliable with a raster QIcon than with an SVG loaded through Qt's image
@@ -187,6 +193,7 @@ class MainWindow(QMainWindow):
 
         self.home_page.tool_requested.connect(self.open_tool)
         self.home_page.theme_requested.connect(self.cycle_theme)
+        self.home_page.settings_requested.connect(self.open_settings)
         self.home_page.favorite_changed.connect(self._save_favorites)
         quit_action = QAction(self)
         quit_action.setText("退出 FuzzToolBox")
@@ -198,7 +205,122 @@ class MainWindow(QMainWindow):
         restore_window_placement(self, self.settings)
         self._connect_system_theme()
         self.apply_theme()
+        app = QApplication.instance()
+        self._color_hotkey = GlobalHotkeyManager(app, hotkey_id=1, parent=self)
+        self._screenshot_hotkey = GlobalHotkeyManager(app, hotkey_id=2, parent=self)
+        self._color_keep_hotkey = GlobalHotkeyManager(app, hotkey_id=3, parent=self)
+        self._screenshot_keep_hotkey = GlobalHotkeyManager(app, hotkey_id=4, parent=self)
+        self._shortcuts_suspended = False
+        self._color_hotkey.activated.connect(self.start_color_picker)
+        self._screenshot_hotkey.activated.connect(self.start_screenshot)
+        self._color_keep_hotkey.activated.connect(
+            lambda: self.start_color_picker(keep_main_window=True)
+        )
+        self._screenshot_keep_hotkey.activated.connect(
+            lambda: self.start_screenshot(keep_main_window=True)
+        )
+        self.refresh_shortcuts()
+        self._tray_controller = None
+        if sys.platform == "win32" and QSystemTrayIcon.isSystemTrayAvailable():
+            self._tray_controller = SystemTrayController(self, APP_ICON_PATH)
         self.show_home()
+
+    def open_settings(self):
+        self._shortcuts_suspended = True
+        self._color_hotkey.unregister()
+        self._screenshot_hotkey.unregister()
+        self._color_keep_hotkey.unregister()
+        self._screenshot_keep_hotkey.unregister()
+        dialog = SettingsDialog(
+            self.settings, self, hotkey_validator=self.validate_global_hotkeys
+        )
+        dialog.setObjectName("settingsDialog")
+        try:
+            dialog.exec()
+        finally:
+            self._shortcuts_suspended = False
+            self.refresh_shortcuts()
+
+    def refresh_shortcuts(self):
+        color_shortcut = str(self.settings.value("shortcuts/color-picker-screen", ""))
+        screenshot_shortcut = str(self.settings.value("shortcuts/screenshot", ""))
+        color_keep_shortcut = str(
+            self.settings.value("shortcuts/color-picker-screen-keep-main", "")
+        )
+        screenshot_keep_shortcut = str(
+            self.settings.value("shortcuts/screenshot-keep-main", "")
+        )
+        self._color_hotkey.register(
+            color_shortcut if self._is_safe_shortcut(color_shortcut) else ""
+        )
+        self._screenshot_hotkey.register(
+            screenshot_shortcut if self._is_safe_shortcut(screenshot_shortcut) else ""
+        )
+        self._color_keep_hotkey.register(
+            color_keep_shortcut if self._is_safe_shortcut(color_keep_shortcut) else ""
+        )
+        self._screenshot_keep_hotkey.register(
+            screenshot_keep_shortcut
+            if self._is_safe_shortcut(screenshot_keep_shortcut)
+            else ""
+        )
+
+    def validate_global_hotkeys(self, *sequences):
+        managers = (
+            self._color_hotkey,
+            self._screenshot_hotkey,
+            self._color_keep_hotkey,
+            self._screenshot_keep_hotkey,
+        )
+        for manager in managers:
+            manager.unregister()
+        registered = True
+        for manager, sequence in zip(managers, sequences):
+            if not manager.register(sequence):
+                registered = False
+                break
+        for manager in managers:
+            manager.unregister()
+        if not self._shortcuts_suspended:
+            self.refresh_shortcuts()
+        return registered
+
+    @staticmethod
+    def _is_safe_shortcut(value):
+        """Avoid plain text keys being captured from editors."""
+        normalized = value.strip().upper()
+        return bool(normalized and len(normalized.split("+")) >= 2)
+
+    def start_color_picker(self, *, keep_main_window=False):
+        if self._shortcuts_suspended:
+            return
+        page = self._load_tool_page("color-picker")
+        if page is not None:
+            # A keep-main capture must preserve the page that is already painted.
+            # Switching pages immediately before grabbing the screen can capture an
+            # unpainted color-picker page and make the main window appear blank.
+            if not keep_main_window:
+                self.open_tool("color-picker")
+            page._start_eyedropper(keep_main_window=keep_main_window)
+            if keep_main_window and page._eyedropper is not None:
+                page._eyedropper.color_picked.connect(
+                    lambda _color: self.open_tool("color-picker")
+                )
+
+    def start_screenshot(self, *, keep_main_window=False):
+        if self._shortcuts_suspended:
+            return
+        page = self._load_tool_page("screenshot")
+        if page is not None:
+            page.start_capture(keep_main_window=keep_main_window)
+
+    def restore_from_tray(self):
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
 
     def show_in_saved_state(self) -> None:
         show_main_window(self)
@@ -234,6 +356,7 @@ class MainWindow(QMainWindow):
         QApplication.instance().setStyleSheet(load_qss("base.qss"))
         refresh_widget_styles(QApplication.allWidgets())
         self.home_page.refresh_favorite_icons()
+        self.home_page.settings_button.setIcon(QIcon(str(ASSET_DIR / ("settings-dark.svg" if resolved == "dark" else "settings.svg"))))
         self.home_page.theme_button.setText("")
         next_mode = "light" if resolved == "dark" else "dark"
         icon_name = "theme-sun-dark.svg" if resolved == "dark" else "theme-moon.svg"
@@ -249,7 +372,7 @@ class MainWindow(QMainWindow):
     def show_home(self):
         self.pages.setCurrentWidget(self.home_page)
         self.top_bar.setVisible(False)
-        self.home_page.search.setFocus()
+        self.home_page.setFocus(Qt.OtherFocusReason)
         self._page_transition.enter(self.home_page, -8)
 
     def _build_tool_factories(self):
@@ -280,6 +403,7 @@ class MainWindow(QMainWindow):
             "qr-generator": lambda: __import__("fuzztoolbox.tools.qr_generator.page", fromlist=["QRGeneratorPage"]).QRGeneratorPage(),
             "wifi-qr-generator": lambda: __import__("fuzztoolbox.tools.wifi_qr_generator.page", fromlist=["WiFiQRGeneratorPage"]).WiFiQRGeneratorPage(),
             "color-picker": lambda: __import__("fuzztoolbox.tools.color_picker.page", fromlist=["ColorPickerPage"]).ColorPickerPage(),
+            "screenshot": lambda: __import__("fuzztoolbox.tools.screenshot.page", fromlist=["ScreenshotPage"]).ScreenshotPage(),
             "roman-numeral": lambda: __import__("fuzztoolbox.tools.roman_numeral.page", fromlist=["RomanNumeralPage"]).RomanNumeralPage(),
             "password-strength": lambda: __import__("fuzztoolbox.tools.password_strength.page", fromlist=["PasswordStrengthPage"]).PasswordStrengthPage(),
             "random-port": lambda: __import__("fuzztoolbox.tools.random_port.page", fromlist=["RandomPortPage"]).RandomPortPage(),
@@ -332,6 +456,14 @@ class MainWindow(QMainWindow):
         self.settings.setValue("window/normalGeometry", normal_geometry)
         self.settings.setValue("window/maximized", self.isMaximized())
         self.settings.remove("window/geometry")
+        if (
+            sys.platform == "win32"
+            and self._tray_controller is not None
+            and not self._application_quitting
+        ):
+            event.ignore()
+            self.hide()
+            return
         if sys.platform == "darwin" and not self._application_quitting:
             event.ignore()
             self.hide()

@@ -4,7 +4,6 @@ from io import BytesIO
 
 import segno
 
-
 ERROR_LEVELS = ("L", "M", "Q", "H")
 
 

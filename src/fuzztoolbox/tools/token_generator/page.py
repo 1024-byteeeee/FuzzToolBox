@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .generator import DEFAULT_LENGTH, MAX_LENGTH, MIN_LENGTH, generate_token
 from fuzztoolbox.ui.style_loader import apply_style
+
+from .generator import DEFAULT_LENGTH, MAX_LENGTH, MIN_LENGTH, generate_token
 
 
 class TokenGeneratorPage(QWidget):

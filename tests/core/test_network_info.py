@@ -1,9 +1,9 @@
+import socket
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import psutil
-import socket
 
 from fuzztoolbox.core.network_info import (
     NetworkInfo,

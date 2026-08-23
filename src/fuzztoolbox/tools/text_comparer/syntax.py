@@ -8,7 +8,6 @@ from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 from fuzztoolbox.ui.style_loader import on_theme_changed, theme_color
 
-
 LANGUAGES = (
     ("自动检测", "auto"), ("纯文本", "text"), ("JSON", "json"),
     ("Python", "python"), ("JavaScript", "javascript"), ("TypeScript", "typescript"),

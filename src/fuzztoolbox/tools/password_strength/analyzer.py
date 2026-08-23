@@ -1,10 +1,9 @@
 """Local brute-force password strength estimation."""
 
-from dataclasses import dataclass
-from decimal import Decimal, localcontext
 import math
 import string
-
+from dataclasses import dataclass
+from decimal import Decimal, localcontext
 
 GUESSES_PER_SECOND = 10_000_000_000
 MAX_SCORE_ENTROPY = 128.0

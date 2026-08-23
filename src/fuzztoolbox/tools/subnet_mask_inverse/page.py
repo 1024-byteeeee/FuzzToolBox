@@ -1,4 +1,4 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .converter import convert_mask
 from ...ui.style_loader import apply_style, set_style_state
+from .converter import convert_mask
 
 
 class ResultCard(QFrame):

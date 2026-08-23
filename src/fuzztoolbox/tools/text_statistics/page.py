@@ -1,12 +1,23 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QGuiApplication
-from PySide6.QtWidgets import QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from fuzztoolbox.ui.style_loader import apply_style
 
 from ...ui.components import configure_combo
 from ...ui.line_number_editor import LineNumberEditor
-from ..text_comparer.syntax import CodeSyntaxHighlighter, LANGUAGES, detect_language
+from ..text_comparer.syntax import LANGUAGES, CodeSyntaxHighlighter, detect_language
 from .analyzer import analyze_text, format_report
-from fuzztoolbox.ui.style_loader import apply_style
 
 
 class TextStatisticsPage(QWidget):

@@ -1,16 +1,16 @@
-import unittest
 import socket
 import struct
+import unittest
 from unittest.mock import patch
 
 from fuzztoolbox.tools.ip_lookup.page import format_report
 from fuzztoolbox.tools.ip_lookup.service import (
     LookupReport,
     SourceResult,
-    classify_ip,
-    discover_public_ip,
     _discover_ipv4_via_dns,
     _ssl_context,
+    classify_ip,
+    discover_public_ip,
     lookup,
     parse_public_ip,
 )

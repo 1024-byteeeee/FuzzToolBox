@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .converter import integer_to_roman, roman_to_integer
 from fuzztoolbox.ui.style_loader import apply_style
+
+from .converter import integer_to_roman, roman_to_integer
 
 
 class RomanNumeralPage(QWidget):

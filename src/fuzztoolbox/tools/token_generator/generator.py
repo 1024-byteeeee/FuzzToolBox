@@ -4,7 +4,6 @@ import secrets
 import string
 from typing import Iterable, Sequence
 
-
 MIN_LENGTH = 1
 DEFAULT_LENGTH = 64
 MAX_LENGTH = 512

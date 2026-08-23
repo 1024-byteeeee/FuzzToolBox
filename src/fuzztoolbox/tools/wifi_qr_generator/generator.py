@@ -4,7 +4,6 @@ from segno import helpers
 
 from ..qr_generator.generator import generate_qr_png
 
-
 SECURITY_TYPES = ("WPA", "WEP", "nopass")
 
 

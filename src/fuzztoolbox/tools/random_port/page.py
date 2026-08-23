@@ -9,8 +9,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .generator import MAX_PORT, MIN_PORT, generate_random_port
 from fuzztoolbox.ui.style_loader import apply_style
+
+from .generator import MAX_PORT, MIN_PORT, generate_random_port
 
 
 class RandomPortPage(QWidget):

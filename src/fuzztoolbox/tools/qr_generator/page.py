@@ -15,10 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style
+
 from ...ui.components import configure_combo
 from .components import ColorButton
 from .generator import generate_qr_png
-from fuzztoolbox.ui.style_loader import apply_style
 
 
 class QRGeneratorPage(QWidget):

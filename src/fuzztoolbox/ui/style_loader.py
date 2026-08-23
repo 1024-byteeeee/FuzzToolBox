@@ -10,7 +10,6 @@ from typing import Any
 
 from .theme_colors import DARK, DARK_REPLACEMENTS, LIGHT
 
-
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 STYLE_DIR = PACKAGE_ROOT / "styles"
 ASSET_DIR = PACKAGE_ROOT / "assets"

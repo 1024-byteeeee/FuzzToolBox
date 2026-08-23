@@ -3,20 +3,21 @@
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from .service import LookupReport, discover_public_ips, lookup
 from fuzztoolbox.ui.components import SkeletonBar
 from fuzztoolbox.ui.style_loader import apply_style
+
+from .service import LookupReport, discover_public_ips, lookup
 
 
 class IPValueCard(QFrame):

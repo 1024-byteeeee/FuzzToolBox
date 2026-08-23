@@ -4,7 +4,11 @@ from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
 
 from fuzztoolbox.tools.device_info.collector import DeviceReport, InfoSection
-from fuzztoolbox.tools.device_info.page import DeviceInfoPage, DeviceInfoWorker, collect_screen_section
+from fuzztoolbox.tools.device_info.page import (
+    DeviceInfoPage,
+    DeviceInfoWorker,
+    collect_screen_section,
+)
 
 
 class DeviceInfoPageTests(unittest.TestCase):

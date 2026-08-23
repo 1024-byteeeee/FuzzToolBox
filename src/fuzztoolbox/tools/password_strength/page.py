@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .analyzer import analyze_password
 from fuzztoolbox.ui.style_loader import apply_style, set_style_state
 
+from .analyzer import analyze_password
 
 ASSET_DIR = Path(__file__).resolve().parent.parent.parent / "assets"
 

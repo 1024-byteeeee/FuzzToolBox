@@ -8,8 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fuzztoolbox import __version__
 from dmg_layout import create_styled_dmg
+
+from fuzztoolbox import __version__
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_DIR / "build"
@@ -36,6 +37,7 @@ LAZY_TOOL_MODULES = (
     "fuzztoolbox.tools.qr_generator.page",
     "fuzztoolbox.tools.wifi_qr_generator.page",
     "fuzztoolbox.tools.color_picker.page",
+    "fuzztoolbox.tools.screenshot.page",
     "fuzztoolbox.tools.roman_numeral.page",
     "fuzztoolbox.tools.password_strength.page",
     "fuzztoolbox.tools.random_port.page",

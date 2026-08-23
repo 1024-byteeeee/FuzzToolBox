@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEasingCurve, QRect, Qt
-from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QTextCursor
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QKeySequence, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,6 +19,22 @@ from PySide6.QtWidgets import (
     QTableView,
 )
 
+from fuzztoolbox.core.network_info import NetworkInfo
+from fuzztoolbox.tools.ip_scanner.models import ScanConfig, ScanResult
+from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
+from fuzztoolbox.tools.subnet_calculator.calculator import FLSMPlan, parse_network
+from fuzztoolbox.tools.subnet_calculator.page import FETCH_BATCH_SIZE, SubnetResultModel
+from fuzztoolbox.ui.animations import PageTransitionController, ThemeTransitionController
+from fuzztoolbox.ui.components import (
+    ComboItemDelegate,
+    ComboListView,
+    GridCellDelegate,
+    configure_combo,
+    configure_table,
+)
+from fuzztoolbox.ui.global_hotkey import GlobalHotkeyManager
+from fuzztoolbox.ui.home_page import ThemeToggleButton, ToolboxHomePage
+from fuzztoolbox.ui.line_number_editor import LineNumberEditor
 from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
     THEME_MODES,
@@ -28,26 +44,10 @@ from fuzztoolbox.ui.main_window import (
     restore_window_placement,
     show_main_window,
 )
+from fuzztoolbox.ui.settings_dialog import ShortcutEdit
 from fuzztoolbox.ui.splash_screen import SPLASH_SIZE, create_splash_screen
-from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
-from fuzztoolbox.tools.ip_scanner.models import ScanConfig
-from fuzztoolbox.ui.home_page import ToolboxHomePage
-from fuzztoolbox.ui.home_page import ThemeToggleButton
-from fuzztoolbox.ui.line_number_editor import LineNumberEditor
 from fuzztoolbox.ui.theme import STYLE
-from fuzztoolbox.tools.ip_scanner.models import ScanResult
-from fuzztoolbox.core.network_info import NetworkInfo
-from fuzztoolbox.tools.subnet_calculator.calculator import FLSMPlan, parse_network
-from fuzztoolbox.tools.subnet_calculator.page import FETCH_BATCH_SIZE, SubnetResultModel
 from fuzztoolbox.ui.tool_registry import TOOLS, filter_tools
-from fuzztoolbox.ui.animations import PageTransitionController, ThemeTransitionController
-from fuzztoolbox.ui.components import (
-    ComboItemDelegate,
-    ComboListView,
-    GridCellDelegate,
-    configure_combo,
-    configure_table,
-)
 
 
 class ResultModelTests(unittest.TestCase):
@@ -66,6 +66,70 @@ class ResultModelTests(unittest.TestCase):
         shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once_with(
             WINDOWS_APP_ID
         )
+
+    def test_shortcut_editor_uses_chinese_placeholder_and_key_separators(self):
+        editor = ShortcutEdit(QKeySequence("Ctrl+Shift+P"))
+        editor.show()
+        self.app.processEvents()
+
+        self.assertIn(" + ", editor.text())
+        editor.clear()
+        editor.setFocus()
+        self.app.processEvents()
+        editor.clearFocus()
+        self.app.processEvents()
+        self.assertEqual(editor.text(), "")
+        self.assertEqual(editor.placeholderText(), "请按下组合键")
+        editor.close()
+
+    def test_shortcut_editor_records_three_key_chord(self):
+        editor = ShortcutEdit()
+        editor.show()
+        editor.setFocus()
+
+        QTest.keyClick(
+            editor,
+            Qt.Key_P,
+            Qt.ControlModifier | Qt.ShiftModifier,
+        )
+
+        portable = editor.keySequence().toString(QKeySequence.PortableText)
+        self.assertEqual(portable, "Ctrl+Shift+P")
+        self.assertEqual(len(portable.split("+")), 3)
+        self.assertEqual(editor.text().count(" + "), 2)
+        editor.close()
+
+    def test_shortcut_editor_records_multiple_non_modifier_keys(self):
+        editor = ShortcutEdit()
+        editor.show()
+        editor.setFocus()
+
+        QTest.keyPress(editor, Qt.Key_A)
+        QTest.keyPress(editor, Qt.Key_S)
+        QTest.keyPress(editor, Qt.Key_D)
+        QTest.keyRelease(editor, Qt.Key_D)
+        QTest.keyRelease(editor, Qt.Key_S)
+        QTest.keyRelease(editor, Qt.Key_A)
+
+        self.assertEqual(editor.portableText(), "A+S+D")
+        self.assertEqual(editor.text(), "A + S + D")
+        editor.close()
+
+    def test_arbitrary_chord_triggers_once_until_a_key_is_released(self):
+        manager = GlobalHotkeyManager(self.app)
+        triggered = Mock()
+        manager.activated.connect(triggered)
+        expected = {"a", "s", "d"}
+
+        manager._update_chord(expected, "a", True)
+        manager._update_chord(expected, "s", True)
+        manager._update_chord(expected, "d", True)
+        manager._update_chord(expected, "d", True)
+        triggered.assert_called_once_with()
+
+        manager._update_chord(expected, "a", False)
+        manager._update_chord(expected, "a", True)
+        self.assertEqual(triggered.call_count, 2)
 
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
@@ -405,6 +469,24 @@ class ResultModelTests(unittest.TestCase):
         self.assertTrue(page.cards["ip-scanner"].isHidden())
         self.assertEqual(page.empty_label.text(), "没有找到匹配的工具")
 
+    def test_home_page_search_is_not_focused_by_default_and_can_lose_focus(self):
+        page = ToolboxHomePage()
+        page.show()
+        page.setFocus(Qt.OtherFocusReason)
+        self.app.processEvents()
+        self.assertFalse(page.search.hasFocus())
+
+        page.search.setFocus()
+        self.assertTrue(page.search.hasFocus())
+        QTest.mouseClick(
+            page.cards["ip-scanner"],
+            Qt.LeftButton,
+            pos=page.cards["ip-scanner"].rect().center(),
+        )
+        self.app.processEvents()
+        self.assertFalse(page.search.hasFocus())
+        page.close()
+
     def test_home_page_cards_are_never_top_level_windows(self):
         page = ToolboxHomePage()
 
@@ -528,6 +610,7 @@ class ResultModelTests(unittest.TestCase):
 
     def test_password_strength_eye_action_toggles_visibility(self):
         from PySide6.QtWidgets import QLineEdit
+
         from fuzztoolbox.tools.password_strength.page import PasswordStrengthPage
 
         page = PasswordStrengthPage()
@@ -541,6 +624,7 @@ class ResultModelTests(unittest.TestCase):
 
     def test_timer_inputs_validate_ranges_and_include_milliseconds(self):
         from PySide6.QtWidgets import QAbstractSpinBox
+
         from fuzztoolbox.tools.timer.page import TimerPage
 
         page = TimerPage()
@@ -679,6 +763,73 @@ class ResultModelTests(unittest.TestCase):
         self.assertIs(window.pages.currentWidget(), window.home_page)
         self.assertTrue(window.top_bar.isHidden())
         window.close()
+
+    def test_settings_suspend_global_hotkeys_until_dialog_closes(self):
+        window = Mock()
+        window.settings = Mock()
+        window._shortcuts_suspended = False
+        window._color_hotkey = Mock()
+        window._screenshot_hotkey = Mock()
+        window._color_keep_hotkey = Mock()
+        window._screenshot_keep_hotkey = Mock()
+        window.validate_global_hotkeys = Mock()
+        window.refresh_shortcuts = Mock()
+
+        with patch("fuzztoolbox.ui.main_window.SettingsDialog") as dialog_type:
+            dialog = dialog_type.return_value
+            dialog.exec.side_effect = lambda: self.assertTrue(
+                window._shortcuts_suspended
+            )
+            MainWindow.open_settings(window)
+
+        window._color_hotkey.unregister.assert_called_once_with()
+        window._screenshot_hotkey.unregister.assert_called_once_with()
+        window._color_keep_hotkey.unregister.assert_called_once_with()
+        window._screenshot_keep_hotkey.unregister.assert_called_once_with()
+        window.refresh_shortcuts.assert_called_once_with()
+        self.assertFalse(window._shortcuts_suspended)
+
+    def test_suspended_shortcuts_cannot_start_capture_tools(self):
+        window = Mock()
+        window._shortcuts_suspended = True
+
+        MainWindow.start_color_picker(window)
+        MainWindow.start_screenshot(window)
+
+        window._load_tool_page.assert_not_called()
+
+    def test_keep_main_shortcuts_route_to_explicit_capture_policy(self):
+        window = Mock()
+        window._shortcuts_suspended = False
+        color_page = Mock()
+        color_overlay = Mock()
+        color_page._eyedropper = color_overlay
+        screenshot_page = Mock()
+        window._load_tool_page.side_effect = lambda tool_id: {
+            "color-picker": color_page,
+            "screenshot": screenshot_page,
+        }[tool_id]
+
+        MainWindow.start_color_picker(window, keep_main_window=True)
+        MainWindow.start_screenshot(window, keep_main_window=True)
+
+        window.open_tool.assert_not_called()
+        color_page._start_eyedropper.assert_called_once_with(keep_main_window=True)
+        color_overlay.color_picked.connect.assert_called_once()
+        screenshot_page.start_capture.assert_called_once_with(keep_main_window=True)
+
+        color_overlay.color_picked.connect.call_args.args[0](Mock())
+        window.open_tool.assert_called_once_with("color-picker")
+
+    def test_regular_color_picker_shortcut_opens_tool_before_capture(self):
+        window = Mock()
+        window._shortcuts_suspended = False
+        color_page = window._load_tool_page.return_value
+
+        MainWindow.start_color_picker(window)
+
+        window.open_tool.assert_called_once_with("color-picker")
+        color_page._start_eyedropper.assert_called_once_with(keep_main_window=False)
 
     def test_macos_close_hides_window_and_explicit_quit_cleans_up(self):
         with patch("fuzztoolbox.tools.ip_scanner.page.get_network_info") as network_info:
@@ -876,6 +1027,28 @@ class ResultModelTests(unittest.TestCase):
         page._eyedropper_cancelled()
         self.assertIn("已取消", page.status.text())
         self.assertIsNone(page._eyedropper)
+        page.close()
+
+    def test_color_picker_keep_main_mode_does_not_hide_window(self):
+        from fuzztoolbox.tools.color_picker.page import ColorPickerPage
+
+        page = ColorPickerPage()
+        overlay = Mock()
+        with patch(
+            "fuzztoolbox.tools.color_picker.page.EyedropperOverlay",
+            return_value=overlay,
+        ), patch(
+            "fuzztoolbox.tools.color_picker.page.hide_window_instantly"
+        ) as hide_window, patch(
+            "fuzztoolbox.tools.color_picker.page.QTimer.singleShot"
+        ) as single_shot:
+            page._start_eyedropper(keep_main_window=True)
+
+        hide_window.assert_not_called()
+        self.assertFalse(page._restore_window_after_eyedropper)
+        single_shot.assert_called_once()
+        self.assertIs(single_shot.call_args.args[1], overlay.begin)
+        page._eyedropper = None
         page.close()
 
     def test_color_wheel_uses_antialiased_vector_gradient(self):

@@ -343,8 +343,11 @@ class EyedropperOverlay(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # Simple frameless window - let macOS handle window management
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        # Keep capture as an independent desktop overlay when a global hotkey
+        # launches it while the main application window remains visible.
+        self.setWindowFlags(
+            Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMouseTracking(True)
         self.setCursor(Qt.CrossCursor)
@@ -411,7 +414,7 @@ class EyedropperOverlay(QWidget):
 
         self._screen_shots = shots
         self._active = True
-        self.setGeometry(self._virtual)
+        self._lock_overlay_geometry(self._virtual)
         # Seed the cursor with the current global position so the first
         # paint doesn't render the crosshair at (0, 0).
         self._cursor_pos = QCursor.pos()
@@ -419,6 +422,11 @@ class EyedropperOverlay(QWidget):
         _raise_window_level(self)
         self.raise_()
         self.activateWindow()
+
+    def _lock_overlay_geometry(self, geometry: QRect) -> None:
+        """Lock the frozen desktop overlay to the virtual screen bounds."""
+        self.setFixedSize(geometry.size())
+        self.move(geometry.topLeft())
 
     def paintEvent(self, _event):
         if not self._active:

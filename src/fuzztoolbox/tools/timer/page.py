@@ -15,8 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .countdown import CountdownTimer, StopwatchTimer, format_duration
 from fuzztoolbox.ui.style_loader import apply_style, set_style_state
+
+from .countdown import CountdownTimer, StopwatchTimer, format_duration
 
 
 class TimerPage(QWidget):

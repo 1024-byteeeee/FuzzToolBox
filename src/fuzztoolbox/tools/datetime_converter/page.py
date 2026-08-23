@@ -1,14 +1,22 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
+
+from fuzztoolbox.ui.style_loader import apply_style, clear_style
 
 from ...ui.components import configure_combo
 from .converter import convert_datetime, convert_timestamp, current_result
-from fuzztoolbox.ui.style_loader import apply_style, clear_style
-
 
 GROUPS = (
     ("时间戳", ("Unix 时间戳（秒）", "Unix 时间戳（毫秒）", "Unix 时间戳（微秒）")),

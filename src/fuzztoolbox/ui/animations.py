@@ -13,7 +13,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QWidget
 
-
 FAST_DURATION = 120
 PAGE_DURATION = 180
 THEME_DURATION = 220

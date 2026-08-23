@@ -4,14 +4,14 @@ from pathlib import Path
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt
 from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
-    QCheckBox,
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
     QGridLayout,
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLayout,
     QLineEdit,
@@ -25,9 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style
+
 from ...ui.components import configure_combo, configure_table
 from .generator import UUID7Generator, UUIDFormat, generate_uuids
-from fuzztoolbox.ui.style_loader import apply_style
 
 
 class UUIDResultModel(QAbstractTableModel):

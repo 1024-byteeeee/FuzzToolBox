@@ -30,6 +30,80 @@ QSpinBox#colorChannelInput { font-size: 14px; font-weight: 600; padding: 0 6px; 
 QSlider#colorOpacitySlider { background: transparent; min-height: 22px; }QSlider#colorOpacitySlider::groove:horizontal { height: 6px; background: #dcdfe6; border-radius: 3px; }QSlider#colorOpacitySlider::sub-page:horizontal { background: #409eff; border-radius: 3px; }QSlider#colorOpacitySlider::handle:horizontal { background: white; border: 2px solid #409eff; width: 16px; height: 16px; margin: -6px 0; border-radius: 9px; }QSlider#colorOpacitySlider::handle:horizontal:hover { background: #ecf5ff; border-color: #1677d2; }
 @endstyle */
 
+/* @style ui.settings_dialog:workspace
+QDialog { background: #f5f7fa; color: #303133; }
+QLabel#settingsTitle { font-size: 25px; font-weight: 700; color: #303133; }
+QLabel#settingsDescription { color: #909399; font-size: 13px; }
+QFrame#settingsCard { background: #ffffff; border: 1px solid #e4e7ed; border-radius: 14px; }
+QFrame#settingsShortcutItem { background: #f5f7fa; border: 1px solid #ebeef5; border-radius: 10px; }
+QLabel#settingsCardTitle { color: #303133; font-size: 17px; font-weight: 700; }
+QLabel#settingsCardDescription { color: #909399; font-size: 12px; }
+QLabel#settingsFieldLabel { color: #606266; font-size: 12px; font-weight: 700; }
+QKeySequenceEdit { padding: 3px 11px; border: 1px solid #dcdfe6; border-radius: 9px; background: #fbfcfe; color: #303133; selection-background-color: #d9ecff; }
+QKeySequenceEdit:focus { border: 2px solid #409eff; background: #ffffff; }
+QPushButton#settingsClearButton { min-height: 38px; padding: 0 16px; color: #606266; background: #ffffff; border: 1px solid #dcdfe6; border-radius: 9px; }
+QPushButton#settingsClearButton:hover { color: #1677d2; border-color: #8bc2f5; background: #ecf5ff; }
+QPushButton#settingsCancelButton { min-height: 30px; min-width: 66px; padding: 0 9px; color: #606266; background: #ffffff; border: 1px solid #dcdfe6; border-radius: 7px; }
+QPushButton#settingsCancelButton:hover { color: #303133; background: #f0f2f5; border-color: #c0c4cc; }
+QPushButton#settingsSaveButton { min-height: 30px; min-width: 82px; padding: 0 10px; color: #ffffff; background: #409eff; border: 1px solid #409eff; border-radius: 7px; font-weight: 700; }
+QPushButton#settingsSaveButton:hover { background: #1677d2; border-color: #1677d2; }
+QLabel#settingsError { color: #d64545; min-height: 20px; }
+QScrollArea#settingsScroll, QFrame#settingsCardsHost { background: transparent; border: 0; }
+@endstyle */
+
+/* @style tools.screenshot.page:intro
+color: #606266; font-size: 14px;
+@endstyle */
+
+/* @style tools.screenshot.page:panel
+QFrame#screenshotLaunchPanel { background: white; border: 1px solid #e4e7ed; border-radius: 13px; }
+QLabel#screenshotLaunchTitle { color: #303133; font-size: 22px; font-weight: 700; }
+QLabel#screenshotLaunchDescription { color: #606266; font-size: 13px; }
+QLabel#screenshotLaunchStatus { color: #909399; font-size: 12px; }
+@endstyle */
+
+/* @style tools.screenshot.overlay:workspace
+QFrame#screenshotToolbar { background: #202b3a; border: 1px solid #46556a; border-radius: 9px; }
+QFrame#screenshotToolbar QPushButton { color: #edf2f7; background: transparent; border: 0; border-radius: 5px; padding: 0 8px; }
+QFrame#screenshotToolbar QPushButton:hover { background: #344154; }
+QFrame#screenshotToolbar QPushButton:checked { color: #ffffff; background: #409eff; }
+QFrame#screenshotToolbar QPushButton#screenshotFinishButton { color: #ffffff; background: #409eff; }
+QFrame#screenshotToolbar QPushButton#screenshotFinishButton:hover { background: #1677d2; }
+QFrame#screenshotPopup { background: #202b3a; border: 1px solid #526176; border-radius: 9px; }
+QFrame#screenshotPopup QLabel { color: #edf2f7; background: transparent; font-weight: 600; }
+QFrame#screenshotPopup QPushButton#screenshotPopupButton { color: #edf2f7; background: #344154; border: 1px solid #526176; border-radius: 5px; padding: 5px 10px; }
+QFrame#screenshotPopup QPushButton#screenshotPopupButton:hover { background: #435269; }
+QFrame#screenshotPopup QSlider { background: transparent; }
+QFrame#screenshotPopup QSlider::groove:horizontal { height: 5px; background: #4b5b70; border: 0; border-radius: 2px; }
+QFrame#screenshotPopup QSlider::sub-page:horizontal { background: #409eff; border-radius: 2px; }
+QFrame#screenshotPopup QSlider::add-page:horizontal { background: #4b5b70; border-radius: 2px; }
+QFrame#screenshotPopup QSlider::handle:horizontal { width: 15px; margin: -5px 0; background: #ffffff; border: 2px solid #409eff; border-radius: 7px; }
+QFrame#screenshotPopup QDoubleSpinBox { color: #edf2f7; background: #172230; border: 1px solid #526176; border-radius: 5px; padding: 4px 6px; }
+QFontComboBox#screenshotFontCombo { color: #edf2f7; background: #172230; border: 1px solid #526176; border-radius: 5px; padding: 5px 9px; selection-background-color: #409eff; }
+QFontComboBox#screenshotFontCombo:hover, QFontComboBox#screenshotFontCombo:focus { border-color: #409eff; }
+QFontComboBox#screenshotFontCombo::drop-down { width: 28px; border: 0; background: #263447; }
+QFontComboBox#screenshotFontCombo QAbstractItemView { color: #edf2f7; background: #172230; border: 1px solid #526176; outline: 0; selection-color: #ffffff; selection-background-color: #409eff; }
+QAbstractItemView#screenshotFontList { color: #edf2f7; background: #172230; border: 1px solid #526176; outline: 0; selection-color: #ffffff; selection-background-color: #409eff; }
+QScrollBar#screenshotFontScrollBar:vertical { width: 12px; margin: 2px; border: 0; border-radius: 5px; background: #172230; }
+QScrollBar#screenshotFontScrollBar::handle:vertical { min-height: 28px; border: 0; border-radius: 4px; background: #526176; }
+QScrollBar#screenshotFontScrollBar::handle:vertical:hover { background: #6b7d96; }
+QScrollBar#screenshotFontScrollBar::add-line:vertical, QScrollBar#screenshotFontScrollBar::sub-line:vertical { height: 0; border: 0; background: transparent; }
+QScrollBar#screenshotFontScrollBar::add-page:vertical, QScrollBar#screenshotFontScrollBar::sub-page:vertical { background: transparent; }
+QLineEdit#screenshotTextEditor { color: #172230; background: rgba(255, 255, 255, 242); border: 2px solid #409eff; border-radius: 5px; padding: 5px 8px; selection-background-color: #409eff; }
+@endstyle */
+
+/* @style tools.screenshot.overlay.font_list
+QAbstractItemView#screenshotFontList { color: #edf2f7; background: #172230; border: 0; outline: 0; selection-color: #ffffff; selection-background-color: #409eff; }
+@endstyle */
+
+/* @style tools.screenshot.overlay.font_scrollbar
+QScrollBar#screenshotFontScrollBar:vertical { width: 12px; margin: 2px; border: 0; outline: 0; border-radius: 5px; background: #172230; }
+QScrollBar#screenshotFontScrollBar::handle:vertical { min-height: 28px; border: 0; outline: 0; border-radius: 4px; background: #526176; }
+QScrollBar#screenshotFontScrollBar::handle:vertical:hover { border: 0; background: #6b7d96; }
+QScrollBar#screenshotFontScrollBar::add-line:vertical, QScrollBar#screenshotFontScrollBar::sub-line:vertical { width: 0; height: 0; border: 0; background: transparent; }
+QScrollBar#screenshotFontScrollBar::add-page:vertical, QScrollBar#screenshotFontScrollBar::sub-page:vertical { border: 0; background: transparent; }
+@endstyle */
+
 /* @style tools.datetime_converter.page:70
 color: #606266; font-size: 14px;
 @endstyle */

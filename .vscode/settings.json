@@ -11,7 +11,13 @@
     "test_*.py"
   ],
   "python.analysis.extraPaths": [
-    "${workspaceFolder}/src"
+    "${workspaceFolder}/src",
+    "${workspaceFolder}/.venv/lib/python3.9/site-packages",
+    "${workspaceFolder}/.venv/Lib/site-packages"
+  ],
+  "python.analysis.include": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}/tests"
   ],
   "files.exclude": {
     "**/__pycache__": true,

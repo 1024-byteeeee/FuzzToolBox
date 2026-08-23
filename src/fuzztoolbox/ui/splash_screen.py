@@ -10,7 +10,6 @@ from PySide6.QtWidgets import QApplication, QSplashScreen
 
 from .. import __version__
 
-
 SPLASH_SIZE = (500, 400)
 APP_ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "app-icon.png"
 

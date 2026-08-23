@@ -10,12 +10,11 @@ from typing import Callable, List, Optional
 
 from getmac import get_mac_address
 
-from .hostname import multicast_dns, netbios_name, reverse_dns
-from .models import ScanConfig, ScanProgress, ScanResult
 from ...core.network_info import NetworkInfo
 from ...core.subprocess_utils import hidden_subprocess_kwargs
+from .hostname import multicast_dns, netbios_name, reverse_dns
+from .models import ScanConfig, ScanProgress, ScanResult
 from .targets import TargetRange
-
 
 ResultCallback = Callable[[List[ScanResult]], None]
 UpdateCallback = Callable[[List[ScanResult]], None]

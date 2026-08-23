@@ -1,9 +1,13 @@
 import unittest
 
+from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QColorSpace, QImage, QPixmap
 from PySide6.QtWidgets import QApplication
 
-from fuzztoolbox.tools.color_picker.eyedropper import _to_srgb_pixmap
+from fuzztoolbox.tools.color_picker.eyedropper import (
+    EyedropperOverlay,
+    _to_srgb_pixmap,
+)
 
 
 class EyedropperColorManagementTests(unittest.TestCase):
@@ -45,6 +49,26 @@ class EyedropperColorManagementTests(unittest.TestCase):
         image.setPixelColor(0, 0, QColor(0x21, 0xBF, 0x55, 255))
 
         self.assertEqual(image.pixelColor(0, 0).name().upper(), "#21BF55")
+
+    def test_frozen_eyedropper_overlay_cannot_be_resized_from_edges(self):
+        overlay = EyedropperOverlay()
+        geometry = QRect(-240, 30, 1680, 1050)
+
+        overlay._lock_overlay_geometry(geometry)
+
+        self.assertEqual(overlay.pos(), geometry.topLeft())
+        self.assertEqual(overlay.size(), geometry.size())
+        self.assertEqual(overlay.minimumSize(), geometry.size())
+        self.assertEqual(overlay.maximumSize(), geometry.size())
+        overlay.deleteLater()
+
+    def test_overlay_is_an_independent_always_on_top_window(self):
+        overlay = EyedropperOverlay()
+
+        self.assertTrue(overlay.isWindow())
+        self.assertTrue(overlay.windowFlags() & Qt.WindowStaysOnTopHint)
+        self.assertIsNone(overlay.parentWidget())
+        overlay.deleteLater()
 
 
 if __name__ == "__main__":

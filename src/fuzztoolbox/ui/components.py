@@ -1,6 +1,7 @@
 import weakref
 
 from PySide6.QtCore import (  # type: ignore[import-not-found]
+    QEasingCurve,
     QObject,
     QRectF,
     QSize,
@@ -13,8 +14,10 @@ from PySide6.QtGui import (  # type: ignore[import-not-found]
     QLinearGradient,
     QPainter,
     QPalette,
+    QPen,
 )
 from PySide6.QtWidgets import (  # type: ignore[import-not-found]
+    QAbstractButton,
     QAbstractItemView,
     QComboBox,
     QHeaderView,
@@ -28,6 +31,75 @@ from PySide6.QtWidgets import (  # type: ignore[import-not-found]
 
 from fuzztoolbox.ui.animations import motion_enabled
 from fuzztoolbox.ui.style_loader import apply_style, on_theme_changed, theme_color
+
+
+class KeepWindowSwitch(QAbstractButton):
+    """Compact labeled switch shared by screen capture tools."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAccessibleName("保留主程序窗口")
+        self.setFixedSize(150, 32)
+        self._progress = 0.0
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(180)
+        self._animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._animation.valueChanged.connect(self._set_progress)
+        self.toggled.connect(self._animate_toggle)
+
+    def _set_progress(self, value) -> None:
+        self._progress = float(value)
+        self.update()
+
+    def _animate_toggle(self, checked: bool) -> None:
+        target = 1.0 if checked else 0.0
+        if not motion_enabled():
+            self._animation.stop()
+            self._set_progress(target)
+            return
+        self._animation.stop()
+        self._animation.setStartValue(self._progress)
+        self._animation.setEndValue(target)
+        self._animation.start()
+
+    @staticmethod
+    def _blend(start_role: str, end_role: str, progress: float) -> QColor:
+        start = QColor(theme_color(start_role))
+        end = QColor(theme_color(end_role))
+        return QColor(
+            round(start.red() + (end.red() - start.red()) * progress),
+            round(start.green() + (end.green() - start.green()) * progress),
+            round(start.blue() + (end.blue() - start.blue()) * progress),
+        )
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        bounds = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        background_role = (
+            "primary_soft" if self.underMouse() or self.hasFocus() else "surface_muted"
+        )
+        painter.setPen(QPen(QColor(theme_color("border_soft")), 1))
+        painter.setBrush(QColor(theme_color(background_role)))
+        painter.drawRoundedRect(bounds, 6, 6)
+
+        painter.setPen(self._blend("text_secondary", "primary_text", self._progress))
+        painter.drawText(
+            QRectF(8, 0, 92, self.height()),
+            Qt.AlignLeft | Qt.AlignVCenter,
+            "保留主窗口",
+        )
+
+        track = QRectF(self.width() - 44, 7, 36, 18)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self._blend("border", "primary", self._progress))
+        painter.drawRoundedRect(track, 9, 9)
+        knob_size = 14
+        knob_left = track.left() + 2 + (track.width() - knob_size - 4) * self._progress
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(QRectF(knob_left, track.top() + 2, knob_size, knob_size))
 
 
 class ComboItemDelegate(QStyledItemDelegate):

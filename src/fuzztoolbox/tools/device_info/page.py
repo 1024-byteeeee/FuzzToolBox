@@ -1,13 +1,21 @@
-from PySide6.QtCore import Qt, QThread, QTimer, QTime, Signal
+from PySide6.QtCore import Qt, QThread, QTime, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QProgressBar,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
-from .collector import DeviceReport, InfoSection, collect_device_info
 from ...ui.components import SkeletonBar
 from ...ui.style_loader import apply_style
+from .collector import DeviceReport, InfoSection, collect_device_info
 
 # 设备信息实时刷新间隔。
 AUTO_REFRESH_INTERVAL_MS = 2000

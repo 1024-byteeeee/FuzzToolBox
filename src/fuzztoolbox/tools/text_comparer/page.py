@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, QRect, QTimer, Qt
+from PySide6.QtCore import QEvent, QRect, Qt, QTimer
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QComboBox,
@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style, set_style_state, theme_color
+
 from ...ui.components import configure_combo
 from ...ui.line_number_editor import LineNumberEditor
 from .comparer import ComparisonResult, compare_texts, context_diff, unified_diff
-from .syntax import CodeSyntaxHighlighter, LANGUAGES, detect_language
-from fuzztoolbox.ui.style_loader import apply_style, set_style_state, theme_color
-
+from .syntax import LANGUAGES, CodeSyntaxHighlighter, detect_language
 
 EXAMPLE_LEFT = """FuzzToolBox
 网络工具

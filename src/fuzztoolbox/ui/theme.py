@@ -2,5 +2,4 @@
 
 from .style_loader import load_qss
 
-
 STYLE = load_qss("base.qss")

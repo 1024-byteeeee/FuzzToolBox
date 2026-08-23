@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.request import Request, urlopen
 
-
 USER_AGENT = "FuzzToolBox/2.1 IP-Lookup"
 PUBLIC_IP_URLS = {
     4: (

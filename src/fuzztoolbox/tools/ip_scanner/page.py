@@ -4,6 +4,7 @@ import ipaddress
 import threading
 from pathlib import Path
 from typing import List
+
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 try:
@@ -12,12 +13,12 @@ try:
         QEvent,
         QModelIndex,
         QObject,
-        Signal,
-        QSortFilterProxyModel,
         QSettings,
+        QSortFilterProxyModel,
         Qt,
         QThread,
         QTimer,
+        Signal,
     )
     from PySide6.QtGui import QColor
     from PySide6.QtWidgets import (

@@ -17,10 +17,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style
+
 from ...ui.components import configure_combo
 from ..qr_generator.components import ColorButton
 from .generator import generate_wifi_qr_png
-from fuzztoolbox.ui.style_loader import apply_style
 
 
 class WiFiQRGeneratorPage(QWidget):

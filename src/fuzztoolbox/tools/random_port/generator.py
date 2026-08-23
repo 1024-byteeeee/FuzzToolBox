@@ -3,7 +3,6 @@
 import secrets
 from typing import Optional
 
-
 MIN_PORT = 1024
 MAX_PORT = 65535
 PORT_COUNT = MAX_PORT - MIN_PORT + 1

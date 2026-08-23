@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from itertools import zip_longest
 from typing import Optional, Tuple
 
-
 Span = Tuple[int, int]
 
 

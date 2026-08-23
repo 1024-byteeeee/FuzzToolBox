@@ -2,7 +2,6 @@ import ipaddress
 from dataclasses import dataclass
 from typing import Iterator
 
-
 MAX_IPV4 = (1 << 32) - 1
 
 

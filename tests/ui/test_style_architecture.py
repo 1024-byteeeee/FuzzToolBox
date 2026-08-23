@@ -11,7 +11,6 @@ from fuzztoolbox.ui.style_loader import (
     theme_color,
 )
 
-
 SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "fuzztoolbox"
 
 

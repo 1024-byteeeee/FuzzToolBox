@@ -5,7 +5,6 @@ from typing import Iterable, List
 
 from .models import ScanConfig, ScanResult
 
-
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS scan_tasks (

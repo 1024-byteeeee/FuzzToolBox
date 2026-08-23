@@ -2,7 +2,6 @@ import ipaddress
 from dataclasses import dataclass
 from typing import Iterable, List, Union
 
-
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
 

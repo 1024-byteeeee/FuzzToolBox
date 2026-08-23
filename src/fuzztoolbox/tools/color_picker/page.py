@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import time
 
-from PySide6.QtCore import QRectF, QTimer, Qt
+from PySide6.QtCore import QRectF, QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -17,6 +19,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.components import KeepWindowSwitch
+from fuzztoolbox.ui.style_loader import apply_style, theme_color
+
 from .color_wheel import ColorWheel
 from .converter import ColorValue
 from .eyedropper import (
@@ -25,7 +30,6 @@ from .eyedropper import (
     native_window_is_visible,
     show_window_instantly,
 )
-from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 
 class ColorPreview(QWidget):
@@ -199,16 +203,26 @@ class ColorPickerPage(QWidget):
             detail_layout.addLayout(row)
             self.outputs[key] = value
 
+        self.keep_main_window = KeepWindowSwitch()
+        self.keep_main_window.setChecked(
+            QSettings("1024_byteeeee", "FuzzToolBox").value(
+                "capture/color-picker-keep-main", False, type=bool
+            )
+        )
+        self.eyedropper_button = QPushButton("屏幕取色")
+        self.eyedropper_button.setObjectName("secondary")
+        self.eyedropper_button.setFixedWidth(150)
+        wheel_layout.addSpacing(4)
+        wheel_layout.addWidget(self.eyedropper_button, 0, Qt.AlignHCenter)
+        wheel_layout.addWidget(self.keep_main_window, 0, Qt.AlignHCenter)
+
         actions = QHBoxLayout()
         actions.setSpacing(10)
         self.status = QLabel("拖动色轮或修改颜色通道")
-        self.eyedropper_button = QPushButton("屏幕取色")
-        self.eyedropper_button.setObjectName("secondary")
         self.copy_all_button = QPushButton("复制全部")
         self.copy_all_button.setObjectName("secondary")
         actions.addWidget(self.status)
         actions.addStretch()
-        actions.addWidget(self.eyedropper_button)
         actions.addWidget(self.copy_all_button)
         detail_layout.addLayout(actions)
         detail_layout.addStretch()
@@ -229,7 +243,13 @@ class ColorPickerPage(QWidget):
         self.opacity_slider.valueChanged.connect(self._set_alpha_from_slider)
         self.copy_all_button.clicked.connect(self.copy_all)
         self.eyedropper_button.clicked.connect(self._start_eyedropper)
+        self.keep_main_window.toggled.connect(
+            lambda checked: QSettings("1024_byteeeee", "FuzzToolBox").setValue(
+                "capture/color-picker-keep-main", checked
+            )
+        )
         self._eyedropper = None
+        self._restore_window_after_eyedropper = False
 
     @staticmethod
     def _channel_input(
@@ -327,7 +347,9 @@ class ColorPickerPage(QWidget):
         QGuiApplication.clipboard().setText(text)
         self.status.setText("已复制全部颜色值")
 
-    def _start_eyedropper(self) -> None:
+    def _start_eyedropper(
+        self, _checked=False, *, keep_main_window: bool | None = None
+    ) -> None:
         if self._eyedropper is not None:
             return
         self.status.setText("移动鼠标预览颜色，点击取色，Esc 取消")
@@ -335,8 +357,11 @@ class ColorPickerPage(QWidget):
         # route through AppKit / Core Animation implicit transitions on macOS,
         # causing a quick scale/fade flicker that gets captured in the shot.
         # -[NSWindow orderOut:] is a synchronous composite with no animation.
+        if keep_main_window is None:
+            keep_main_window = self.keep_main_window.isChecked()
         main_window = self.window()
-        if main_window:
+        self._restore_window_after_eyedropper = bool(main_window and not keep_main_window)
+        if self._restore_window_after_eyedropper:
             hide_window_instantly(main_window)
         overlay = EyedropperOverlay()
         self._eyedropper = overlay
@@ -345,7 +370,10 @@ class ColorPickerPage(QWidget):
         # AppKit applies orderOut asynchronously to the compositor. Poll the
         # native visibility state instead of relying on a fixed delay, so a
         # busy Mac gets enough time while fast machines start immediately.
-        self._wait_for_window_to_hide(overlay, main_window, time.monotonic())
+        if keep_main_window:
+            QTimer.singleShot(0, overlay.begin)
+        else:
+            self._wait_for_window_to_hide(overlay, main_window, time.monotonic())
 
     def _wait_for_window_to_hide(self, overlay, main_window, started_at: float) -> None:
         elapsed = time.monotonic() - started_at
@@ -381,5 +409,6 @@ class ColorPickerPage(QWidget):
 
     def _restore_main_window(self) -> None:
         main_window = self.window()
-        if main_window:
+        if main_window and self._restore_window_after_eyedropper:
             show_window_instantly(main_window)
+        self._restore_window_after_eyedropper = False

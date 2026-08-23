@@ -25,12 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from fuzztoolbox.ui.style_loader import apply_style
-from fuzztoolbox.ui.style_loader import current_theme
+from fuzztoolbox.ui.style_loader import apply_style, current_theme
 
 from .animations import FAST_DURATION
 from .tool_registry import TOOLS, ToolDefinition, filter_tools
-
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 
@@ -60,6 +58,10 @@ class ThemeToggleButton(QPushButton):
         self._icon_animation.setStartValue(self.iconSize())
         self._icon_animation.setEndValue(target)
         self._icon_animation.start()
+
+
+class SettingsButton(ThemeToggleButton):
+    """Settings control with the same smooth hover scaling as the theme button."""
 
 
 class FavoriteButton(QPushButton):
@@ -109,6 +111,7 @@ class ToolCard(QFrame):
         super().__init__(parent)
         self.tool = tool
         self.setObjectName("toolCard")
+        self.setFocusPolicy(Qt.ClickFocus)
         self.setCursor(Qt.PointingHandCursor)
         self.setMinimumSize(260, 154)
         self.setMaximumHeight(174)
@@ -194,10 +197,12 @@ class ToolCard(QFrame):
 class ToolboxHomePage(QWidget):
     tool_requested = Signal(str)
     theme_requested = Signal()
+    settings_requested = Signal()
     favorite_changed = Signal(str, bool)
 
     def __init__(self, tools=TOOLS, favorite_ids=()):
         super().__init__()
+        self.setFocusPolicy(Qt.StrongFocus)
         self.tools = tuple(tools)
         valid_ids = {tool.id for tool in self.tools}
         self.favorite_ids = {tool_id for tool_id in favorite_ids if tool_id in valid_ids}
@@ -214,9 +219,16 @@ class ToolboxHomePage(QWidget):
         self.theme_button.setToolTip("切换界面主题")
         self.theme_button.setFixedSize(42, 42)
         self.theme_button.clicked.connect(self.theme_requested.emit)
+        self.settings_button = SettingsButton()
+        self.settings_button.setObjectName("themeToggle")
+        self.settings_button.setToolTip("打开设置")
+        self.settings_button.setFixedSize(42, 42)
+        self.settings_button.setIconSize(QSize(24, 24))
+        self.settings_button.clicked.connect(self.settings_requested.emit)
         heading.addWidget(self.title)
         heading.addStretch()
         heading.addWidget(self.theme_button)
+        heading.addWidget(self.settings_button)
         subtitle = QLabel("为 IT 工作准备的一站式桌面工具箱")
         apply_style(subtitle, "ui.home_page:83")
         root.addLayout(heading)
@@ -250,10 +262,12 @@ class ToolboxHomePage(QWidget):
         root.addLayout(categories)
 
         scroll = QScrollArea()
+        scroll.setFocusPolicy(Qt.ClickFocus)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.card_host = QWidget()
+        self.card_host.setFocusPolicy(Qt.ClickFocus)
         self.card_grid = QGridLayout(self.card_host)
         self.card_grid.setContentsMargins(0, 4, 4, 4)
         self.card_grid.setHorizontalSpacing(14)

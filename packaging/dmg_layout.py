@@ -8,7 +8,6 @@ import tempfile
 import time
 from pathlib import Path
 
-
 WINDOW_WIDTH = 720
 WINDOW_HEIGHT = 440
 ICON_SIZE = 112

@@ -2,9 +2,9 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from fuzztoolbox.core.network_info import NetworkInfo
 from fuzztoolbox.tools.ip_scanner.engine import ScanCancelled, Scanner
 from fuzztoolbox.tools.ip_scanner.models import ScanConfig, ScanResult
-from fuzztoolbox.core.network_info import NetworkInfo
 from fuzztoolbox.tools.ip_scanner.targets import parse_target
 
 

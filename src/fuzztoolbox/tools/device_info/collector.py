@@ -13,7 +13,6 @@ import psutil
 from ...core.network_info import _powershell_script_command, get_network_info
 from ...core.subprocess_utils import hidden_subprocess_kwargs
 
-
 Rows = Tuple[Tuple[str, str], ...]
 
 # 设备型号、CPU 型号等静态硬件信息在实时刷新之间保持不变。

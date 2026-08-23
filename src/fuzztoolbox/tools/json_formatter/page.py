@@ -1,4 +1,4 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -12,12 +12,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.style_loader import apply_style, set_style_state
+
 from ...ui.components import configure_combo
 from ...ui.line_number_editor import LineNumberEditor
 from ..text_comparer.syntax import CodeSyntaxHighlighter
 from .formatter import JSONValidationError, compact_json, format_json, parse_json
-from fuzztoolbox.ui.style_loader import apply_style, set_style_state
-
 
 EXAMPLE_JSON = '''{
   "name": "FuzzToolBox",

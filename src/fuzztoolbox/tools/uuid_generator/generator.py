@@ -5,7 +5,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-
 NAMESPACES = {
     "dns": uuid.NAMESPACE_DNS,
     "url": uuid.NAMESPACE_URL,
