@@ -12,6 +12,8 @@ from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QColorSpace, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
+from fuzztoolbox.ui.app_settings import application_root
+
 
 def _raise_window_level(widget) -> None:
     """Raise the native NSWindow level above dock (20) and menu bar (24).
@@ -301,7 +303,9 @@ def _grab_screen(screen) -> QPixmap:
 
     # macOS fallback: screencapture(1).
     screen_rect = screen.geometry()
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".png")
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        suffix=".png", prefix="fuzztoolbox-screen-", dir=str(application_root())
+    )
     os.close(tmp_fd)
     try:
         result = subprocess.run(

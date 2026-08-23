@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 from enum import Enum, auto
-from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QObject, QStandardPaths, Signal
+from PySide6.QtCore import QLockFile, QObject, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+from .app_settings import application_root
 
 
 class InstanceRole(Enum):
@@ -25,11 +26,9 @@ class SingleInstanceCoordinator(QObject):
     def __init__(self, server_name: str, parent: QObject | None = None):
         super().__init__(parent)
         self.server_name = server_name
-        runtime_dir = QStandardPaths.writableLocation(QStandardPaths.RuntimeLocation)
-        if not runtime_dir:
-            runtime_dir = QStandardPaths.writableLocation(QStandardPaths.TempLocation)
         digest = hashlib.sha256(server_name.encode("utf-8")).hexdigest()[:20]
-        self.lock = QLockFile(str(Path(runtime_dir) / f"fuzztoolbox-{digest}.lock"))
+        self.lock_path = application_root() / f"fuzztoolbox-{digest}.lock"
+        self.lock = QLockFile(str(self.lock_path))
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.UserAccessOption)
         self.server.newConnection.connect(self._accept_connections)

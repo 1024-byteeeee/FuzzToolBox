@@ -10,6 +10,7 @@ vendor/libreoffice/
 *.egg-info/
 *.db
 FuzzToolBox.ini
+fuzztoolbox-*.lock
 
 # 本地代码签名凭证（含私钥，不应入库）
 packaging/codesign/
