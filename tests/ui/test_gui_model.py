@@ -49,6 +49,7 @@ from fuzztoolbox.ui.main_window import (
     FooterBar,
     MainWindow,
     configure_windows_app_id,
+    restore_main_window,
     restore_window_placement,
     show_main_window,
 )
@@ -182,6 +183,47 @@ class ResultModelTests(unittest.TestCase):
         window.hide.assert_not_called()
         window.setAttribute.assert_not_called()
         window.setWindowOpacity.assert_not_called()
+
+    def test_windows_tray_restore_resets_transparency_and_native_window(self):
+        window = Mock()
+        window.isMaximized.return_value = False
+        window.windowState.return_value = Qt.WindowMinimized
+        window.centralWidget.return_value = None
+        window.winId.return_value = 123
+        user32 = Mock()
+        windll = Mock(user32=user32)
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
+            "fuzztoolbox.ui.main_window.ctypes.windll", windll, create=True
+        ):
+            restore_main_window(window)
+
+        window.setWindowOpacity.assert_called_once_with(1.0)
+        window.setWindowState.assert_called_once_with(Qt.WindowNoState)
+        window.showNormal.assert_called_once_with()
+        user32.ShowWindow.assert_called_once_with(123, 9)
+        user32.SetForegroundWindow.assert_called_once_with(123)
+        window.raise_.assert_called_once_with()
+        window.activateWindow.assert_called_once_with()
+        window.update.assert_called_once_with()
+
+    def test_windows_tray_restore_preserves_maximized_state(self):
+        window = Mock()
+        window.isMaximized.return_value = True
+        window.centralWidget.return_value = None
+        window.winId.return_value = 456
+        user32 = Mock()
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "win32"), patch(
+            "fuzztoolbox.ui.main_window.ctypes.windll",
+            Mock(user32=user32),
+            create=True,
+        ):
+            restore_main_window(window)
+
+        window.showMaximized.assert_called_once_with()
+        window.showNormal.assert_not_called()
+        user32.ShowWindow.assert_called_once_with(456, 3)
 
     def test_startup_splash_is_frameless_and_expected_size(self):
         splash = create_splash_screen()

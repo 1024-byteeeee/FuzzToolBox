@@ -138,6 +138,45 @@ def show_main_window(window: QMainWindow) -> None:
         window.show()
 
 
+def _restore_windows_native_window(window: QMainWindow, maximized: bool) -> None:
+    """Synchronize Qt's restored state with the native Windows window manager."""
+    if sys.platform != "win32":
+        return
+    with contextlib.suppress(AttributeError, OSError, TypeError, ValueError):
+        user32 = ctypes.windll.user32
+        hwnd = int(window.winId())
+        user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        user32.ShowWindow.restype = ctypes.c_bool
+        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        user32.SetForegroundWindow.restype = ctypes.c_bool
+        user32.ShowWindow(hwnd, 3 if maximized else 9)  # SW_MAXIMIZE / SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+
+
+def restore_main_window(window: QMainWindow) -> None:
+    """Restore every state that can keep a hidden main window invisible."""
+    maximized = bool(window.isMaximized())
+
+    # Screen capture intentionally makes the main window fully transparent
+    # before hiding it. QWidget.show() maps that same transparent native window,
+    # which creates a taskbar card without any visible contents on Windows.
+    window.setWindowOpacity(1.0)
+    window.ensurePolished()
+    if window.centralWidget() is not None and window.centralWidget().layout() is not None:
+        window.centralWidget().layout().activate()
+
+    if maximized:
+        window.showMaximized()
+    else:
+        window.setWindowState(window.windowState() & ~Qt.WindowMinimized)
+        window.showNormal()
+
+    _restore_windows_native_window(window, maximized)
+    window.raise_()
+    window.activateWindow()
+    window.update()
+
+
 def _valid_normal_geometry(rect) -> bool:
     minimum_width, minimum_height = MINIMUM_WINDOW_SIZE
     return bool(
@@ -391,12 +430,9 @@ class MainWindow(QMainWindow):
             self._block_activation_restore = False
 
     def restore_from_tray(self):
-        if self.isMinimized():
-            self.showNormal()
-        else:
-            self.show()
-        self.raise_()
-        self.activateWindow()
+        if self._application_quitting:
+            return
+        restore_main_window(self)
 
     def show_in_saved_state(self) -> None:
         show_main_window(self)
