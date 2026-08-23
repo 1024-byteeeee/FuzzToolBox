@@ -79,6 +79,7 @@ def ensure_stable_signing_identity() -> tuple:
 
     check = subprocess.run(
         ["security", "find-identity", "-v", "-p", "codesigning", str(keychain)],
+        check=False,
         capture_output=True,
         text=True,
         timeout=60,
@@ -162,6 +163,7 @@ def _add_keychain_to_search_list(keychain: Path) -> None:
     `codesign` can locate the identity without the deprecated --keychain."""
     current = subprocess.run(
         ["security", "list-keychains", "-d", "user"],
+        check=False,
         capture_output=True,
         text=True,
     )
@@ -282,6 +284,9 @@ def build() -> Path:
         plist["CFBundleVersion"] = __version__
         plist["CFBundleDisplayName"] = "FuzzToolBox"
         plist["CFBundleName"] = "FuzzToolBox"
+        plist["CFBundleDevelopmentRegion"] = "zh-Hans"
+        plist["CFBundleLocalizations"] = ["zh-Hans"]
+        plist["CFBundleAllowMixedLocalizations"] = True
         with plist_path.open("wb") as handle:
             plistlib.dump(plist, handle)
         ensure_stable_signing_identity()

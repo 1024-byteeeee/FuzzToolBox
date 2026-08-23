@@ -209,7 +209,7 @@ class ToolboxHomePage(QWidget):
         self.category = "all"
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 28, 28, 20)
+        root.setContentsMargins(28, 28, 28, 2)
         root.setSpacing(16)
         heading = QHBoxLayout()
         self.title = QLabel("Fuzz Tool Box")

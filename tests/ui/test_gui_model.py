@@ -40,8 +40,8 @@ from fuzztoolbox.ui.main_window import (
     FOOTER_HEIGHT,
     THEME_MODES,
     WINDOWS_APP_ID,
+    FooterBar,
     MainWindow,
-    configure_footer_label,
     configure_windows_app_id,
     restore_window_placement,
     show_main_window,
@@ -902,12 +902,27 @@ class ResultModelTests(unittest.TestCase):
         self.assertNotIn("版权所有", FOOTER_COPYRIGHT)
 
     def test_footer_is_compact_and_centered(self):
-        label = QLabel()
-        configure_footer_label(label)
+        footer = FooterBar()
+        footer.show()
+        self.app.processEvents()
 
-        self.assertEqual(label.height(), FOOTER_HEIGHT)
-        self.assertEqual(label.alignment(), Qt.AlignCenter)
-        self.assertTrue(label.openExternalLinks())
+        self.assertEqual(footer.height(), FOOTER_HEIGHT)
+        for label in (
+            footer.copyright_label,
+            footer.github_icon_label,
+            footer.github_link_label,
+        ):
+            top_gap = label.geometry().top()
+            bottom_gap = footer.height() - label.geometry().bottom() - 1
+            self.assertLessEqual(abs(top_gap - bottom_gap), 1)
+        self.assertTrue(footer.github_link_label.openExternalLinks())
+        footer.close()
+
+    def test_home_page_does_not_add_a_false_footer_gap(self):
+        page = ToolboxHomePage()
+
+        self.assertEqual(page.layout().contentsMargins().bottom(), 2)
+        page.close()
 
     def test_theme_modes_have_stable_labels(self):
         self.assertEqual(THEME_MODES, ("system", "light", "dark"))

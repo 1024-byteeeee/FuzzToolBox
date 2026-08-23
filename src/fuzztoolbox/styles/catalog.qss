@@ -580,7 +580,15 @@ font-size: 18px; font-weight: 700; color: #303133;
 @endstyle */
 
 /* @style ui.main_window:144
-color: #909399; padding: 0 8px;
+color: #909399; font-size: 10px; padding: 0; margin: 0;
+@endstyle */
+
+/* @style ui.main_window:footer
+background: transparent; border: 0; padding: 0; margin: 0;
+@endstyle */
+
+/* @style ui.main_window:footer-link
+font-size: 10px; padding: 0; margin: 0;
 @endstyle */
 
 /* @style tools.qr_generator.components:color-picker

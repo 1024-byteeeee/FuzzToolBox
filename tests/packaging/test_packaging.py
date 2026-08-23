@@ -35,6 +35,14 @@ class PackagingTests(unittest.TestCase):
             script,
         )
 
+    def test_macos_bundle_declares_simplified_chinese_localization(self):
+        script = (PROJECT_DIR / "packaging" / "build_release.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('plist["CFBundleDevelopmentRegion"] = "zh-Hans"', script)
+        self.assertIn('plist["CFBundleLocalizations"] = ["zh-Hans"]', script)
+        self.assertIn('plist["CFBundleAllowMixedLocalizations"] = True', script)
+
     def test_macos_dmg_has_styled_finder_layout(self):
         layout = (PROJECT_DIR / "packaging" / "dmg_layout.py").read_text(
             encoding="utf-8"

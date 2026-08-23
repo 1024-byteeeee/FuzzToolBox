@@ -46,7 +46,7 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ICON_PATH = ASSET_DIR / "app-icon.png"
 WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
-FOOTER_HEIGHT = 28
+FOOTER_HEIGHT = 15
 THEME_MODES = ("system", "light", "dark")
 DEFAULT_WINDOW_SIZE = (1180, 760)
 MINIMUM_WINDOW_SIZE = (900, 600)
@@ -86,12 +86,41 @@ def configure_application(app: QApplication) -> None:
     app.setStyleSheet(load_qss("base.qss"))
 
 
-def configure_footer_label(label: QLabel) -> None:
-    """Keep footer content compact and centered on every page."""
-    label.setAlignment(Qt.AlignCenter)
-    label.setOpenExternalLinks(True)
-    label.setFixedHeight(FOOTER_HEIGHT)
-    apply_style(label, "ui.main_window:144")
+class FooterBar(QFrame):
+    """Compact footer whose icon does not affect the text baseline."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(FOOTER_HEIGHT)
+        apply_style(self, "ui.main_window:footer")
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+        layout.addStretch()
+
+        self.copyright_label = QLabel()
+        self.copyright_label.setAlignment(Qt.AlignCenter)
+        apply_style(self.copyright_label, "ui.main_window:144")
+        layout.addWidget(self.copyright_label, 0, Qt.AlignVCenter)
+
+        self.github_icon_label = QLabel()
+        self.github_icon_label.setFixedSize(9, 9)
+        self.github_icon_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.github_icon_label, 0, Qt.AlignVCenter)
+
+        self.github_link_label = QLabel(
+            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
+        )
+        self.github_link_label.setOpenExternalLinks(True)
+        self.github_link_label.setAlignment(Qt.AlignCenter)
+        apply_style(self.github_link_label, "ui.main_window:footer-link")
+        layout.addWidget(self.github_link_label, 0, Qt.AlignVCenter)
+        layout.addStretch()
+
+    def set_content(self, text: str, icon_path: Path) -> None:
+        self.copyright_label.setText(text)
+        self.github_icon_label.setPixmap(QIcon(str(icon_path)).pixmap(9, 9))
 
 
 def show_main_window(window: QMainWindow) -> None:
@@ -193,9 +222,9 @@ class MainWindow(QMainWindow):
         self._tool_factories = self._build_tool_factories()
         root_layout.addWidget(self.pages, 1)
 
-        self.copyright_label = QLabel()
-        configure_footer_label(self.copyright_label)
-        root_layout.addWidget(self.copyright_label)
+        self.footer = FooterBar()
+        self.copyright_label = self.footer.copyright_label
+        root_layout.addWidget(self.footer, 0, Qt.AlignVCenter)
         self.setCentralWidget(root)
 
         self.home_page.tool_requested.connect(self.open_tool)
@@ -370,10 +399,9 @@ class MainWindow(QMainWindow):
         self.home_page.theme_button.setIcon(QIcon(str(ASSET_DIR / icon_name)))
         self.home_page.theme_button.setToolTip(f"切换到{'浅色' if next_mode == 'light' else '深色'}模式")
         github_icon = ASSET_DIR / ("github-dark.svg" if resolved == "dark" else "github.svg")
-        self.copyright_label.setText(
-            f'FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT} '
-            f'<img src="{github_icon.as_posix()}" width="14" height="14"> '
-            '<a href="https://github.com/1024-byteeeee">GitHub</a>'
+        self.footer.set_content(
+            f"FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT}",
+            github_icon,
         )
 
     def show_home(self):
