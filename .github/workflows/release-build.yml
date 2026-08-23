@@ -8,7 +8,7 @@ on:
       release_tag:
         description: Existing GitHub Release tag whose assets should be replaced
         required: true
-        default: v2.1.0
+        default: 2.1.0
 
 permissions:
   contents: write

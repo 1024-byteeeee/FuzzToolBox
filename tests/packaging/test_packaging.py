@@ -7,6 +7,13 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_release_workflow_targets_existing_release_tag(self):
+        workflow = (
+            PROJECT_DIR / ".github" / "workflows" / "release-build.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("default: 2.1.0", workflow)
+        self.assertNotIn("default: v2.1.0", workflow)
+
     def test_package_exposes_only_the_gui_entry_point(self):
         config = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn("[project.gui-scripts]", config)
