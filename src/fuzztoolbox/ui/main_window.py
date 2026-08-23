@@ -32,7 +32,11 @@ except ImportError as exc:  # pragma: no cover
 
 from .. import __version__
 from .animations import PageTransitionController, ThemeTransitionController
-from .global_hotkey import GlobalHotkeyManager
+from .global_hotkey import (
+    GlobalHotkeyManager,
+    windows_shortcut_needs_registration_probe,
+    windows_shortcut_supported,
+)
 from .home_page import ToolboxHomePage
 from .settings_dialog import SettingsDialog
 from .system_tray import SystemTrayController
@@ -314,6 +318,17 @@ class MainWindow(QMainWindow):
             manager.unregister()
         registered = True
         for manager, sequence in zip(managers, sequences):
+            if not sequence:
+                continue
+            # RegisterHotKey cannot represent A+D-style chords. Installing a
+            # low-level hook merely to validate them caused hook setup failures
+            # to be reported incorrectly as "already occupied". Validate their
+            # keys here; runtime registration installs the chord hook later.
+            if sys.platform == "win32" and not windows_shortcut_supported(sequence):
+                registered = False
+                break
+            if sys.platform == "win32" and not windows_shortcut_needs_registration_probe(sequence):
+                continue
             if not manager.register(sequence):
                 registered = False
                 break

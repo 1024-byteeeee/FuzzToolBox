@@ -32,7 +32,13 @@ from fuzztoolbox.ui.components import (
     configure_combo,
     configure_table,
 )
-from fuzztoolbox.ui.global_hotkey import GlobalHotkeyManager
+from fuzztoolbox.ui.global_hotkey import (
+    GlobalHotkeyManager,
+    WindowsShortcutRecorder,
+    canonical_shortcut,
+    windows_shortcut_needs_registration_probe,
+    windows_shortcut_supported,
+)
 from fuzztoolbox.ui.home_page import ThemeToggleButton, ToolboxHomePage
 from fuzztoolbox.ui.line_number_editor import LineNumberEditor
 from fuzztoolbox.ui.main_window import (
@@ -116,6 +122,37 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(editor.portableText(), "A+S+D")
         self.assertEqual(editor.text(), "A + S + D")
         editor.close()
+
+    def test_shortcut_identity_is_order_independent(self):
+        self.assertEqual(canonical_shortcut("A+D"), canonical_shortcut("D+A"))
+        self.assertEqual(canonical_shortcut("Win+A"), canonical_shortcut("Meta+A"))
+
+    def test_windows_chord_does_not_use_register_hotkey_probe(self):
+        self.assertTrue(windows_shortcut_supported("A+D"))
+        self.assertFalse(windows_shortcut_needs_registration_probe("A+D"))
+        self.assertTrue(windows_shortcut_needs_registration_probe("Ctrl+D"))
+
+    def test_native_recorder_tracks_arbitrary_chord(self):
+        editor = ShortcutEdit()
+        editor._handle_native_key("Meta", True)
+        editor._handle_native_key("A", True)
+        editor._handle_native_key("D", True)
+        editor._handle_native_key("D", False)
+        editor._handle_native_key("A", False)
+        editor._handle_native_key("Meta", False)
+        self.assertEqual(editor.portableText(), "Meta+A+D")
+        editor.close()
+
+    def test_native_recorder_delete_clears_shortcut(self):
+        editor = ShortcutEdit("Meta+A")
+        editor._handle_native_key("Delete", True)
+        self.assertEqual(editor.portableText(), "")
+        editor.close()
+
+    def test_windows_recorder_stop_is_idempotent_without_hook(self):
+        recorder = WindowsShortcutRecorder()
+        recorder.stop()
+        recorder.stop()
 
     def test_arbitrary_chord_triggers_once_until_a_key_is_released(self):
         manager = GlobalHotkeyManager(self.app)

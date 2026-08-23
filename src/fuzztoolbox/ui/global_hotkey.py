@@ -17,6 +17,22 @@ def _parse_shortcut(sequence: str):
     return parts
 
 
+def canonical_shortcut(sequence: str):
+    """Return an order-independent shortcut identity with aliases collapsed."""
+    parts = _parse_shortcut(sequence)
+    if parts is None:
+        return None
+    aliases = {
+        "control": "ctrl", "option": "alt", "cmd": "meta",
+        "command": "meta", "win": "meta", "return": "enter",
+        "esc": "escape",
+    }
+    normalized = [aliases.get(part, part) for part in parts]
+    if len(set(normalized)) != len(normalized):
+        return None
+    return frozenset(normalized)
+
+
 _MODIFIER_NAMES = {
     "alt", "option", "ctrl", "control", "shift", "meta", "cmd", "command", "win"
 }
@@ -45,6 +61,109 @@ def _windows_key_code(key: str):
         "/": 0xBF, "`": 0xC0, "[": 0xDB, "\\": 0xDC, "]": 0xDD,
         "'": 0xDE,
     }.get(key)
+
+
+def windows_shortcut_supported(sequence: str) -> bool:
+    """Check syntax/key support without installing a Windows hook."""
+    parts = _parse_shortcut(sequence)
+    return bool(
+        parts
+        and canonical_shortcut(sequence) is not None
+        and all(_windows_key_code(part) is not None for part in parts)
+    )
+
+
+def windows_shortcut_needs_registration_probe(sequence: str) -> bool:
+    """Only RegisterHotKey-compatible shortcuts can have an OS conflict probe."""
+    parts = _parse_shortcut(sequence)
+    return bool(parts and _simple_shortcut(parts) is not None)
+
+
+def _windows_key_name(virtual_key: int) -> str:
+    virtual_key = {
+        0xA0: 0x10, 0xA1: 0x10, 0xA2: 0x11, 0xA3: 0x11,
+        0xA4: 0x12, 0xA5: 0x12, 0x5C: 0x5B,
+    }.get(virtual_key, virtual_key)
+    if 0x41 <= virtual_key <= 0x5A or 0x30 <= virtual_key <= 0x39:
+        return chr(virtual_key)
+    if 0x70 <= virtual_key <= 0x87:
+        return f"F{virtual_key - 0x6F}"
+    return {
+        0x08: "Backspace", 0x09: "Tab", 0x0D: "Enter",
+        0x10: "Shift", 0x11: "Ctrl", 0x12: "Alt", 0x1B: "Escape",
+        0x20: "Space", 0x25: "Left", 0x26: "Up", 0x27: "Right",
+        0x28: "Down", 0x2E: "Delete", 0x5B: "Meta", 0xBB: "=", 0xBD: "-",
+        0xBC: ",", 0xBE: ".", 0xBF: "/", 0xC0: "`", 0xDB: "[",
+        0xDC: "\\", 0xDD: "]", 0xDE: "'",
+    }.get(virtual_key, "")
+
+
+class WindowsShortcutRecorder(QObject):
+    """Capture and suppress keys while a shortcut editor has focus on Windows."""
+
+    key_changed = Signal(str, bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hook = None
+        self._callback = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self._hook)
+
+    def start(self) -> bool:
+        if sys.platform != "win32" or self._hook:
+            return bool(self._hook)
+
+        class KeyboardData(ctypes.Structure):
+            _fields_ = [
+                ("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD),
+                ("flags", wintypes.DWORD), ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.c_void_p),
+            ]
+
+        callback_type = ctypes.WINFUNCTYPE(
+            ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
+        )
+
+        def callback(code, message, data):
+            if code >= 0 and message in (0x0100, 0x0101, 0x0104, 0x0105):
+                key_code = ctypes.cast(
+                    data, ctypes.POINTER(KeyboardData)
+                ).contents.vkCode
+                key = _windows_key_name(key_code)
+                if key:
+                    self.key_changed.emit(key, message in (0x0100, 0x0104))
+                    # Prevent Win from opening Start and prevent captured keys from
+                    # leaking into the settings window or another application.
+                    return 1
+            return ctypes.windll.user32.CallNextHookEx(
+                self._hook, code, message, data
+            )
+
+        user32 = ctypes.windll.user32
+        user32.SetWindowsHookExW.restype = ctypes.c_void_p
+        user32.SetWindowsHookExW.argtypes = [
+            ctypes.c_int, callback_type, ctypes.c_void_p, wintypes.DWORD
+        ]
+        self._callback = callback_type(callback)
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetModuleHandleW.restype = ctypes.c_void_p
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        self._hook = user32.SetWindowsHookExW(
+            13, self._callback, kernel32.GetModuleHandleW(None), 0
+        )
+        if not self._hook:
+            self._callback = None
+            return False
+        return True
+
+    def stop(self) -> None:
+        if self._hook:
+            ctypes.windll.user32.UnhookWindowsHookEx(self._hook)
+        self._hook = None
+        self._callback = None
 
 
 class _WindowsHotkeyFilter(QAbstractNativeEventFilter):
@@ -197,10 +316,18 @@ class GlobalHotkeyManager(QObject):
             )
 
         self._windows_hook_callback = callback_type(callback)
-        self._windows_hook = ctypes.windll.user32.SetWindowsHookExW(
+        user32 = ctypes.windll.user32
+        user32.SetWindowsHookExW.restype = ctypes.c_void_p
+        user32.SetWindowsHookExW.argtypes = [
+            ctypes.c_int, callback_type, ctypes.c_void_p, wintypes.DWORD
+        ]
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetModuleHandleW.restype = ctypes.c_void_p
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        self._windows_hook = user32.SetWindowsHookExW(
             13,
             self._windows_hook_callback,
-            ctypes.windll.kernel32.GetModuleHandleW(None),
+            kernel32.GetModuleHandleW(None),
             0,
         )
         return bool(self._windows_hook)

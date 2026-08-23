@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .global_hotkey import WindowsShortcutRecorder, canonical_shortcut
 from .style_loader import apply_style
 from .tool_registry import TOOLS
 
@@ -31,6 +32,8 @@ class ShortcutEdit(QLineEdit):
         self._pressed = set()
         self._recorded = []
         self._recording = False
+        self._windows_recorder = WindowsShortcutRecorder(self)
+        self._windows_recorder.key_changed.connect(self._handle_native_key)
         self.setPlaceholderText("请按下组合键")
         self.setReadOnly(True)
         self.setKeySequence(sequence or "")
@@ -73,6 +76,9 @@ class ShortcutEdit(QLineEdit):
         self.setText(" + ".join(keys))
 
     def keyPressEvent(self, event) -> None:
+        if sys.platform == "win32" and self._windows_recorder.active:
+            event.accept()
+            return
         if event.key() in (Qt.Key_Backspace, Qt.Key_Delete):
             self.clear()
             event.accept()
@@ -93,6 +99,9 @@ class ShortcutEdit(QLineEdit):
         event.accept()
 
     def keyReleaseEvent(self, event) -> None:
+        if sys.platform == "win32" and self._windows_recorder.active:
+            event.accept()
+            return
         if event.isAutoRepeat():
             event.accept()
             return
@@ -103,9 +112,39 @@ class ShortcutEdit(QLineEdit):
         event.accept()
 
     def focusOutEvent(self, event) -> None:
+        self._windows_recorder.stop()
         self._recording = False
         self._pressed.clear()
         super().focusOutEvent(event)
+
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        self._windows_recorder.start()
+
+    def closeEvent(self, event) -> None:
+        self._windows_recorder.stop()
+        super().closeEvent(event)
+
+    def _handle_native_key(self, key: str, pressed: bool) -> None:
+        if pressed and key in ("Backspace", "Delete"):
+            self.clear()
+            self._recording = False
+            self._pressed.clear()
+            self._recorded.clear()
+            return
+        if pressed:
+            if not self._recording:
+                self._recording = True
+                self._pressed.clear()
+                self._recorded.clear()
+            self._pressed.add(key)
+            if key not in self._recorded:
+                self._recorded.append(key)
+            self._set_recorded_keys(self._recorded)
+        else:
+            self._pressed.discard(key)
+            if self._recording and not self._pressed:
+                self._recording = False
 
     def _set_recorded_keys(self, keys) -> None:
         portable = "+".join(keys)
@@ -258,7 +297,10 @@ class SettingsDialog(QDialog):
                 self.error.setText(f"{title}快捷键至少需要两个按键。")
                 return
             values.append(sequence)
-        active_values = [value for value in values if value]
+        active_values = [canonical_shortcut(value) for value in values if value]
+        if None in active_values:
+            self.error.setText("快捷键包含重复或不支持的按键。")
+            return
         if len(active_values) != len(set(active_values)):
             self.error.setText("不同功能不能使用相同的快捷键。")
             return
