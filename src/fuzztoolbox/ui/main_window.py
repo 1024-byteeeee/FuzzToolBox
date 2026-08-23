@@ -46,6 +46,7 @@ ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ICON_PATH = ASSET_DIR / "app-icon.png"
 WINDOWS_APP_ID = "1024_byteeeee.FuzzToolBox"
 FOOTER_COPYRIGHT = "© 2026 1024_byteeeee. All rights reserved."
+FOOTER_HEIGHT = 28
 THEME_MODES = ("system", "light", "dark")
 DEFAULT_WINDOW_SIZE = (1180, 760)
 MINIMUM_WINDOW_SIZE = (900, 600)
@@ -83,6 +84,14 @@ def configure_application(app: QApplication) -> None:
         else "light"
     )
     app.setStyleSheet(load_qss("base.qss"))
+
+
+def configure_footer_label(label: QLabel) -> None:
+    """Keep footer content compact and centered on every page."""
+    label.setAlignment(Qt.AlignCenter)
+    label.setOpenExternalLinks(True)
+    label.setFixedHeight(FOOTER_HEIGHT)
+    apply_style(label, "ui.main_window:144")
 
 
 def show_main_window(window: QMainWindow) -> None:
@@ -185,9 +194,7 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.pages, 1)
 
         self.copyright_label = QLabel()
-        self.copyright_label.setAlignment(Qt.AlignCenter)
-        self.copyright_label.setOpenExternalLinks(True)
-        apply_style(self.copyright_label, "ui.main_window:144")
+        configure_footer_label(self.copyright_label)
         root_layout.addWidget(self.copyright_label)
         self.setCentralWidget(root)
 

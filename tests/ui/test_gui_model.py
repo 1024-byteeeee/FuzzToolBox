@@ -37,9 +37,11 @@ from fuzztoolbox.ui.home_page import ThemeToggleButton, ToolboxHomePage
 from fuzztoolbox.ui.line_number_editor import LineNumberEditor
 from fuzztoolbox.ui.main_window import (
     FOOTER_COPYRIGHT,
+    FOOTER_HEIGHT,
     THEME_MODES,
     WINDOWS_APP_ID,
     MainWindow,
+    configure_footer_label,
     configure_windows_app_id,
     restore_window_placement,
     show_main_window,
@@ -898,6 +900,14 @@ class ResultModelTests(unittest.TestCase):
     def test_footer_copyright_is_english_only(self):
         self.assertEqual(FOOTER_COPYRIGHT, "© 2026 1024_byteeeee. All rights reserved.")
         self.assertNotIn("版权所有", FOOTER_COPYRIGHT)
+
+    def test_footer_is_compact_and_centered(self):
+        label = QLabel()
+        configure_footer_label(label)
+
+        self.assertEqual(label.height(), FOOTER_HEIGHT)
+        self.assertEqual(label.alignment(), Qt.AlignCenter)
+        self.assertTrue(label.openExternalLinks())
 
     def test_theme_modes_have_stable_labels(self):
         self.assertEqual(THEME_MODES, ("system", "light", "dark"))

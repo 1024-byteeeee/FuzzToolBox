@@ -5,8 +5,19 @@ from __future__ import annotations
 import math
 import platform
 import threading
+from datetime import datetime
+from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QPoint,
+    QRect,
+    QRectF,
+    QSize,
+    QStandardPaths,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -33,6 +44,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollBar,
     QSlider,
@@ -1459,18 +1471,16 @@ class ScreenshotOverlay(QWidget):
             self._save_dialog.activateWindow()
             return
         dialog = QFileDialog(self, "保存截图")
-        dialog.setOption(QFileDialog.DontUseNativeDialog, True)
         dialog.setAcceptMode(QFileDialog.AcceptSave)
         dialog.setFileMode(QFileDialog.AnyFile)
         dialog.setNameFilter("PNG 图片 (*.png)")
-        dialog.selectFile("截图.png")
+        pictures = QStandardPaths.writableLocation(QStandardPaths.PicturesLocation)
+        directory = Path(pictures) if pictures else Path.home()
+        dialog.setDirectory(str(directory))
+        local_now = datetime.now().astimezone()
+        dialog.selectFile(f"截图_{local_now:%Y-%m-%d_%H%M%S}.png")
         dialog.setDefaultSuffix("png")
         dialog.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        dialog.setLabelText(QFileDialog.LookIn, "位置")
-        dialog.setLabelText(QFileDialog.FileName, "文件名")
-        dialog.setLabelText(QFileDialog.FileType, "文件类型")
-        dialog.setLabelText(QFileDialog.Accept, "保存")
-        dialog.setLabelText(QFileDialog.Reject, "取消")
         dialog.fileSelected.connect(lambda path: self._save_to_path(pixmap, path))
         dialog.finished.connect(self._save_dialog_closed)
         self._save_dialog = dialog
@@ -1483,7 +1493,17 @@ class ScreenshotOverlay(QWidget):
         if path:
             if not path.lower().endswith(".png"):
                 path += ".png"
-            pixmap.save(path, "PNG")
+            try:
+                saved = pixmap.save(path, "PNG")
+            except (OSError, RuntimeError):
+                saved = False
+            if not saved:
+                QMessageBox.critical(
+                    self,
+                    "保存失败",
+                    "无法保存截图，请检查保存位置是否可写后重试。",
+                )
+                return
             self._closing = True
             self._remove_input_lock()
             self.hide()

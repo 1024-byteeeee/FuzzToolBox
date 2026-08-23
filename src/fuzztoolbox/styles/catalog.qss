@@ -580,7 +580,7 @@ font-size: 18px; font-weight: 700; color: #303133;
 @endstyle */
 
 /* @style ui.main_window:144
-color: #909399; padding: 8px 0 10px 0;
+color: #909399; padding: 0 8px;
 @endstyle */
 
 /* @style tools.qr_generator.components:color-picker

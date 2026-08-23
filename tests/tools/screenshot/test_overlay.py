@@ -496,7 +496,7 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertEqual(bottom, [QRect(0, 840, 1440, 60)])
         self.assertEqual(left, [QRect(0, 0, 80, 900)])
 
-    def test_save_uses_a_visible_chinese_dialog(self):
+    def test_save_uses_the_native_dialog_with_a_timestamped_name(self):
         pixmap = QPixmap(10, 10)
         pixmap.fill(Qt.white)
         self.overlay._render_selection = Mock(return_value=pixmap)
@@ -507,9 +507,26 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         self.assertIsNotNone(self.overlay._save_dialog)
         self.assertTrue(self.overlay._save_dialog.isVisible())
-        self.assertEqual(
-            self.overlay._save_dialog.labelText(QFileDialog.Accept), "保存"
+        self.assertFalse(
+            self.overlay._save_dialog.testOption(QFileDialog.DontUseNativeDialog)
         )
+        self.assertRegex(
+            self.overlay._save_dialog.selectedFiles()[0],
+            r"截图_\d{4}-\d{2}-\d{2}_\d{6}\.png$",
+        )
+
+    def test_failed_save_keeps_the_capture_session_open(self):
+        pixmap = Mock()
+        pixmap.save.return_value = False
+
+        with patch(
+            "fuzztoolbox.tools.screenshot.overlay.QMessageBox.critical"
+        ) as critical:
+            self.overlay._save_to_path(pixmap, "/not-writable/截图")
+
+        pixmap.save.assert_called_once_with("/not-writable/截图.png", "PNG")
+        critical.assert_called_once()
+        self.assertFalse(self.overlay._closing)
 
 
 if __name__ == "__main__":
