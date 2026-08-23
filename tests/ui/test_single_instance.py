@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import unittest
 from uuid import uuid4
 
@@ -31,14 +33,27 @@ class SingleInstanceCoordinatorTests(unittest.TestCase):
 
     def test_second_instance_notifies_primary_and_exits(self):
         primary = self.coordinator()
-        secondary = self.coordinator()
         activations = QSignalSpy(primary.activation_requested)
 
         self.assertIs(primary.acquire(), InstanceRole.PRIMARY)
-        self.assertIs(secondary.acquire(), InstanceRole.SECONDARY)
-        if activations.count() == 0:
-            self.assertTrue(activations.wait(1000))
+        secondary = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "from fuzztoolbox.ui.single_instance import InstanceRole, "
+                    "SingleInstanceCoordinator; "
+                    "coordinator = SingleInstanceCoordinator(sys.argv[1]); "
+                    "sys.exit(0 if coordinator.acquire() is InstanceRole.SECONDARY else 2)"
+                ),
+                self.server_name,
+            ]
+        )
 
+        self.assertTrue(activations.wait(3000))
+
+        self.assertEqual(secondary.wait(timeout=3), 0)
         self.assertEqual(activations.count(), 1)
 
     def test_closed_primary_allows_a_new_primary(self):

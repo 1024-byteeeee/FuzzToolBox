@@ -20,6 +20,7 @@ class SingleInstanceCoordinator(QObject):
 
     activation_requested = Signal()
     _ACTIVATE_MESSAGE = b"activate\n"
+    _ACTIVATED_REPLY = b"activated\n"
 
     def __init__(self, server_name: str, parent: QObject | None = None):
         super().__init__(parent)
@@ -62,9 +63,14 @@ class SingleInstanceCoordinator(QObject):
             if socket.waitForConnected(100):
                 socket.write(self._ACTIVATE_MESSAGE)
                 socket.flush()
-                socket.waitForBytesWritten(250)
+                if socket.bytesToWrite() > 0 and not socket.waitForBytesWritten(250):
+                    socket.abort()
+                    continue
+                acknowledged = socket.waitForReadyRead(1000) and (
+                    self._ACTIVATED_REPLY.strip() in bytes(socket.readAll())
+                )
                 socket.disconnectFromServer()
-                return True
+                return acknowledged
             socket.abort()
         return False
 
@@ -80,3 +86,5 @@ class SingleInstanceCoordinator(QObject):
     def _read_message(self, socket: QLocalSocket) -> None:
         if self._ACTIVATE_MESSAGE.strip() in bytes(socket.readAll()):
             self.activation_requested.emit()
+            socket.write(self._ACTIVATED_REPLY)
+            socket.flush()
