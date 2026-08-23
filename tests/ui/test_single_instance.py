@@ -1,6 +1,7 @@
 import unittest
 from uuid import uuid4
 
+from PySide6.QtTest import QSignalSpy
 from PySide6.QtWidgets import QApplication
 
 from fuzztoolbox.ui.single_instance import InstanceRole, SingleInstanceCoordinator
@@ -31,15 +32,14 @@ class SingleInstanceCoordinatorTests(unittest.TestCase):
     def test_second_instance_notifies_primary_and_exits(self):
         primary = self.coordinator()
         secondary = self.coordinator()
-        activations = []
-        primary.activation_requested.connect(lambda: activations.append(True))
+        activations = QSignalSpy(primary.activation_requested)
 
         self.assertIs(primary.acquire(), InstanceRole.PRIMARY)
         self.assertIs(secondary.acquire(), InstanceRole.SECONDARY)
-        for _ in range(5):
-            self.app.processEvents()
+        if activations.count() == 0:
+            self.assertTrue(activations.wait(1000))
 
-        self.assertEqual(activations, [True])
+        self.assertEqual(activations.count(), 1)
 
     def test_closed_primary_allows_a_new_primary(self):
         primary = self.coordinator()
