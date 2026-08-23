@@ -76,9 +76,6 @@ class ShortcutEdit(QLineEdit):
         self.setText(" + ".join(keys))
 
     def keyPressEvent(self, event) -> None:
-        if sys.platform == "win32" and self._windows_recorder.active:
-            event.accept()
-            return
         if event.key() in (Qt.Key_Backspace, Qt.Key_Delete):
             self.clear()
             event.accept()
@@ -99,9 +96,6 @@ class ShortcutEdit(QLineEdit):
         event.accept()
 
     def keyReleaseEvent(self, event) -> None:
-        if sys.platform == "win32" and self._windows_recorder.active:
-            event.accept()
-            return
         if event.isAutoRepeat():
             event.accept()
             return
