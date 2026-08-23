@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from fuzztoolbox.tools.color_picker.eyedropper import (
@@ -12,6 +12,7 @@ from fuzztoolbox.tools.color_picker.eyedropper import (
     native_window_is_visible,
     show_window_instantly,
 )
+from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style
 
@@ -48,7 +49,7 @@ class ScreenshotPage(QWidget):
         content.addWidget(button, 0, Qt.AlignCenter)
         self.keep_main_window = KeepWindowSwitch()
         self.keep_main_window.setChecked(
-            QSettings("1024_byteeeee", "FuzzToolBox").value(
+            create_settings().value(
                 "capture/screenshot-keep-main", False, type=bool
             )
         )
@@ -61,7 +62,7 @@ class ScreenshotPage(QWidget):
         root.addStretch()
         button.clicked.connect(self.start_capture)
         self.keep_main_window.toggled.connect(
-            lambda checked: QSettings("1024_byteeeee", "FuzzToolBox").setValue(
+            lambda checked: create_settings().setValue(
                 "capture/screenshot-keep-main", checked
             )
         )

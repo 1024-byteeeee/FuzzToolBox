@@ -32,6 +32,7 @@ except ImportError as exc:  # pragma: no cover
 
 from .. import __version__
 from .animations import PageTransitionController, ThemeTransitionController
+from .app_settings import create_settings
 from .global_hotkey import (
     GlobalHotkeyManager,
     windows_shortcut_needs_registration_probe,
@@ -72,7 +73,7 @@ def configure_application(app: QApplication) -> None:
     app.setOrganizationName("1024_byteeeee")
     app.setApplicationVersion(__version__)
     requested = str(
-        QSettings("1024_byteeeee", "FuzzToolBox").value(
+        create_settings().value(
             "appearance/theme", "system"
         )
     )
@@ -220,7 +221,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowIcon(QIcon(str(APP_ICON_PATH)))
-        self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
+        self.settings = create_settings()
         self.setWindowTitle(f"FuzzToolBox v{__version__}")
         self.setMinimumSize(*MINIMUM_WINDOW_SIZE)
         self.resize(*DEFAULT_WINDOW_SIZE)

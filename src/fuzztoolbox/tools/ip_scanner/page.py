@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import List
 
+from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 try:
@@ -13,7 +14,6 @@ try:
         QEvent,
         QModelIndex,
         QObject,
-        QSettings,
         QSortFilterProxyModel,
         Qt,
         QThread,
@@ -236,7 +236,7 @@ class ScanWorker(QThread):
 class IPScannerPage(QWidget):
     def __init__(self):
         super().__init__()
-        self.settings = QSettings("1024_byteeeee", "FuzzToolBox")
+        self.settings = create_settings()
         self.worker = None
         self.model = ResultModel()
         self.proxy_model = ResultFilterModel()

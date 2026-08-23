@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QRectF, QSettings, Qt, QTimer
+from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
@@ -205,7 +206,7 @@ class ColorPickerPage(QWidget):
 
         self.keep_main_window = KeepWindowSwitch()
         self.keep_main_window.setChecked(
-            QSettings("1024_byteeeee", "FuzzToolBox").value(
+            create_settings().value(
                 "capture/color-picker-keep-main", False, type=bool
             )
         )
@@ -244,7 +245,7 @@ class ColorPickerPage(QWidget):
         self.copy_all_button.clicked.connect(self.copy_all)
         self.eyedropper_button.clicked.connect(self._start_eyedropper)
         self.keep_main_window.toggled.connect(
-            lambda checked: QSettings("1024_byteeeee", "FuzzToolBox").setValue(
+            lambda checked: create_settings().setValue(
                 "capture/color-picker-keep-main", checked
             )
         )
