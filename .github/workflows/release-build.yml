@@ -62,6 +62,29 @@ jobs:
       - name: Build native application and archive
         run: python packaging/build_release.py
 
+      - name: Launch-test frozen Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'build/FuzzToolBox/FuzzToolBox.exe').Path
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 10
+            $process.Refresh()
+            if ($process.HasExited) {
+              throw "Frozen Windows application exited during startup with code $($process.ExitCode)"
+            }
+            if ($process.MainWindowTitle -notlike 'FuzzToolBox*') {
+              throw "Unexpected startup window: '$($process.MainWindowTitle)'"
+            }
+            Write-Host "Frozen Windows application launched: $($process.MainWindowTitle)"
+          }
+          finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
       - name: Verify Windows executable icon
         if: runner.os == 'Windows'
         shell: pwsh

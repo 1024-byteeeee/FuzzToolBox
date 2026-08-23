@@ -103,6 +103,19 @@ class PackagingTests(unittest.TestCase):
         self.assertIn('"runtime_scripts/windows/*.ps1"', project_config)
         self.assertIn("fuzztoolbox/runtime_scripts", release_builder)
 
+    def test_windows_frozen_build_keeps_and_launch_tests_qt_network(self):
+        release_builder = (PROJECT_DIR / "packaging" / "build_release.py").read_text(
+            encoding="utf-8"
+        )
+        workflow = (
+            PROJECT_DIR / ".github" / "workflows" / "release-build.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('["--hidden-import", "PySide6.QtNetwork"]', release_builder)
+        self.assertNotIn('"--exclude-module",\n            "PySide6.QtNetwork"', release_builder)
+        self.assertIn("Launch-test frozen Windows application", workflow)
+        self.assertIn("$process.MainWindowTitle -notlike 'FuzzToolBox*'", workflow)
+
     def test_macos_dmg_background_is_full_size_and_solid(self):
         background = PROJECT_DIR / "packaging" / "dmg-background.svg"
         root = ET.parse(background).getroot()

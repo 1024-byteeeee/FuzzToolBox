@@ -247,6 +247,10 @@ def build() -> Path:
     ]
     for module in LAZY_TOOL_MODULES:
         command.extend(["--hidden-import", module])
+    # The single-instance coordinator imports QLocalServer/QLocalSocket before
+    # the main window is loaded. Keep QtNetwork explicit so frozen builds can
+    # never drop this startup dependency during module-graph optimization.
+    command.extend(["--hidden-import", "PySide6.QtNetwork"])
     command.append(str(entry))
     if system == "Darwin":
         command[3:3] = [
@@ -263,8 +267,6 @@ def build() -> Path:
             f"--icon={PROJECT_DIR / 'packaging' / 'FuzzToolBox.ico'}",
             "--exclude-module",
             "PySide6.QtDBus",
-            "--exclude-module",
-            "PySide6.QtNetwork",
         ]
     subprocess.run(command, cwd=PROJECT_DIR, env=environment, check=True)
 
