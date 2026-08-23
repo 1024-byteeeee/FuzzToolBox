@@ -818,7 +818,10 @@ class ResultModelTests(unittest.TestCase):
         window.open_tool.assert_not_called()
         color_page._start_eyedropper.assert_called_once_with(keep_main_window=True)
         color_overlay.color_picked.connect.assert_called_once()
-        screenshot_page.start_capture.assert_called_once_with(keep_main_window=True)
+        screenshot_page.start_capture.assert_called_once_with(
+            keep_main_window=True,
+            restore_main_window=False,
+        )
 
         color_overlay.color_picked.connect.call_args.args[0](Mock())
         window.open_tool.assert_called_once_with("color-picker")
@@ -832,6 +835,63 @@ class ResultModelTests(unittest.TestCase):
 
         window.open_tool.assert_called_once_with("color-picker")
         color_page._start_eyedropper.assert_called_once_with(keep_main_window=False)
+
+    def test_regular_screenshot_shortcut_stays_in_background_after_capture(self):
+        window = Mock()
+        window._shortcuts_suspended = False
+        screenshot_page = window._load_tool_page.return_value
+        overlay = screenshot_page._overlay
+
+        MainWindow.start_screenshot(window)
+
+        screenshot_page.start_capture.assert_called_once_with(
+            keep_main_window=False,
+            restore_main_window=False,
+        )
+        self.assertTrue(window._background_screenshot_active)
+        self.assertTrue(window._block_activation_restore)
+        overlay.completed.connect.assert_called_once_with(
+            window._background_screenshot_finished
+        )
+        overlay.cancelled.connect.assert_called_once_with(
+            window._background_screenshot_finished
+        )
+
+    def test_background_screenshot_blocks_synthetic_macos_activation(self):
+        window = Mock()
+        window._background_screenshot_active = False
+        window._block_activation_restore = True
+        window.isVisible.return_value = False
+        window._application_quitting = False
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+            MainWindow.restore_from_application_activation(
+                window, Qt.ApplicationActive
+            )
+
+        window.show.assert_not_called()
+        window.raise_.assert_not_called()
+        window.activateWindow.assert_not_called()
+
+    def test_macos_activation_restores_after_app_moves_to_background(self):
+        window = Mock()
+        window._background_screenshot_active = False
+        window._block_activation_restore = True
+        window.isVisible.return_value = False
+        window._application_quitting = False
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+            MainWindow.restore_from_application_activation(
+                window, Qt.ApplicationInactive
+            )
+            MainWindow.restore_from_application_activation(
+                window, Qt.ApplicationActive
+            )
+
+        self.assertFalse(window._block_activation_restore)
+        window.show.assert_called_once_with()
+        window.raise_.assert_called_once_with()
+        window.activateWindow.assert_called_once_with()
 
     def test_macos_close_hides_window_and_explicit_quit_cleans_up(self):
         with patch("fuzztoolbox.tools.ip_scanner.page.get_network_info") as network_info:

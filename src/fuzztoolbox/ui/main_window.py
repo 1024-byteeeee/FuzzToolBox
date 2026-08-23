@@ -247,6 +247,8 @@ class MainWindow(QMainWindow):
         self._color_keep_hotkey = GlobalHotkeyManager(app, hotkey_id=3, parent=self)
         self._screenshot_keep_hotkey = GlobalHotkeyManager(app, hotkey_id=4, parent=self)
         self._shortcuts_suspended = False
+        self._background_screenshot_active = False
+        self._block_activation_restore = False
         self._color_hotkey.activated.connect(self.start_color_picker)
         self._screenshot_hotkey.activated.connect(self.start_screenshot)
         self._color_keep_hotkey.activated.connect(
@@ -348,7 +350,30 @@ class MainWindow(QMainWindow):
             return
         page = self._load_tool_page("screenshot")
         if page is not None:
-            page.start_capture(keep_main_window=keep_main_window)
+            if not keep_main_window:
+                self._background_screenshot_active = True
+                self._block_activation_restore = True
+            page.start_capture(
+                keep_main_window=keep_main_window,
+                restore_main_window=False,
+            )
+            overlay = page._overlay
+            if not keep_main_window and overlay is not None:
+                overlay.completed.connect(self._background_screenshot_finished)
+                overlay.cancelled.connect(self._background_screenshot_finished)
+            elif not keep_main_window:
+                self._background_screenshot_active = False
+                self._block_activation_restore = False
+
+    def _background_screenshot_finished(self):
+        # Hiding the overlay after an Enter-key capture can reactivate the
+        # application on macOS.  Keep blocking that synthetic activation until
+        # the application has genuinely moved to the background; the next Dock
+        # activation can then restore the main window normally.
+        self._background_screenshot_active = False
+        app = QApplication.instance()
+        if app is not None and app.applicationState() != Qt.ApplicationActive:
+            self._block_activation_restore = False
 
     def restore_from_tray(self):
         if self.isMinimized():
@@ -523,12 +548,15 @@ class MainWindow(QMainWindow):
         self.close()
 
     def restore_from_application_activation(self, state):
-        if (
-            sys.platform == "darwin"
-            and state == Qt.ApplicationActive
-            and not self.isVisible()
-            and not self._application_quitting
-        ):
+        if sys.platform != "darwin":
+            return
+        if state != Qt.ApplicationActive:
+            if not self._background_screenshot_active:
+                self._block_activation_restore = False
+            return
+        if self._block_activation_restore:
+            return
+        if not self.isVisible() and not self._application_quitting:
             self.show()
             self.raise_()
             self.activateWindow()

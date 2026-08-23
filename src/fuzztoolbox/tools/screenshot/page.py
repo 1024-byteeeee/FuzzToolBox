@@ -67,15 +67,24 @@ class ScreenshotPage(QWidget):
         )
         self._restore_window_after_capture = False
 
-    def start_capture(self, _checked=False, *, keep_main_window: bool | None = None):
+    def start_capture(
+        self,
+        _checked=False,
+        *,
+        keep_main_window: bool | None = None,
+        restore_main_window: bool = True,
+    ):
         if self._overlay is not None:
             return
         self.status.setText("正在准备截图…")
         if keep_main_window is None:
             keep_main_window = self.keep_main_window.isChecked()
         main_window = self.window()
-        self._restore_window_after_capture = bool(main_window and not keep_main_window)
-        if self._restore_window_after_capture:
+        should_hide_main_window = bool(main_window and not keep_main_window)
+        self._restore_window_after_capture = bool(
+            should_hide_main_window and restore_main_window
+        )
+        if should_hide_main_window:
             hide_window_instantly(main_window)
         overlay = ScreenshotOverlay(include_app_window=keep_main_window)
         self._overlay = overlay

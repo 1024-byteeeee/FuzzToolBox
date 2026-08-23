@@ -34,6 +34,49 @@ class ScreenshotPageTests(unittest.TestCase):
         page._overlay = None
         page.close()
 
+    def test_background_capture_hides_without_restoring_main_window(self):
+        for finish_method in ("_completed", "_cancelled"):
+            with self.subTest(finish_method=finish_method):
+                page = ScreenshotPage()
+                overlay = Mock()
+                with patch(
+                    "fuzztoolbox.tools.screenshot.page.ScreenshotOverlay",
+                    return_value=overlay,
+                ), patch(
+                    "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
+                ) as hide_window, patch(
+                    "fuzztoolbox.tools.screenshot.page.show_window_instantly"
+                ) as show_window, patch.object(page, "_wait_for_hide"):
+                    page.start_capture(
+                        keep_main_window=False,
+                        restore_main_window=False,
+                    )
+                    getattr(page, finish_method)()
+
+                hide_window.assert_called_once_with(page)
+                show_window.assert_not_called()
+                self.assertFalse(page._restore_window_after_capture)
+                page.close()
+
+    def test_page_capture_restores_main_window_when_finished(self):
+        page = ScreenshotPage()
+        overlay = Mock()
+        with patch(
+            "fuzztoolbox.tools.screenshot.page.ScreenshotOverlay",
+            return_value=overlay,
+        ), patch(
+            "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
+        ) as hide_window, patch(
+            "fuzztoolbox.tools.screenshot.page.show_window_instantly"
+        ) as show_window, patch.object(page, "_wait_for_hide"):
+            page.start_capture(keep_main_window=False)
+            page._completed()
+
+        hide_window.assert_called_once_with(page)
+        show_window.assert_called_once_with(page)
+        self.assertFalse(page._restore_window_after_capture)
+        page.close()
+
 
 if __name__ == "__main__":
     unittest.main()

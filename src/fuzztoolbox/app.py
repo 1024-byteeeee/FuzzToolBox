@@ -9,9 +9,13 @@ def main() -> None:
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
+    from .ui.single_instance import InstanceRole, SingleInstanceCoordinator
     from .ui.splash_screen import show_splash_screen
 
     app = QApplication(sys.argv)
+    instance = SingleInstanceCoordinator("1024-byteeeee.FuzzToolBox")
+    if instance.acquire() is InstanceRole.SECONDARY:
+        return
     splash = show_splash_screen(app)
 
     from .ui.main_window import APP_ICON_PATH, MainWindow, configure_application
@@ -19,6 +23,8 @@ def main() -> None:
     configure_application(app)
     app.setWindowIcon(QIcon(str(APP_ICON_PATH)))
     window = MainWindow()
+    instance.activation_requested.connect(window.restore_from_tray)
+    app.aboutToQuit.connect(instance.close)
     if sys.platform == "darwin":
         app.applicationStateChanged.connect(window.restore_from_application_activation)
     window.show_in_saved_state()
@@ -35,7 +41,11 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
-__all__ = ("MainWindow", "configure_windows_app_id", "main")
+__all__ = (  # noqa: F822 - names are provided lazily by __getattr__
+    "MainWindow",
+    "configure_windows_app_id",
+    "main",
+)
 
 
 if __name__ == "__main__":
