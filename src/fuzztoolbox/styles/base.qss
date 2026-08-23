@@ -1,6 +1,16 @@
 QWidget { background: #f5f7fa; color: #303133; font-size: 13px; }
 QMainWindow { background: #f5f7fa; }
 QLabel { background: transparent; }
+QMenu#trayMenu {
+  background: #ffffff; color: #303133; border: 1px solid #dcdfe6;
+  border-radius: 8px; padding: 6px;
+}
+QMenu#trayMenu::item {
+  background: transparent; min-width: 126px; padding: 8px 14px;
+  border: 0; border-radius: 5px;
+}
+QMenu#trayMenu::item:selected { background: #ecf5ff; color: #1677d2; }
+QMenu#trayMenu::item:pressed { background: #d9ecff; color: #1677d2; }
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QDateTimeEdit {
   background: white; border: 1px solid #dcdfe6; border-radius: 6px; padding: 7px 10px;
 }
