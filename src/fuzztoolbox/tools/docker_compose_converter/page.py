@@ -78,6 +78,7 @@ class DockerComposeConverterPage(QWidget):
         left.addWidget(left_title)
         left.addStretch()
         right = QHBoxLayout()
+        right.setSpacing(9)
         right_title = QLabel("Compose YAML")
         right_title.setObjectName("dockerComposeSectionTitle")
         self.copy_button = QPushButton("复制结果")
