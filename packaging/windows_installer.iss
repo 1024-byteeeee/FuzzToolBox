@@ -67,3 +67,4 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/IM FuzzToolBox.exe /T /F"; Flags: 
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\data"
+Type: files; Name: "{app}\fuzztoolbox-*.lock"

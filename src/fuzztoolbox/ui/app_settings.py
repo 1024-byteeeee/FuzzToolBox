@@ -1,7 +1,8 @@
-"""Shared application settings stored beside the application."""
+"""Shared application settings with a visible, upgrade-safe data location."""
 
 from __future__ import annotations
 
+import platform
 import sys
 from pathlib import Path
 
@@ -20,13 +21,24 @@ def application_root() -> Path:
 
 def create_settings() -> QSettings:
     root = application_root()
+    if platform.system() == "Darwin":
+        # Keep preferences outside the .app bundle so replacing the app does
+        # not erase shortcuts. Documents is visible and easy to back up.
+        root = Path.home() / "Documents" / "FuzzToolBox"
     data_dir = root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     settings_path = data_dir / "FuzzToolBox.ini"
-    legacy_path = root / "FuzzToolBox.ini"
-    if legacy_path.is_file() and not settings_path.exists():
-        try:
-            legacy_path.replace(settings_path)
-        except OSError:
-            pass
+    app_root = application_root()
+    legacy_paths = (
+        app_root / "data" / "FuzzToolBox.ini",
+        app_root / "FuzzToolBox.ini",
+    )
+    if not settings_path.exists():
+        for legacy_path in legacy_paths:
+            if legacy_path.is_file():
+                try:
+                    legacy_path.replace(settings_path)
+                except OSError:
+                    pass
+                break
     return QSettings(str(settings_path), QSettings.IniFormat)
