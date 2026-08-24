@@ -1,5 +1,5 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Tuple
 
 
 @dataclass(frozen=True)
@@ -9,7 +9,7 @@ class ToolDefinition:
     description: str
     category: str
     icon: str
-    keywords: Tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
 
     def matches(self, query: str = "", category: str = "all") -> bool:
         if category != "all" and self.category != category:
@@ -205,5 +205,5 @@ TOOLS = (
 
 def filter_tools(
     tools: Iterable[ToolDefinition], query: str = "", category: str = "all"
-) -> Tuple[ToolDefinition, ...]:
+) -> tuple[ToolDefinition, ...]:
     return tuple(tool for tool in tools if tool.matches(query, category))

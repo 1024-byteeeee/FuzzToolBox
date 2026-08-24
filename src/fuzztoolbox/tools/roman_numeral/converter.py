@@ -21,7 +21,7 @@ ROMAN_VALUES = (
 def integer_to_roman(value: int) -> str:
     """Convert an integer from 1 through 3999 to a canonical Roman numeral."""
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("请输入整数")
+        raise TypeError("请输入整数")
     if not 1 <= value <= 3999:
         raise ValueError("数字必须在 1–3999 之间")
 

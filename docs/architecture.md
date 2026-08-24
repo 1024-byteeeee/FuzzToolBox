@@ -7,7 +7,7 @@ FuzzToolBox 使用 Python `src` 布局。产品代码位于 `src/fuzztoolbox`，
 
 - `fuzztoolbox/app.py`：稳定的桌面应用入口，不承载业务逻辑。
 - `fuzztoolbox/core/`：多个工具共享的系统与网络服务。
-- `fuzztoolbox/ui/`：主窗口、首页、工具注册表和公共控件。
+- `fuzztoolbox/ui/`：主窗口、首页、工具注册表、应用状态和公共控件。
 - `fuzztoolbox/tools/`：各工具的业务逻辑、数据模型和页面。
 - `fuzztoolbox/assets/`：随应用打包的图标与 SVG 资源。
 - `tests/`：按 `core`、`ui`、`tools`、`packaging` 镜像源码职责组织。
@@ -24,6 +24,38 @@ FuzzToolBox 使用 Python `src` 布局。产品代码位于 `src/fuzztoolbox`，
 - 工具元数据在 `ui/tool_registry.py` 注册。
 - 页面在主窗口装配，并复用 `ui/components.py` 中的公共控件行为。
 - 测试放在 `tests/tools/<tool_name>/`。
+
+## 应用外壳与原生能力
+
+- `ui/app_state.py` 是设置、快捷键动作和截图/取色会话的统一状态边界。主窗口负责
+  展示与调度，不自行保存并行会话标志。
+- `ui/global_hotkey.py` 是稳定兼容门面；快捷键解析、生命周期管理以及 Windows、
+  macOS 原生注册分别位于 `ui/hotkeys/`。平台 API 不应重新进入主窗口。
+- `ui/single_instance.py` 独占单例锁与本地 IPC。主窗口进入事件循环且原生窗口可见后
+  才发布运行期 ready 标记；重复启动只有在旧窗口恢复可见并返回确认后才算成功。
+  测试必须传入独立临时运行目录，禁止使用正式应用的锁或端点。
+
+## 截图模块
+
+`tools/screenshot/overlay.py` 只编排输入事件和界面生命周期，具体能力位于：
+
+- `capture_backend.py`：平台捕获调度、失败收敛、虚拟桌面计算与多屏拼接。
+- `selection.py`：选区锚点、缩放、Dock 候选区域与几何去重。
+- `annotations.py`：标注数据、笔迹插值、命中检测与平移。
+- `renderer.py`：图形、文字、箭头与马赛克渲染。
+- `controls.py`：截图工具条使用的基础控件。
+- `toolbar.py`：工具条、颜色/粗细/字号/字体弹层及其语义信号。
+
+新增截图功能时优先扩展对应深模块，避免把平台调用、几何、状态和绘制重新堆回
+覆盖层类。
+
+## 质量门禁
+
+- 本地和 Release CI 均运行 Ruff 与自动化测试。
+- `tests/native/` 验证冻结应用的可见窗口就绪和单例激活握手；测试必须带超时、校验
+  ready/activation 标记，并在失败后清理进程及运行期文件。
+- 原生快捷键、屏幕录制等受系统权限控制的能力，以适配器契约和资源释放测试为主，
+  不在无桌面权限的 CI 中伪造端到端成功。
 
 ## UI 约定
 

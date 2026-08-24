@@ -42,8 +42,13 @@ jobs:
       - name: Install FuzzToolBox and build dependencies
         run: python -m pip install ".[dev]"
 
+      - name: Run Ruff static checks
+        run: python -m ruff check .
+
       - name: Run automated tests
-        run: python -m unittest discover -s tests -v
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
 
       - name: Ensure Inno Setup is available
         if: runner.os == 'Windows'
@@ -62,28 +67,21 @@ jobs:
       - name: Build native application and archive
         run: python packaging/build_release.py
 
-      - name: Launch-test frozen Windows application
+      - name: Smoke-test frozen Windows startup and single-instance behavior
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $exe = (Resolve-Path 'build/FuzzToolBox/FuzzToolBox.exe').Path
-          $process = Start-Process -FilePath $exe -PassThru
-          try {
-            Start-Sleep -Seconds 10
-            $process.Refresh()
-            if ($process.HasExited) {
-              throw "Frozen Windows application exited during startup with code $($process.ExitCode)"
-            }
-            if ($process.MainWindowTitle -notlike 'FuzzToolBox*') {
-              throw "Unexpected startup window: '$($process.MainWindowTitle)'"
-            }
-            Write-Host "Frozen Windows application launched: $($process.MainWindowTitle)"
-          }
-          finally {
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -Force
-            }
-          }
+        timeout-minutes: 2
+        run: >-
+          python tests/native/frozen_app_smoke.py
+          --application build/FuzzToolBox/FuzzToolBox.exe
+          --startup-timeout 45
+
+      - name: Smoke-test frozen macOS startup and single-instance behavior
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: >-
+          python tests/native/frozen_app_smoke.py
+          --application build/FuzzToolBox.app
+          --startup-timeout 45
 
       - name: Verify Windows executable icon
         if: runner.os == 'Windows'

@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import secrets
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, Optional
 
 NAMESPACES = {
     "dns": uuid.NAMESPACE_DNS,
@@ -31,7 +33,7 @@ class UUID7Generator:
         self._last_timestamp = -1
         self._last_payload = -1
 
-    def generate(self, timestamp_ms: Optional[int] = None) -> uuid.UUID:
+    def generate(self, timestamp_ms: int | None = None) -> uuid.UUID:
         now = int(time.time_ns() // 1_000_000) if timestamp_ms is None else timestamp_ms
         if not 0 <= now < (1 << 48):
             raise ValueError("UUID v7 时间戳超出有效范围")
@@ -69,7 +71,8 @@ def resolve_namespace(value: str) -> uuid.UUID:
         raise ValueError("请输入有效的命名空间 UUID") from exc
 
 
-def format_uuid(value: uuid.UUID, options: UUIDFormat = UUIDFormat()) -> str:
+def format_uuid(value: uuid.UUID, options: UUIDFormat | None = None) -> str:
+    options = options or UUIDFormat()
     text = str(value) if options.hyphens else value.hex
     if options.uppercase:
         text = text.upper()
@@ -82,10 +85,10 @@ def generate_uuids(
     version: int,
     count: int = 1,
     *,
-    namespace: Optional[str] = None,
-    name: Optional[str] = None,
-    formatter: UUIDFormat = UUIDFormat(),
-    uuid7_generator: Optional[UUID7Generator] = None,
+    namespace: str | None = None,
+    name: str | None = None,
+    formatter: UUIDFormat | None = None,
+    uuid7_generator: UUID7Generator | None = None,
 ) -> list[str]:
     if version not in {1, 3, 4, 5, 7}:
         raise ValueError("不支持的 UUID 版本")

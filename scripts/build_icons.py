@@ -3,10 +3,9 @@
 import struct
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QBuffer, QIODevice, QSize, Qt
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QSize, Qt
 from PySide6.QtGui import QGuiApplication, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
-
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 SOURCE = PROJECT_DIR / "src" / "fuzztoolbox" / "assets" / "app-icon.svg"

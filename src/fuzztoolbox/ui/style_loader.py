@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import weakref
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ def _catalog() -> dict[str, str]:
     return {key: value.strip() for key, value in _BLOCK_PATTERN.findall(text)}
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_qss(name: str) -> str:
     """Return a complete QSS resource with packaged asset placeholders resolved."""
     text = (STYLE_DIR / name).read_text(encoding="utf-8")

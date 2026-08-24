@@ -106,8 +106,8 @@ def format_report(report: LookupReport) -> str:
         f"IP：{report.ip}",
         f"分类：{report.classification}",
         f"PTR / rDNS：{report.ptr or '未找到'}",
-        f"国家 / 地区 / 城市：{shown(report.merged('country'))} / "
-        f"{shown(report.merged('region'))} / {shown(report.merged('city'))}",
+        (f"国家 / 地区 / 城市：{shown(report.merged('country'))} / "
+        f"{shown(report.merged('region'))} / {shown(report.merged('city'))}"),
         f"ASN：{shown(report.merged('asn'))}",
         f"ISP：{shown(report.merged('isp'))}",
         f"组织：{shown(report.merged('org'))}",

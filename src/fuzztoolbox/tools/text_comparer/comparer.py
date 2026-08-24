@@ -1,22 +1,22 @@
 """Compare text by line and character using Python's standard-library difflib."""
+from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass
 from itertools import zip_longest
-from typing import Optional, Tuple
 
-Span = Tuple[int, int]
+Span = tuple[int, int]
 
 
 @dataclass(frozen=True)
 class AlignedLine:
     tag: str
-    left_number: Optional[int]
-    left_text: Optional[str]
-    right_number: Optional[int]
-    right_text: Optional[str]
-    left_spans: Tuple[Span, ...] = ()
-    right_spans: Tuple[Span, ...] = ()
+    left_number: int | None
+    left_text: str | None
+    right_number: int | None
+    right_text: str | None
+    left_spans: tuple[Span, ...] = ()
+    right_spans: tuple[Span, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -32,11 +32,11 @@ class DiffStats:
 
 @dataclass(frozen=True)
 class ComparisonResult:
-    lines: Tuple[AlignedLine, ...]
+    lines: tuple[AlignedLine, ...]
     stats: DiffStats
 
 
-def _character_spans(left: str, right: str) -> tuple[Tuple[Span, ...], Tuple[Span, ...]]:
+def _character_spans(left: str, right: str) -> tuple[tuple[Span, ...], tuple[Span, ...]]:
     left_spans = []
     right_spans = []
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, left, right, autojunk=False).get_opcodes():

@@ -2,7 +2,7 @@
 
 import secrets
 import string
-from typing import Iterable, Sequence
+from collections.abc import Sequence
 
 MIN_LENGTH = 1
 DEFAULT_LENGTH = 64
@@ -37,7 +37,7 @@ def generate_token(
 ) -> str:
     """Generate a token containing at least one character from each selected group."""
     if isinstance(length, bool) or not isinstance(length, int):
-        raise ValueError("Token 长度必须是整数")
+        raise TypeError("Token 长度必须是整数")
     if not MIN_LENGTH <= length <= MAX_LENGTH:
         raise ValueError(f"Token 长度必须在 {MIN_LENGTH}–{MAX_LENGTH} 之间")
 

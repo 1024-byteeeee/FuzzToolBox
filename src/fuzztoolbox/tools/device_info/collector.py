@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import platform
 import re
@@ -6,14 +8,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
 
 import psutil
 
 from ...core.network_info import _powershell_script_command, get_network_info
 from ...core.subprocess_utils import hidden_subprocess_kwargs
 
-Rows = Tuple[Tuple[str, str], ...]
+Rows = tuple[tuple[str, str], ...]
 
 # 设备型号、CPU 型号等静态硬件信息在实时刷新之间保持不变。
 # 缓存探测结果，避免每次刷新都重新启动 system_profiler / PowerShell。
@@ -32,7 +33,7 @@ class InfoSection:
 
 @dataclass(frozen=True)
 class DeviceReport:
-    sections: Tuple[InfoSection, ...]
+    sections: tuple[InfoSection, ...]
 
     def text(self) -> str:
         lines = []
@@ -66,7 +67,7 @@ def format_duration(seconds: float) -> str:
     return " ".join(parts)
 
 
-def _windows_uptime() -> Optional[float]:
+def _windows_uptime() -> float | None:
     """通过 GetTickCount64 读取 Windows 运行时长。
 
     该计数器在系统睡眠/休眠期间停止计数，返回的是真实活跃时长。
@@ -81,7 +82,7 @@ def _windows_uptime() -> Optional[float]:
         return None
 
 
-def system_uptime(system: str = None) -> float:
+def system_uptime(system: str | None = None) -> float:
     """计算系统真实运行时长（不包含睡眠/休眠时间）。
 
     直接用 time.time() - psutil.boot_time() 得到的是墙钟差值，
@@ -195,7 +196,7 @@ def _windows_system_status() -> dict:
     return {"load_percentage": load_percentage, "labels": labels}
 
 
-def _cpu_usage(system: str, windows_status: Optional[dict]) -> float:
+def _cpu_usage(system: str, windows_status: dict | None) -> float:
     if system == "Windows" and windows_status and windows_status["load_percentage"] is not None:
         return windows_status["load_percentage"]
     return psutil.cpu_percent(interval=0.1)
@@ -243,7 +244,7 @@ def _visible_partitions(system: str):
     return visible
 
 
-def _disk_sections(system: str, windows_status: Optional[dict]) -> Tuple[InfoSection, ...]:
+def _disk_sections(system: str, windows_status: dict | None) -> tuple[InfoSection, ...]:
     partitions = _visible_partitions(system)
     labels = (windows_status or {}).get("labels", {}) if system == "Windows" else {}
     sections = []
@@ -284,7 +285,7 @@ def _hardware(system: str) -> dict:
     return hardware
 
 
-def collect_device_info(system: str = None) -> DeviceReport:
+def collect_device_info(system: str | None = None) -> DeviceReport:
     system = system or platform.system()
     hardware = _hardware(system)
     windows_status = _windows_system_status() if system == "Windows" else None

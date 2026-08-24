@@ -113,8 +113,15 @@ class PackagingTests(unittest.TestCase):
 
         self.assertIn('["--hidden-import", "PySide6.QtNetwork"]', release_builder)
         self.assertNotIn('"--exclude-module",\n            "PySide6.QtNetwork"', release_builder)
-        self.assertIn("Launch-test frozen Windows application", workflow)
-        self.assertIn("$process.MainWindowTitle -notlike 'FuzzToolBox*'", workflow)
+        self.assertIn(
+            "Smoke-test frozen Windows startup and single-instance behavior",
+            workflow,
+        )
+        self.assertIn(
+            "Smoke-test frozen macOS startup and single-instance behavior",
+            workflow,
+        )
+        self.assertIn("python tests/native/frozen_app_smoke.py", workflow)
 
     def test_macos_dmg_background_is_full_size_and_solid(self):
         background = PROJECT_DIR / "packaging" / "dmg-background.svg"

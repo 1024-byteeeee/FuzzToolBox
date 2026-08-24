@@ -1,6 +1,7 @@
 import ipaddress
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Union
+from typing import Union
 
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
@@ -125,7 +126,7 @@ def flsm_by_count(network: IPNetwork, requested_count: int) -> FLSMPlan:
     return FLSMPlan(network, target_prefix)
 
 
-def parse_host_requirements(value: str) -> List[int]:
+def parse_host_requirements(value: str) -> list[int]:
     normalized = value.replace("，", ",").replace("\n", ",")
     try:
         requirements = [int(item.strip()) for item in normalized.split(",") if item.strip()]
@@ -146,7 +147,7 @@ def _prefix_for_hosts(version: int, hosts: int) -> int:
     return bits - host_bits
 
 
-def allocate_vlsm(network: IPNetwork, requirements: Iterable[int]) -> List[SubnetRow]:
+def allocate_vlsm(network: IPNetwork, requirements: Iterable[int]) -> list[SubnetRow]:
     requested = list(requirements)
     if not requested or any(hosts < 1 for hosts in requested):
         raise ValueError("请至少输入一个大于 0 的主机需求")

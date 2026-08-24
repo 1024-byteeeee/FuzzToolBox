@@ -6,6 +6,7 @@ import sys
 def main() -> None:
     # Keep heavyweight tool-page imports below the first paint so users get
     # immediate feedback while the complete application is being constructed.
+    from PySide6.QtCore import QTimer
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
@@ -15,7 +16,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     instance = SingleInstanceCoordinator("1024-byteeeee.FuzzToolBox")
     if instance.acquire() is InstanceRole.SECONDARY:
-        return
+        raise SystemExit(0 if instance.notification_succeeded else 2)
     splash = show_splash_screen(app)
 
     from .ui.main_window import APP_ICON_PATH, MainWindow, configure_application
@@ -29,6 +30,24 @@ def main() -> None:
         app.applicationStateChanged.connect(window.restore_from_application_activation)
     window.show_in_saved_state()
     splash.finish(window)
+
+    def window_is_visible() -> bool:
+        native_window = window.windowHandle()
+        return bool(
+            window.isVisible()
+            and native_window is not None
+            and native_window.isVisible()
+        )
+
+    native_window = window.windowHandle()
+    if native_window is not None:
+        native_window.visibleChanged.connect(
+            lambda _visible: instance.publish_ready(window_is_visible)
+        )
+    QTimer.singleShot(
+        0,
+        lambda: instance.publish_ready(window_is_visible),
+    )
     raise SystemExit(app.exec())
 
 

@@ -3,7 +3,6 @@ import contextlib
 import ipaddress
 import threading
 from pathlib import Path
-from typing import List
 
 from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
@@ -24,10 +23,7 @@ try:
     from PySide6.QtWidgets import (
         QComboBox,
         QFileDialog,
-        QFrame,
-        QGridLayout,
         QHBoxLayout,
-        QHeaderView,
         QLabel,
         QLineEdit,
         QMessageBox,
@@ -52,18 +48,18 @@ SCAN_SELECTOR_WIDTH = 180
 
 
 class ResultModel(QAbstractTableModel):
-    columns = ["IP 地址", "状态", "探测方式", "响应时间", "主机名", "开放端口"]
+    columns = ("IP 地址", "状态", "探测方式", "响应时间", "主机名", "开放端口")
 
     def __init__(self):
         super().__init__()
-        self.results: List[ScanResult] = []
+        self.results: list[ScanResult] = []
         self._rows_by_ip = {}
         self.show_mac = True
 
-    def rowCount(self, _parent=QModelIndex()):
+    def rowCount(self, _parent=None):
         return len(self.results)
 
-    def columnCount(self, _parent=QModelIndex()):
+    def columnCount(self, _parent=None):
         return len(self.columns)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -105,7 +101,7 @@ class ResultModel(QAbstractTableModel):
         self._rows_by_ip.clear()
         self.endResetModel()
 
-    def add_batch(self, batch: List[ScanResult]):
+    def add_batch(self, batch: list[ScanResult]):
         if not batch:
             return
         new_results = []
@@ -211,7 +207,9 @@ class ScanWorker(QThread):
             success, message = True, "扫描完成"
         except (ScanCancelled, asyncio.CancelledError):
             success, message = False, "扫描已停止"
-        except Exception as exc:
+        # Thread entry-point boundary: always return control to the UI even if a
+        # platform network backend raises an unexpected exception.
+        except Exception as exc:  # noqa: BLE001
             success, message = False, f"扫描失败：{exc}"
         finally:
             with contextlib.suppress(Exception):
@@ -434,7 +432,7 @@ class IPScannerPage(QWidget):
         self._refresh_network_info()
         try:
             target_text = self._target_text()
-            target = parse_target(target_text)
+            parse_target(target_text)
             ports = parse_ports(self.ports.text())
             config = ScanConfig(
                 method=self.method.currentData(),

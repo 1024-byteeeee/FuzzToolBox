@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -8,7 +10,7 @@ class ScanConfig:
     timeout: float = 0.5
     retries: int = 0
     concurrency: int = 256
-    ports: List[int] = field(default_factory=lambda: [22, 80, 443, 445, 3389, 8080])
+    ports: list[int] = field(default_factory=lambda: [22, 80, 443, 445, 3389, 8080])
     resolve_hostname: bool = False
     include_dead: bool = False
 
@@ -32,14 +34,14 @@ class ScanResult:
     ip: str
     is_alive: bool
     method: str
-    response_time_ms: Optional[float] = None
-    hostname: Optional[str] = None
-    mac: Optional[str] = None
-    open_ports: List[int] = field(default_factory=list)
-    error: Optional[str] = None
+    response_time_ms: float | None = None
+    hostname: str | None = None
+    mac: str | None = None
+    open_ports: list[int] = field(default_factory=list)
+    error: str | None = None
     details_pending: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
         value.pop("details_pending", None)
         return value

@@ -12,7 +12,16 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
+from fuzztoolbox.tools.screenshot.annotations import (
+    append_brush_points,
+    new_annotation,
+)
 from fuzztoolbox.tools.screenshot.overlay import ScreenshotOverlay, ScreenshotScrollBar
+from fuzztoolbox.tools.screenshot.selection import (
+    handle_points,
+    macos_dock_regions,
+    resize_selection,
+)
 
 
 class ScreenshotOverlayTests(unittest.TestCase):
@@ -121,14 +130,18 @@ class ScreenshotOverlayTests(unittest.TestCase):
         QTest.keyClick(editor, Qt.Key_Return)
 
         self.assertEqual(self.overlay._annotations[-1]["font_family"], family)
-        self.assertEqual(self.overlay.font_button.toolTip(), family)
+        self.assertEqual(self.overlay.toolbar.font_button.toolTip(), family)
 
     def test_mosaic_uses_an_interpolated_brush_path(self):
-        annotation = self.overlay._new_annotation(
-            "mosaic", QPoint(20, 20), QPoint(20, 20)
+        annotation = new_annotation(
+            "mosaic",
+            QPoint(20, 20),
+            QPoint(20, 20),
+            self.overlay._color,
+            self.overlay._width,
         )
 
-        self.overlay._append_brush_points(annotation, QPoint(120, 20))
+        append_brush_points(annotation, QPoint(120, 20))
 
         self.assertGreater(len(annotation["points"]), 2)
         self.assertEqual(annotation["points"][-1], QPoint(120, 20))
@@ -139,32 +152,32 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertFalse(self.overlay.cursor().pixmap().isNull())
 
     def test_width_slider_and_number_input_stay_synchronized(self):
-        self.overlay.width_slider.setValue(170)
+        self.overlay.toolbar.width_slider.setValue(170)
 
-        self.assertEqual(self.overlay.width_spin.value(), 17)
+        self.assertEqual(self.overlay.toolbar.width_spin.value(), 17)
         self.assertEqual(self.overlay._width, 17)
-        self.assertEqual(self.overlay.width_button.text(), "粗细 17")
+        self.assertEqual(self.overlay.toolbar.width_button.text(), "粗细 17")
 
     def test_font_size_has_an_independent_slider_and_number_input(self):
-        self.overlay.font_size_slider.setValue(365)
+        self.overlay.toolbar.font_size_slider.setValue(365)
 
-        self.assertEqual(self.overlay.font_size_spin.value(), 36.5)
+        self.assertEqual(self.overlay.toolbar.font_size_spin.value(), 36.5)
         self.assertEqual(self.overlay._font_size, 36.5)
-        self.assertEqual(self.overlay.font_size_button.text(), "字号 36.5")
+        self.assertEqual(self.overlay.toolbar.font_size_button.text(), "字号 36.5")
         self.assertEqual(self.overlay._width, 4)
 
     def test_font_size_supports_100_without_resizing_the_text_editor(self):
         self.overlay.selection = QRect(20, 20, 600, 400)
-        self.overlay.font_size_spin.setValue(100)
+        self.overlay.toolbar.font_size_spin.setValue(100)
 
         self.overlay._begin_text_edit(QPoint(80, 90))
 
         self.assertEqual(self.overlay._font_size, 100)
         self.assertEqual(self.overlay._text_editor.height(), 38)
-        self.assertGreaterEqual(self.overlay.font_size_spin.width(), 100)
+        self.assertGreaterEqual(self.overlay.toolbar.font_size_spin.width(), 100)
 
     def test_clicking_the_active_tool_again_cancels_it(self):
-        button = self.overlay._tool_buttons["rect"]
+        button = self.overlay.toolbar._tool_buttons["rect"]
 
         button.click()
         self.assertEqual(self.overlay._tool, "rect")
@@ -189,17 +202,22 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
     def test_custom_color_button_does_not_overlap_swatches(self):
         self.overlay.show()
-        self.overlay.color_palette.show()
+        self.overlay.toolbar.color_palette.show()
         self.app.processEvents()
 
-        swatch_bottom = max(swatch.geometry().bottom() for swatch in self.overlay._swatches)
-        self.assertGreater(self.overlay.custom_color_button.geometry().top(), swatch_bottom)
+        swatch_bottom = max(
+            swatch.geometry().bottom() for swatch in self.overlay.toolbar._swatches
+        )
+        custom = self.overlay.toolbar.color_palette.findChildren(QPushButton)[-1]
+        self.assertGreater(custom.geometry().top(), swatch_bottom)
 
     def test_color_value_uses_the_selected_color_and_compact_width(self):
         self.overlay._choose_color(QColor("#19be6b"))
 
-        self.assertEqual(self.overlay.color_button.display_color, QColor("#19be6b"))
-        self.assertLess(self.overlay.color_button.width(), 132)
+        self.assertEqual(
+            self.overlay.toolbar.color_button.display_color, QColor("#19be6b")
+        )
+        self.assertLess(self.overlay.toolbar.color_button.width(), 132)
 
     def test_toolbar_buttons_are_vertically_centered_at_one_height(self):
         self.overlay.show()
@@ -211,7 +229,7 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         self.assertTrue(buttons)
         self.assertEqual({button.height() for button in buttons}, {38})
-        self.overlay._center_toolbar_buttons()
+        self.overlay.toolbar._center_buttons()
         self.assertEqual(self.overlay.toolbar.height(), 50)
         top_gaps = {button.geometry().top() for button in buttons}
         bottom_gaps = {
@@ -238,8 +256,8 @@ class ScreenshotOverlayTests(unittest.TestCase):
         QTest.mouseClick(self.overlay, Qt.LeftButton, pos=QPoint(100, 105))
         self.assertEqual(annotation["start"], QPoint(80, 90))
         self.assertIs(self.overlay._active_annotation, annotation)
-        self.assertEqual(self.overlay.width_spin.value(), 4)
-        self.assertEqual(self.overlay.font_size_spin.value(), 20)
+        self.assertEqual(self.overlay.toolbar.width_spin.value(), 4)
+        self.assertEqual(self.overlay.toolbar.font_size_spin.value(), 20)
 
         QTest.mousePress(self.overlay, Qt.LeftButton, pos=QPoint(100, 105))
         self.overlay._move_text_annotation(QPoint(150, 145))
@@ -271,14 +289,14 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         self.assertIs(self.overlay._active_annotation, annotation)
         self.assertEqual(self.overlay._color, QColor("#19be6b"))
-        self.assertEqual(self.overlay.width_spin.value(), 9)
-        self.overlay.width_spin.setValue(12)
+        self.assertEqual(self.overlay.toolbar.width_spin.value(), 9)
+        self.overlay.toolbar.width_spin.setValue(12)
         self.overlay._choose_color(QColor("#409eff"))
         self.assertEqual(annotation["width"], 12)
         self.assertEqual(annotation["color"], QColor("#409eff"))
 
     def test_font_list_is_exempt_from_frozen_canvas_input_lock(self):
-        view = self.overlay.font_combo.view()
+        view = self.overlay.toolbar.font_combo.view()
 
         self.assertTrue(self.overlay._is_control_event_target(view))
         self.assertTrue(self.overlay._is_control_event_target(view.viewport()))
@@ -286,27 +304,31 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
     def test_visible_font_popup_accepts_native_scroll_routing(self):
         self.overlay.show()
-        self.overlay.font_panel.show()
-        self.overlay.font_combo.showPopup()
+        self.overlay.toolbar.font_panel.show()
+        self.overlay.toolbar.font_combo.showPopup()
         self.overlay._install_input_lock()
         self.app.processEvents()
 
-        self.assertTrue(self.overlay.font_combo.view().isVisible())
+        self.assertTrue(self.overlay.toolbar.font_combo.view().isVisible())
         self.assertFalse(
             self.overlay.eventFilter(self.overlay.toolbar, QEvent(QEvent.Wheel))
         )
         self.assertEqual(
-            self.overlay.font_combo.view().verticalScrollBar().objectName(),
+            self.overlay.toolbar.font_combo.view().verticalScrollBar().objectName(),
             "screenshotFontScrollBar",
         )
-        scroll_bar = self.overlay.font_combo.view().verticalScrollBar()
-        self.assertEqual(self.overlay.font_combo.view().frameShape(), QFrame.NoFrame)
+        scroll_bar = self.overlay.toolbar.font_combo.view().verticalScrollBar()
+        self.assertEqual(
+            self.overlay.toolbar.font_combo.view().frameShape(), QFrame.NoFrame
+        )
         self.assertIn("border: 0", scroll_bar.styleSheet())
         self.assertIn("outline: 0", scroll_bar.styleSheet())
         scroll_bar.setValue(scroll_bar.minimum())
         wheel = QWheelEvent(
             QPointF(20, 20),
-            QPointF(self.overlay.font_combo.view().mapToGlobal(QPoint(20, 20))),
+            QPointF(
+                self.overlay.toolbar.font_combo.view().mapToGlobal(QPoint(20, 20))
+            ),
             QPoint(),
             QPoint(0, -120),
             Qt.NoButton,
@@ -314,9 +336,11 @@ class ScreenshotOverlayTests(unittest.TestCase):
             Qt.ScrollUpdate,
             False,
         )
-        QApplication.sendEvent(self.overlay.font_combo.view().viewport(), wheel)
+        QApplication.sendEvent(
+            self.overlay.toolbar.font_combo.view().viewport(), wheel
+        )
         self.assertGreater(scroll_bar.value(), scroll_bar.minimum())
-        self.overlay.font_combo.hidePopup()
+        self.overlay.toolbar.font_combo.hidePopup()
 
     def test_font_scrollbar_is_fully_custom_painted_without_white_frame(self):
         scroll_bar = ScreenshotScrollBar(Qt.Vertical)
@@ -346,31 +370,44 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         for handle, cursor in expected.items():
             self.overlay._refresh_hover_cursor(
-                self.overlay._handle_points()[handle]
+                handle_points(self.overlay.selection)[handle]
             )
             self.assertEqual(self.overlay.cursor().shape(), cursor)
 
     def test_resizing_selection_preserves_existing_annotations(self):
         self.overlay.selection = QRect(100, 100, 400, 300)
-        annotation = self.overlay._new_annotation(
-            "rect", QPoint(150, 150), QPoint(240, 220)
+        annotation = new_annotation(
+            "rect",
+            QPoint(150, 150),
+            QPoint(240, 220),
+            self.overlay._color,
+            self.overlay._width,
         )
         self.overlay._annotations.append(annotation)
 
         QTest.mousePress(
             self.overlay,
             Qt.LeftButton,
-            pos=self.overlay._handle_points()["br"],
+            pos=handle_points(self.overlay.selection)["br"],
         )
-        self.overlay._resize_selection(QPoint(550, 450))
+        self.overlay.selection = resize_selection(
+            self.overlay._selection_start,
+            self.overlay._handle,
+            QPoint(550, 450),
+            self.overlay.rect(),
+        )
         QTest.mouseRelease(self.overlay, Qt.LeftButton, pos=QPoint(550, 450))
 
         self.assertEqual(self.overlay._annotations, [annotation])
 
     def test_moving_selection_moves_all_annotations_with_it(self):
         self.overlay.selection = QRect(100, 100, 400, 300)
-        annotation = self.overlay._new_annotation(
-            "pen", QPoint(150, 150), QPoint(150, 150)
+        annotation = new_annotation(
+            "pen",
+            QPoint(150, 150),
+            QPoint(150, 150),
+            self.overlay._color,
+            self.overlay._width,
         )
         annotation["points"].append(QPoint(170, 170))
         self.overlay._annotations.append(annotation)
@@ -486,12 +523,8 @@ class ScreenshotOverlayTests(unittest.TestCase):
     def test_macos_dock_fallback_supports_bottom_and_side_docks(self):
         geometry = QRect(0, 0, 1440, 900)
 
-        bottom = self.overlay._macos_dock_regions(
-            geometry, QRect(0, 30, 1440, 810)
-        )
-        left = self.overlay._macos_dock_regions(
-            geometry, QRect(80, 30, 1360, 870)
-        )
+        bottom = macos_dock_regions(geometry, QRect(0, 30, 1440, 810))
+        left = macos_dock_regions(geometry, QRect(80, 30, 1360, 870))
 
         self.assertEqual(bottom, [QRect(0, 840, 1440, 60)])
         self.assertEqual(left, [QRect(0, 0, 80, 900)])

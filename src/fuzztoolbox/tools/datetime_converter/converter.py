@@ -96,7 +96,9 @@ def convert_datetime(value: str, timezone_value="local") -> DateTimeResult:
     except ValueError:
         for pattern in ("%Y/%m/%d %H:%M:%S.%f", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"):
             try:
-                parsed = datetime.strptime(text, pattern)
+                # The selected/local zone is intentionally attached below after all
+                # supported input syntaxes have been parsed.
+                parsed = datetime.strptime(text, pattern)  # noqa: DTZ007
                 break
             except ValueError:
                 continue

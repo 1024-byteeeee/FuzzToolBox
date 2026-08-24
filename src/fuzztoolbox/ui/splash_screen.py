@@ -1,8 +1,8 @@
 """Lightweight startup screen shown while the toolbox UI is imported."""
+from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -20,7 +20,7 @@ def _font(size: int, weight: QFont.Weight = QFont.Normal) -> QFont:
     return font
 
 
-def create_splash_screen(device_pixel_ratio: Optional[float] = None) -> QSplashScreen:
+def create_splash_screen(device_pixel_ratio: float | None = None) -> QSplashScreen:
     """Create the startup screen without importing the heavyweight main window."""
     width, height = SPLASH_SIZE
     if device_pixel_ratio is None:

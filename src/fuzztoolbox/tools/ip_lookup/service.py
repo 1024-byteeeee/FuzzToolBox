@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
 from urllib.request import Request, urlopen
 
 USER_AGENT = "FuzzToolBox/2.1 IP-Lookup"
@@ -42,7 +41,7 @@ MACOS_CERTIFICATE_FILES = (
 @dataclass
 class SourceResult:
     source: str
-    fields: Dict[str, object] = field(default_factory=dict)
+    fields: dict[str, object] = field(default_factory=dict)
     error: str = ""
 
 
@@ -53,7 +52,7 @@ class LookupReport:
     ptr: str = ""
     current_ipv4: str = ""
     current_ipv6: str = ""
-    sources: List[SourceResult] = field(default_factory=list)
+    sources: list[SourceResult] = field(default_factory=list)
 
     def merged(self, key: str):
         for source in self.sources:
@@ -147,7 +146,7 @@ def _read_json(url: str, timeout: float = 5.0) -> dict:
     return json.loads(_read_text(url, timeout))
 
 
-def discover_public_ip(version: int, timeout: float = 4.0) -> Optional[str]:
+def discover_public_ip(version: int, timeout: float = 4.0) -> str | None:
     if version not in PUBLIC_IP_URLS:
         raise ValueError("IP version must be 4 or 6")
     for url in PUBLIC_IP_URLS[version]:
@@ -174,7 +173,7 @@ def _dns_name(value: str) -> bytes:
     return b"".join(bytes((len(label),)) + label.encode("ascii") for label in value.split(".")) + b"\0"
 
 
-def _discover_ipv4_via_dns(timeout: float = 4.0) -> Optional[str]:
+def _discover_ipv4_via_dns(timeout: float = 4.0) -> str | None:
     """Ask OpenDNS for myip.opendns.com without relying on HTTPS certificates."""
     transaction = os.urandom(2)
     query = transaction + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"

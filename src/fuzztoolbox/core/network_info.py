@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ipaddress
 import platform
 import re
@@ -5,7 +7,6 @@ import socket
 import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional
 
 from .subprocess_utils import hidden_subprocess_kwargs
 
@@ -45,7 +46,7 @@ VIRTUAL_INTERFACE_HINTS = (
 WINDOWS_SCRIPT_DIR = Path(__file__).resolve().parents[1] / "runtime_scripts" / "windows"
 
 
-def _powershell_script_command(script_name: str, *arguments: str) -> List[str]:
+def _powershell_script_command(script_name: str, *arguments: str) -> list[str]:
     return [
         "powershell.exe",
         "-NoProfile",
@@ -60,24 +61,24 @@ def _powershell_script_command(script_name: str, *arguments: str) -> List[str]:
 
 @dataclass(frozen=True)
 class NetworkInfo:
-    interface: Optional[str] = None
-    ip: Optional[str] = None
-    prefix_length: Optional[int] = None
-    gateway: Optional[str] = None
-    mac: Optional[str] = None
+    interface: str | None = None
+    ip: str | None = None
+    prefix_length: int | None = None
+    gateway: str | None = None
+    mac: str | None = None
 
     @property
     def address(self) -> str:
         return self.ip or "未检测到 IPv4"
 
     @property
-    def netmask(self) -> Optional[str]:
+    def netmask(self) -> str | None:
         if self.prefix_length is None:
             return None
         return str(ipaddress.IPv4Network(f"0.0.0.0/{self.prefix_length}").netmask)
 
     @property
-    def cidr(self) -> Optional[str]:
+    def cidr(self) -> str | None:
         if not self.ip or self.prefix_length is None:
             return None
         network = ipaddress.IPv4Network(f"{self.ip}/{self.prefix_length}", strict=False)
@@ -104,7 +105,7 @@ class NetworkInfo:
         return "  ·  ".join(parts)
 
 
-def _run(args: List[str], timeout: float = 3.0) -> str:
+def _run(args: list[str], timeout: float = 3.0) -> str:
     try:
         result = subprocess.run(
             args,
@@ -119,7 +120,7 @@ def _run(args: List[str], timeout: float = 3.0) -> str:
         return ""
 
 
-def _socket_source_ip() -> Optional[str]:
+def _socket_source_ip() -> str | None:
     for remote in (("1.1.1.1", 53), ("8.8.8.8", 53)):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -136,7 +137,7 @@ def _socket_source_ip() -> Optional[str]:
     return None
 
 
-def _prefix_from_netmask(value: Optional[str]) -> Optional[int]:
+def _prefix_from_netmask(value: str | None) -> int | None:
     if not value:
         return None
     try:
@@ -145,7 +146,7 @@ def _prefix_from_netmask(value: Optional[str]) -> Optional[int]:
         return None
 
 
-def _normalized_mac(value: Optional[str]) -> Optional[str]:
+def _normalized_mac(value: str | None) -> str | None:
     if not value:
         return None
     parts = re.split("[:-]", value.strip())
@@ -165,10 +166,10 @@ def _is_rfc1918(address: ipaddress.IPv4Address) -> bool:
 def _interface_score(
     name: str,
     ip: str,
-    prefix_length: Optional[int],
+    prefix_length: int | None,
     is_up: bool,
-    mac: Optional[str],
-    preferred_ip: Optional[str],
+    mac: str | None,
+    preferred_ip: str | None,
 ) -> int:
     address = ipaddress.IPv4Address(ip)
     normalized_name = name.lower().replace(" ", "")
@@ -184,9 +185,7 @@ def _interface_score(
         score += 20
     if preferred_ip == ip:
         score += 100 if not virtual else 20
-    if re.match(r"^(?:en\d+|eth\d*|eno\d+|ens\d+|enp\w+|wlan\d*|wlp\w+)$", normalized_name):
-        score += 40
-    elif normalized_name in {"ethernet", "wi-fi", "wifi", "wlan"}:
+    if re.match(r"^(?:en\d+|eth\d*|eno\d+|ens\d+|enp\w+|wlan\d*|wlp\w+)$", normalized_name) or normalized_name in {"ethernet", "wi-fi", "wifi", "wlan"}:
         score += 40
     if virtual:
         score -= 100
@@ -197,7 +196,7 @@ def _interface_score(
     return score
 
 
-def _psutil_network_info() -> Optional[NetworkInfo]:
+def _psutil_network_info() -> NetworkInfo | None:
     if psutil is None:
         return None
     preferred_ip = _socket_source_ip()
@@ -245,7 +244,7 @@ def _psutil_network_info() -> Optional[NetworkInfo]:
     return NetworkInfo(interface=name, ip=ip, prefix_length=prefix_length, mac=mac)
 
 
-def _gateway_for_interface(interface: str) -> Optional[str]:
+def _gateway_for_interface(interface: str) -> str | None:
     system = platform.system()
     if system == "Darwin":
         output = _run(["/sbin/route", "-n", "get", "default"])
@@ -263,7 +262,7 @@ def _gateway_for_interface(interface: str) -> Optional[str]:
     return None
 
 
-def _prefix_from_hex_netmask(value: str) -> Optional[int]:
+def _prefix_from_hex_netmask(value: str) -> int | None:
     try:
         number = int(value, 16)
         netmask = str(ipaddress.IPv4Address(number))

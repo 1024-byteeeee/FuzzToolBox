@@ -1,7 +1,7 @@
 import json
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
 
 from .models import ScanConfig, ScanResult
 
@@ -76,7 +76,7 @@ class HistoryStore:
         )
         self.connection.commit()
 
-    def recent_tasks(self, limit: int = 50) -> List[sqlite3.Row]:
+    def recent_tasks(self, limit: int = 50) -> list[sqlite3.Row]:
         self.connection.row_factory = sqlite3.Row
         return list(
             self.connection.execute(

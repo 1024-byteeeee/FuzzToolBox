@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .app_state import ApplicationPreferences, ShortcutAction
 from .global_hotkey import WindowsShortcutRecorder, canonical_shortcut
 from .style_loader import apply_style
 from .tool_registry import TOOLS
@@ -167,7 +168,12 @@ class SettingsDialog(QDialog):
 
     def __init__(self, settings, parent=None, hotkey_validator=None):
         super().__init__(parent)
-        self.settings = settings
+        self.preferences = (
+            settings
+            if isinstance(settings, ApplicationPreferences)
+            else ApplicationPreferences(settings)
+        )
+        bindings = self.preferences.shortcuts()
         self.hotkey_validator = hotkey_validator
         self.setWindowTitle("设置")
         self.setFixedSize(620, 680)
@@ -210,25 +216,29 @@ class SettingsDialog(QDialog):
             shortcut_layout,
             "屏幕取色",
             "隐藏主程序窗口后启动屏幕取色。",
-            "shortcuts/color-picker-screen",
+            ShortcutAction.COLOR_PICKER,
+            bindings,
         )
         self.screenshot_edit = self._add_shortcut_item(
             shortcut_layout,
             "截图",
             "隐藏主程序窗口后启动截图工具。",
-            "shortcuts/screenshot",
+            ShortcutAction.SCREENSHOT,
+            bindings,
         )
         self.screen_picker_keep_edit = self._add_shortcut_item(
             shortcut_layout,
             "屏幕取色（保留主程序）",
             "保持主程序窗口可见并启动屏幕取色。",
-            "shortcuts/color-picker-screen-keep-main",
+            ShortcutAction.COLOR_PICKER_KEEP_MAIN,
+            bindings,
         )
         self.screenshot_keep_edit = self._add_shortcut_item(
             shortcut_layout,
             "截图（保留主程序）",
             "保持主程序窗口可见并启动截图工具。",
-            "shortcuts/screenshot-keep-main",
+            ShortcutAction.SCREENSHOT_KEEP_MAIN,
+            bindings,
         )
         cards.addWidget(shortcut_group)
         cards.addStretch()
@@ -248,7 +258,7 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
-    def _add_shortcut_item(self, root, title, description, setting_key):
+    def _add_shortcut_item(self, root, title, description, action, bindings):
         host = QFrame()
         host.setObjectName("settingsShortcutItem")
         card = QVBoxLayout(host)
@@ -264,7 +274,7 @@ class SettingsDialog(QDialog):
 
         shortcut_row = QHBoxLayout()
         shortcut_row.setSpacing(10)
-        edit = ShortcutEdit(str(self.settings.value(setting_key, "")), host)
+        edit = ShortcutEdit(bindings.for_action(action), host)
         edit.setFixedHeight(42)
         edit.setToolTip("按下至少两个键组成的快捷键")
         shortcut_row.addWidget(edit, 1)
@@ -279,13 +289,29 @@ class SettingsDialog(QDialog):
 
     def _save(self):
         shortcut_fields = (
-            ("屏幕取色", "shortcuts/color-picker-screen", self.screen_picker_edit),
-            ("截图", "shortcuts/screenshot", self.screenshot_edit),
-            ("保留主程序的屏幕取色", "shortcuts/color-picker-screen-keep-main", self.screen_picker_keep_edit),
-            ("保留主程序的截图", "shortcuts/screenshot-keep-main", self.screenshot_keep_edit),
+            (
+                "屏幕取色",
+                ShortcutAction.COLOR_PICKER,
+                self.screen_picker_edit,
+            ),
+            (
+                "截图",
+                ShortcutAction.SCREENSHOT,
+                self.screenshot_edit,
+            ),
+            (
+                "保留主程序的屏幕取色",
+                ShortcutAction.COLOR_PICKER_KEEP_MAIN,
+                self.screen_picker_keep_edit,
+            ),
+            (
+                "保留主程序的截图",
+                ShortcutAction.SCREENSHOT_KEEP_MAIN,
+                self.screenshot_keep_edit,
+            ),
         )
         values = []
-        for title, _key, edit in shortcut_fields:
+        for title, _action, edit in shortcut_fields:
             sequence = edit.portableText()
             if sequence and len(sequence.split("+")) < 2:
                 self.error.setText(f"{title}快捷键至少需要两个按键。")
@@ -304,9 +330,12 @@ class SettingsDialog(QDialog):
             self.error.setText("无法注册快捷键，可能已被系统或其他软件占用。")
             return
         for tool in TOOLS:
-            self.settings.remove(f"shortcuts/{tool.id}")
-        for (_title, key, _edit), value in zip(shortcut_fields, values):
-            self.settings.setValue(key, value)
-        self.settings.sync()
+            self.preferences.remove_shortcut(f"shortcuts/{tool.id}")
+        self.preferences.save_shortcuts(
+            {
+                action: value
+                for (_title, action, _edit), value in zip(shortcut_fields, values)
+            }
+        )
         self.shortcuts_changed.emit()
         self.accept()

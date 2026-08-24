@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import math
 import platform
-import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -25,168 +23,60 @@ from PySide6.QtGui import (
     QGuiApplication,
     QKeySequence,
     QPainter,
-    QPainterPath,
     QPen,
     QPixmap,
-    QPolygon,
     QShortcut,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
     QApplication,
-    QButtonGroup,
     QColorDialog,
-    QDoubleSpinBox,
     QFileDialog,
-    QFontComboBox,
-    QFrame,
-    QGridLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
-    QPushButton,
-    QScrollBar,
-    QSlider,
-    QStyle,
-    QStyleOptionButton,
-    QStylePainter,
     QWidget,
 )
 
 from fuzztoolbox.tools.color_picker.eyedropper import _grab_screen, _raise_window_level
 from fuzztoolbox.ui.style_loader import apply_style
 
+from .annotations import (
+    annotation_contains,
+    append_brush_points,
+    new_annotation,
+    text_rect,
+    translate_annotations,
+)
+from .capture_backend import (
+    ScreenCaptureCoordinator,
+    compose_desktop,
+    virtual_geometry,
+)
+from .controls import ScreenshotScrollBar
+from .renderer import AnnotationRenderer
+from .selection import (
+    handle_points,
+    hit_handle,
+    macos_dock_regions,
+    resize_selection,
+    unique_regions,
+)
+from .toolbar import ScreenshotToolbar
 from .window_detection import enumerate_window_rects
 
-
-class ColorSwatchButton(QPushButton):
-    """Small painted swatch that avoids runtime stylesheet generation."""
-
-    def __init__(self, color, parent=None):
-        super().__init__(parent)
-        self.color = QColor(color)
-        self.setCheckable(True)
-        self.setFixedSize(28, 28)
-        self.setCursor(Qt.PointingHandCursor)
-
-    def paintEvent(self, _event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.setPen(QPen(QColor("#ffffff") if self.isChecked() else QColor("#667085"),
-                            3 if self.isChecked() else 1))
-        painter.setBrush(self.color)
-        painter.drawEllipse(self.rect().adjusted(3, 3, -3, -3))
-
-
-class ColorValueButton(QPushButton):
-    """Toolbar button with an independently colored HEX value."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.display_color = QColor("#ff4d4f")
-        self.setAccessibleName("颜色")
-
-    def set_display_color(self, color):
-        self.display_color = QColor(color)
-        self.update()
-
-    def paintEvent(self, _event):
-        option = QStyleOptionButton()
-        self.initStyleOption(option)
-        option.text = ""
-        painter = QStylePainter(self)
-        painter.drawControl(QStyle.CE_PushButton, option)
-
-        label = "颜色 "
-        value = self.display_color.name().upper()
-        metrics = painter.fontMetrics()
-        total_width = metrics.horizontalAdvance(label + value)
-        x = (self.width() - total_width) // 2
-        baseline = (self.height() + metrics.ascent() - metrics.descent()) // 2
-        painter.setPen(QColor("#edf2f7"))
-        painter.drawText(x, baseline, label)
-        x += metrics.horizontalAdvance(label)
-        painter.setPen(self.display_color)
-        painter.drawText(x, baseline, value)
-
-
-class SmoothSlider(QSlider):
-    """Slider whose handle follows the pointer instead of page-stepping."""
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._set_from_position(event.position().x())
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() & Qt.LeftButton:
-            self._set_from_position(event.position().x())
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def _set_from_position(self, position):
-        span = max(1.0, self.width() - 14.0)
-        ratio = min(1.0, max(0.0, (position - 7.0) / span))
-        self.setValue(round(self.minimum() + ratio * (self.maximum() - self.minimum())))
-
-
-class ScreenshotScrollBar(QScrollBar):
-    """Theme-painted scrollbar that bypasses the macOS native focus frame."""
-
-    def __init__(self, orientation, parent=None):
-        super().__init__(orientation, parent)
-        self.setAttribute(Qt.WA_OpaquePaintEvent, True)
-        self.setAttribute(Qt.WA_MacShowFocusRect, False)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setMouseTracking(True)
-
-    def paintEvent(self, _event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#172230"))
-        track = self.rect().adjusted(2, 2, -2, -2)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#172230"))
-        painter.drawRoundedRect(track, 4, 4)
-        handle = self._handle_rect(track)
-        painter.setBrush(QColor("#6b7d96" if self.underMouse() else "#526176"))
-        painter.drawRoundedRect(handle, 4, 4)
-
-    def _handle_rect(self, track):
-        extent = track.height() if self.orientation() == Qt.Vertical else track.width()
-        total = max(1, self.maximum() - self.minimum() + self.pageStep())
-        handle_extent = min(extent, max(28, round(extent * self.pageStep() / total)))
-        travel = max(0, extent - handle_extent)
-        value_range = max(1, self.maximum() - self.minimum())
-        offset = round(travel * (self.value() - self.minimum()) / value_range)
-        if self.orientation() == Qt.Vertical:
-            return QRect(track.left(), track.top() + offset, track.width(), handle_extent)
-        return QRect(track.left() + offset, track.top(), handle_extent, track.height())
-
-    def enterEvent(self, event):
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.update()
-        super().leaveEvent(event)
+__all__ = ["ScreenshotOverlay", "ScreenshotScrollBar"]
 
 
 class ScreenshotOverlay(QWidget):
     completed = Signal()
     cancelled = Signal()
     capture_ready = Signal()
-    _screens_ready = Signal(list)
 
     TOOLS = (("矩形", "rect"), ("椭圆", "ellipse"), ("箭头", "arrow"),
              ("画笔", "pen"), ("文字", "text"), ("马赛克", "mosaic"))
     COLORS = (QColor("#ff4d4f"), QColor("#409eff"), QColor("#19be6b"),
               QColor("#ffd43b"), QColor("#ffffff"), QColor("#202124"))
-    TOOLBAR_HEIGHT = 50
-
     def __init__(self, parent=None, *, include_app_window=False):
         super().__init__(parent)
         self._include_app_window = include_app_window
@@ -226,236 +116,44 @@ class ScreenshotOverlay(QWidget):
         self._screen_candidates = []
         self._hovered_window = QRect()
         self._pending_window = QRect()
-        self._screens_ready.connect(self._show_overlay)
-        self._build_toolbar()
+        self._capture = ScreenCaptureCoordinator(_grab_screen, self)
+        self._capture.ready.connect(self._show_overlay)
+        self._capture.failed.connect(self.cancelled.emit)
+        self.toolbar = ScreenshotToolbar(
+            self,
+            tools=self.TOOLS,
+            color=self._color,
+            width=self._width,
+            font_size=self._font_size,
+            font=self.font(),
+        )
+        self.toolbar.tool_changed.connect(self._select_tool)
+        self.toolbar.color_changed.connect(self._choose_color)
+        self.toolbar.custom_color_requested.connect(self._choose_custom_color)
+        self.toolbar.width_changed.connect(self._set_width)
+        self.toolbar.font_size_changed.connect(self._set_font_size)
+        self.toolbar.font_family_changed.connect(self._set_font_family)
+        self.toolbar.undo_requested.connect(self._undo)
+        self.toolbar.save_requested.connect(self._save)
+        self.toolbar.finish_requested.connect(self._copy_and_finish)
+        self.toolbar.cancel_requested.connect(self._cancel)
         self._escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self._escape_shortcut.setContext(Qt.ApplicationShortcut)
         self._escape_shortcut.activated.connect(self._cancel)
-
-    def _build_toolbar(self):
-        self.toolbar = QFrame(self)
-        self.toolbar.setObjectName("screenshotToolbar")
-        layout = QHBoxLayout(self.toolbar)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignVCenter)
-        self.tool_group = QButtonGroup(self)
-        self.tool_group.setExclusive(False)
-        self._tool_buttons = {}
-        for label, tool in self.TOOLS:
-            button = QPushButton(label)
-            button.setObjectName("screenshotToolButton")
-            button.setCheckable(True)
-            button.clicked.connect(
-                lambda checked=False, value=tool: self._select_tool(value, checked)
-            )
-            self.tool_group.addButton(button)
-            self._tool_buttons[tool] = button
-            layout.addWidget(button)
-        self.color_button = ColorValueButton()
-        self.color_button.setObjectName("screenshotColorButton")
-        self.color_button.setFixedWidth(108)
-        self.color_button.clicked.connect(self._toggle_color_palette)
-        layout.addWidget(self.color_button)
-        self.width_button = QPushButton("粗细 4")
-        self.width_button.clicked.connect(self._toggle_width_panel)
-        layout.addWidget(self.width_button)
-        self.font_size_button = QPushButton("字号 20")
-        self.font_size_button.clicked.connect(self._toggle_font_size_panel)
-        layout.addWidget(self.font_size_button)
-        self.font_button = QPushButton()
-        self.font_button.setFixedWidth(138)
-        self.font_button.clicked.connect(self._toggle_font_panel)
-        layout.addWidget(self.font_button)
-        undo = QPushButton("撤销")
-        undo.clicked.connect(self._undo)
-        layout.addWidget(undo)
-        save = QPushButton("保存")
-        save.clicked.connect(self._save)
-        layout.addWidget(save)
-        finish = QPushButton("完成")
-        finish.setObjectName("screenshotFinishButton")
-        finish.clicked.connect(self._copy_and_finish)
-        layout.addWidget(finish)
-        cancel = QPushButton("取消")
-        cancel.clicked.connect(self._cancel)
-        layout.addWidget(cancel)
-        for button in self.toolbar.findChildren(
-            QPushButton, options=Qt.FindDirectChildrenOnly
-        ):
-            button.setFixedHeight(38)
-            button.ensurePolished()
-        self.toolbar.ensurePolished()
-        self.toolbar.resize(self.toolbar.sizeHint().width(), self.TOOLBAR_HEIGHT)
-        self._center_toolbar_buttons()
-        self.toolbar.hide()
-        self._build_color_palette()
-        self._build_width_panel()
-        self._build_font_size_panel()
-        self._build_font_panel()
-        self._refresh_font_button()
-        self._refresh_color_button()
-
-    def _build_color_palette(self):
-        self.color_palette = QFrame(self)
-        self.color_palette.setObjectName("screenshotPopup")
-        layout = QGridLayout(self.color_palette)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setHorizontalSpacing(7)
-        layout.setVerticalSpacing(10)
-        self._swatches = []
-        palette = (
-            "#ff4d4f", "#ff8a00", "#ffd43b", "#19be6b",
-            "#00b8d9", "#409eff", "#7c4dff", "#d946ef",
-            "#ffffff", "#aeb6c2", "#202124", "#000000",
-        )
-        for index, value in enumerate(palette):
-            swatch = ColorSwatchButton(value, self.color_palette)
-            swatch.clicked.connect(
-                lambda checked=False, color=value: self._choose_color(QColor(color))
-            )
-            layout.addWidget(swatch, index // 6, index % 6)
-            self._swatches.append(swatch)
-        custom = QPushButton("自定义颜色")
-        self.custom_color_button = custom
-        custom.setObjectName("screenshotPopupButton")
-        custom.setFixedHeight(32)
-        custom.clicked.connect(self._choose_custom_color)
-        layout.addWidget(custom, 2, 0, 1, 6)
-        layout.setRowMinimumHeight(0, 28)
-        layout.setRowMinimumHeight(1, 28)
-        layout.setRowMinimumHeight(2, 32)
-        self.color_palette.adjustSize()
-        self.color_palette.setFixedSize(self.color_palette.sizeHint())
-        self.color_palette.hide()
-
-    def _build_width_panel(self):
-        self.width_panel = QFrame(self)
-        self.width_panel.setObjectName("screenshotPopup")
-        layout = QHBoxLayout(self.width_panel)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(10)
-        label = QLabel("粗细")
-        layout.addWidget(label)
-        self.width_slider = SmoothSlider(Qt.Horizontal)
-        self.width_slider.setRange(10, 400)
-        self.width_slider.setValue(round(self._width * 10))
-        self.width_slider.setMinimumWidth(150)
-        layout.addWidget(self.width_slider)
-        self.width_spin = QDoubleSpinBox()
-        self.width_spin.setRange(1, 40)
-        self.width_spin.setDecimals(1)
-        self.width_spin.setSingleStep(0.1)
-        self.width_spin.setValue(self._width)
-        self.width_spin.setSuffix(" px")
-        self.width_spin.setFixedWidth(90)
-        layout.addWidget(self.width_spin)
-        self.width_slider.valueChanged.connect(
-            lambda value: self.width_spin.setValue(value / 10)
-        )
-        self.width_spin.valueChanged.connect(
-            lambda value: self.width_slider.setValue(round(value * 10))
-        )
-        self.width_spin.valueChanged.connect(self._set_width)
-        self.width_panel.adjustSize()
-        self.width_panel.hide()
-
-    def _build_font_size_panel(self):
-        self.font_size_panel = QFrame(self)
-        self.font_size_panel.setObjectName("screenshotPopup")
-        layout = QHBoxLayout(self.font_size_panel)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(10)
-        label = QLabel("字号")
-        layout.addWidget(label)
-        self.font_size_slider = SmoothSlider(Qt.Horizontal)
-        self.font_size_slider.setRange(100, 1000)
-        self.font_size_slider.setValue(round(self._font_size * 10))
-        self.font_size_slider.setMinimumWidth(150)
-        layout.addWidget(self.font_size_slider)
-        self.font_size_spin = QDoubleSpinBox()
-        self.font_size_spin.setRange(10, 100)
-        self.font_size_spin.setDecimals(1)
-        self.font_size_spin.setSingleStep(0.5)
-        self.font_size_spin.setValue(self._font_size)
-        self.font_size_spin.setSuffix(" px")
-        self.font_size_spin.setFixedWidth(104)
-        layout.addWidget(self.font_size_spin)
-        self.font_size_slider.valueChanged.connect(
-            lambda value: self.font_size_spin.setValue(value / 10)
-        )
-        self.font_size_spin.valueChanged.connect(
-            lambda value: self.font_size_slider.setValue(round(value * 10))
-        )
-        self.font_size_spin.valueChanged.connect(self._set_font_size)
-        self.font_size_panel.adjustSize()
-        self.font_size_panel.hide()
-
-    def _build_font_panel(self):
-        self.font_panel = QFrame(self)
-        self.font_panel.setObjectName("screenshotPopup")
-        layout = QHBoxLayout(self.font_panel)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(10)
-        layout.addWidget(QLabel("字体"))
-        self.font_combo = QFontComboBox()
-        self.font_combo.setObjectName("screenshotFontCombo")
-        font_view = self.font_combo.view()
-        font_view.setObjectName("screenshotFontList")
-        font_view.setFrameShape(QFrame.NoFrame)
-        font_view.setAttribute(Qt.WA_MacShowFocusRect, False)
-        font_scrollbar = ScreenshotScrollBar(Qt.Vertical, font_view)
-        font_view.setVerticalScrollBar(font_scrollbar)
-        font_scrollbar.setObjectName("screenshotFontScrollBar")
-        font_scrollbar.setFocusPolicy(Qt.NoFocus)
-        font_scrollbar.setAttribute(Qt.WA_MacShowFocusRect, False)
-        apply_style(font_view, "tools.screenshot.overlay.font_list")
-        apply_style(font_scrollbar, "tools.screenshot.overlay.font_scrollbar")
-        self.font_combo.setMinimumWidth(240)
-        self.font_combo.setCurrentFont(self.font())
-        self.font_combo.currentFontChanged.connect(
-            lambda font: self._set_font_family(font.family())
-        )
-        layout.addWidget(self.font_combo)
-        self.font_panel.adjustSize()
-        self.font_panel.hide()
 
     def begin(self):
         screens = QGuiApplication.screens()
         if not screens:
             self.cancelled.emit()
             return
-        self._virtual = QRect()
-        for screen in screens:
-            self._virtual = self._virtual.united(screen.geometry())
-        if platform.system() != "Darwin":
-            self._show_overlay([(screen.geometry(), _grab_screen(screen)) for screen in screens])
-            return
-
-        def capture():
-            try:
-                self._screens_ready.emit(
-                    [(screen.geometry(), _grab_screen(screen)) for screen in screens]
-                )
-            except Exception:  # noqa: BLE001 - capture failures must restore the app
-                self.cancelled.emit()
-
-        threading.Thread(target=capture, daemon=True).start()
+        self._virtual = virtual_geometry(screens)
+        self._capture.capture(screens)
 
     def _show_overlay(self, shots):
         self._closing = False
         self._install_input_lock()
         self._shots = shots
-        self._dpr = max((pixmap.devicePixelRatio() for _, pixmap in shots), default=1.0)
-        size = self._virtual.size()
-        self._desktop = QPixmap(round(size.width() * self._dpr), round(size.height() * self._dpr))
-        self._desktop.setDevicePixelRatio(self._dpr)
-        self._desktop.fill(Qt.black)
-        painter = QPainter(self._desktop)
-        for geometry, pixmap in shots:
-            target = QRect(geometry.topLeft() - self._virtual.topLeft(), geometry.size())
-            painter.drawPixmap(QRectF(target), pixmap, QRectF(pixmap.rect()))
-        painter.end()
+        self._desktop, self._dpr = compose_desktop(shots, self._virtual)
         # The frozen desktop no longer depends on the live window server.  The
         # launcher may stop its macOS order-out watchdog at this exact point.
         self.capture_ready.emit()
@@ -477,8 +175,8 @@ class ScreenshotOverlay(QWidget):
                 available = screen.availableGeometry().translated(
                     -self._virtual.topLeft()
                 )
-                dock_fallbacks.extend(self._macos_dock_regions(geometry, available))
-        self._window_candidates = self._unique_regions(
+                dock_fallbacks.extend(macos_dock_regions(geometry, available))
+        self._window_candidates = unique_regions(
             dock_fallbacks + native_candidates
         )
         self._lock_overlay_geometry(self._virtual)
@@ -536,79 +234,20 @@ class ScreenshotOverlay(QWidget):
             self._paint_magnifier(painter)
 
     def _paint_annotation(self, painter, annotation):
-        kind = annotation["kind"]
-        color = annotation["color"]
-        width = annotation["width"]
-        painter.setPen(QPen(color, width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.setBrush(Qt.NoBrush)
-        if kind == "rect":
-            painter.drawRect(QRect(annotation["start"], annotation["end"]).normalized())
-        elif kind == "ellipse":
-            painter.drawEllipse(QRect(annotation["start"], annotation["end"]).normalized())
-        elif kind == "pen":
-            path = QPainterPath(annotation["points"][0])
-            for point in annotation["points"][1:]:
-                path.lineTo(point)
-            painter.drawPath(path)
-        elif kind == "arrow":
-            self._paint_arrow(painter, annotation["start"], annotation["end"], color, width)
-        elif kind == "text":
-            font = painter.font()
-            font.setFamily(annotation.get("font_family", self.font().family()))
-            font.setPixelSize(round(annotation["font_size"]))
-            font.setBold(True)
-            painter.setFont(font)
-            text_rect = QRect(
-                annotation["start"], annotation.get("size", QRect(0, 0, 260, 44).size())
-            )
-            painter.drawText(
-                text_rect, Qt.AlignLeft | Qt.AlignVCenter, annotation["text"]
-            )
-        elif kind == "mosaic":
-            self._paint_mosaic_stroke(painter, annotation)
+        self._annotation_renderer().paint(painter, annotation)
 
-    def _paint_arrow(self, painter, start, end, color, width):
-        painter.drawLine(start, end)
-        angle = math.atan2(start.y() - end.y(), start.x() - end.x())
-        length = max(12, width * 4)
-        points = [end]
-        for delta in (-0.55, 0.55):
-            points.append(QPoint(
-                round(end.x() + math.cos(angle + delta) * length),
-                round(end.y() + math.sin(angle + delta) * length),
-            ))
-        painter.setBrush(color)
-        painter.drawPolygon(QPolygon(points))
-
-    def _paint_mosaic_rect(self, painter, rect):
-        rect = rect.intersected(self.selection)
-        if rect.isEmpty():
-            return
-        source = self._desktop.copy(QRect(
-            round(rect.x() * self._dpr), round(rect.y() * self._dpr),
-            round(rect.width() * self._dpr), round(rect.height() * self._dpr),
-        ))
-        tiny = source.scaled(max(1, rect.width() // 12), max(1, rect.height() // 12),
-                             Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        pixelated = tiny.scaled(rect.size(), Qt.IgnoreAspectRatio, Qt.FastTransformation)
-        painter.drawPixmap(rect, pixelated)
-
-    def _paint_mosaic_stroke(self, painter, annotation):
-        diameter = max(8, round(annotation["width"] * 3))
-        radius = diameter // 2
-        for point in annotation["points"]:
-            rect = QRect(point.x() - radius, point.y() - radius, diameter, diameter)
-            painter.save()
-            clip = QPainterPath()
-            clip.addEllipse(QRectF(rect))
-            painter.setClipPath(clip, Qt.IntersectClip)
-            self._paint_mosaic_rect(painter, rect)
-            painter.restore()
+    def _annotation_renderer(self):
+        return AnnotationRenderer(
+            self._desktop,
+            self.selection,
+            self._dpr,
+            self.font().family(),
+        )
 
     def _paint_handles(self, painter):
         painter.setPen(QPen(Qt.white, 1))
         painter.setBrush(QColor("#55b6ff"))
-        for point in self._handle_points().values():
+        for point in handle_points(self.selection).values():
             painter.drawRect(QRect(point.x() - 4, point.y() - 4, 8, 8))
 
     def _paint_size_badge(self, painter):
@@ -683,7 +322,7 @@ class ScreenshotOverlay(QWidget):
                 self._drag_mode = "select"
                 self.selection = QRect(point, point)
             return
-        handle = self._hit_handle(point)
+        handle = hit_handle(self.selection, point)
         if handle:
             self._drag_mode = "resize"
             self._handle = handle
@@ -705,7 +344,13 @@ class ScreenshotOverlay(QWidget):
                 self._begin_text_edit(point)
                 return
             self._drag_mode = "annotate"
-            self._current = self._new_annotation(self._tool, point, point)
+            self._current = new_annotation(
+                self._tool,
+                point,
+                point,
+                self._color,
+                self._width,
+            )
             return
         if self.selection.contains(point):
             self._drag_mode = "move"
@@ -735,15 +380,20 @@ class ScreenshotOverlay(QWidget):
             if self.rect().contains(moved):
                 delta = moved.topLeft() - self.selection.topLeft()
                 self.selection = moved
-                self._translate_annotations(delta)
+                translate_annotations(self._annotations, delta)
         elif self._drag_mode == "resize":
-            self._resize_selection(point)
+            self.selection = resize_selection(
+                self._selection_start,
+                self._handle,
+                point,
+                self.rect(),
+            )
         elif self._drag_mode == "move_text" and self._moving_text is not None:
             self._move_text_annotation(point)
         elif self._drag_mode == "annotate" and self._current:
             self._current["end"] = point
             if self._current["kind"] in ("pen", "mosaic"):
-                self._append_brush_points(self._current, point)
+                append_brush_points(self._current, point)
         elif not self._drag_mode:
             self._refresh_hover_cursor(point)
         self.update()
@@ -761,7 +411,6 @@ class ScreenshotOverlay(QWidget):
         if self.selection.width() >= 8 and self.selection.height() >= 8:
             self._position_toolbar()
             self.toolbar.show()
-            self._center_toolbar_buttons()
         else:
             self.selection = QRect()
             self.toolbar.hide()
@@ -792,7 +441,6 @@ class ScreenshotOverlay(QWidget):
                 self._hovered_window = QRect()
                 self._position_toolbar()
                 self.toolbar.show()
-                self._center_toolbar_buttons()
                 self.update()
         elif event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.selection.isValid():
             self._copy_and_finish()
@@ -830,49 +478,14 @@ class ScreenshotOverlay(QWidget):
         self._remove_input_lock()
         super().hideEvent(event)
 
-    def _new_annotation(self, kind, start, end, **extra):
-        annotation = {"kind": kind, "start": QPoint(start), "end": QPoint(end),
-                      "color": QColor(self._color), "width": self._width}
-        if kind in ("pen", "mosaic"):
-            annotation["points"] = [QPoint(start)]
-        annotation.update(extra)
-        return annotation
-
-    @staticmethod
-    def _append_brush_points(annotation, point):
-        previous = annotation["points"][-1]
-        distance = math.hypot(point.x() - previous.x(), point.y() - previous.y())
-        spacing = max(1.0, annotation["width"] * 0.7)
-        steps = max(1, math.ceil(distance / spacing))
-        for index in range(1, steps + 1):
-            ratio = index / steps
-            annotation["points"].append(QPoint(
-                round(previous.x() + (point.x() - previous.x()) * ratio),
-                round(previous.y() + (point.y() - previous.y()) * ratio),
-            ))
-
     def _select_tool(self, tool, checked=True):
         self._commit_text()
+        self.toolbar.set_active_tool(tool, checked)
         if checked:
-            for other_tool, button in self._tool_buttons.items():
-                if other_tool != tool:
-                    button.setChecked(False)
             self._tool = tool
         else:
             self._tool = ""
         self._refresh_cursor()
-
-    def _toggle_color_palette(self):
-        self.width_panel.hide()
-        self.font_size_panel.hide()
-        self.font_panel.hide()
-        if self.color_palette.isVisible():
-            self.color_palette.hide()
-            return
-        self._position_popup(self.color_palette, self.color_button)
-        self.color_palette.show()
-        self.color_palette.layout().activate()
-        self.color_palette.raise_()
 
     def _choose_color(self, color):
         self._color = QColor(color)
@@ -881,11 +494,9 @@ class ScreenshotOverlay(QWidget):
             if self._text_editor is not None:
                 self._text_editor.setProperty("annotationColor", self._color)
             self.update()
-        self.color_palette.hide()
-        self._refresh_color_button()
+        self.toolbar.set_color(self._color)
 
     def _choose_custom_color(self):
-        self.color_palette.hide()
         if self._color_dialog is not None:
             self._color_dialog.raise_()
             self._color_dialog.activateWindow()
@@ -936,50 +547,8 @@ class ScreenshotOverlay(QWidget):
         if dialog is not None:
             dialog.deleteLater()
 
-    def _refresh_color_button(self):
-        self.color_button.setProperty("colorValue", self._color.name())
-        self.color_button.set_display_color(self._color)
-        for swatch in self._swatches:
-            swatch.setChecked(swatch.color == self._color)
-        self.color_button.style().unpolish(self.color_button)
-        self.color_button.style().polish(self.color_button)
-
-    def _toggle_width_panel(self):
-        self.color_palette.hide()
-        self.font_size_panel.hide()
-        self.font_panel.hide()
-        if self.width_panel.isVisible():
-            self.width_panel.hide()
-            return
-        self._position_popup(self.width_panel, self.width_button)
-        self.width_panel.show()
-        self.width_panel.raise_()
-
-    def _toggle_font_size_panel(self):
-        self.color_palette.hide()
-        self.width_panel.hide()
-        self.font_panel.hide()
-        if self.font_size_panel.isVisible():
-            self.font_size_panel.hide()
-            return
-        self._position_popup(self.font_size_panel, self.font_size_button)
-        self.font_size_panel.show()
-        self.font_size_panel.raise_()
-
-    def _toggle_font_panel(self):
-        self.color_palette.hide()
-        self.width_panel.hide()
-        self.font_size_panel.hide()
-        if self.font_panel.isVisible():
-            self.font_panel.hide()
-            return
-        self._position_popup(self.font_panel, self.font_button)
-        self.font_panel.show()
-        self.font_panel.raise_()
-
     def _set_width(self, value):
         self._width = float(value)
-        self.width_button.setText(f"粗细 {value:g}")
         if self._active_annotation is not None:
             self._active_annotation["width"] = self._width
             if self._text_editor is not None:
@@ -989,7 +558,6 @@ class ScreenshotOverlay(QWidget):
 
     def _set_font_size(self, value):
         self._font_size = float(value)
-        self.font_size_button.setText(f"字号 {value:g}")
         if self._text_editor is not None:
             self._text_editor.setProperty("annotationFontSize", self._font_size)
             self._apply_editor_font(self._text_editor)
@@ -1003,7 +571,6 @@ class ScreenshotOverlay(QWidget):
 
     def _set_font_family(self, family):
         self._font_family = family or self.font().family()
-        self._refresh_font_button()
         if self._text_editor is not None:
             self._text_editor.setProperty("annotationFontFamily", self._font_family)
             self._apply_editor_font(self._text_editor)
@@ -1014,12 +581,6 @@ class ScreenshotOverlay(QWidget):
             self._active_annotation["font_family"] = self._font_family
             self._refresh_text_metrics(self._active_annotation)
             self.update()
-
-    def _refresh_font_button(self):
-        metrics = QFontMetrics(self.font_button.font())
-        family = metrics.elidedText(self._font_family, Qt.ElideRight, 88)
-        self.font_button.setText(f"字体 {family}")
-        self.font_button.setToolTip(self._font_family)
 
     def _refresh_cursor(self):
         if self._tool != "mosaic":
@@ -1039,20 +600,8 @@ class ScreenshotOverlay(QWidget):
         painter.end()
         self.setCursor(QCursor(pixmap, size // 2, size // 2))
 
-    def _position_popup(self, popup, anchor):
-        popup.adjustSize()
-        anchor_pos = anchor.mapTo(self, QPoint())
-        x = min(max(8, anchor_pos.x()), self.width() - popup.width() - 8)
-        y = anchor_pos.y() - popup.height() - 8
-        if y < 8:
-            y = anchor_pos.y() + anchor.height() + 8
-        popup.move(x, y)
-
     def _hide_popups(self):
-        self.color_palette.hide()
-        self.width_panel.hide()
-        self.font_size_panel.hide()
-        self.font_panel.hide()
+        self.toolbar.hide_popups()
 
     def _begin_text_edit(self, point, *, annotation=None):
         self._commit_text()
@@ -1065,12 +614,11 @@ class ScreenshotOverlay(QWidget):
             text = annotation["text"]
             self._color = QColor(annotation["color"])
             self._width = float(annotation["width"])
-            self.width_spin.setValue(self._width)
-            self.font_size_spin.setValue(float(annotation["font_size"]))
+            self.toolbar.set_width(self._width)
+            self.toolbar.set_font_size(float(annotation["font_size"]))
             family = annotation.get("font_family", self.font().family())
-            self.font_combo.setCurrentFont(self._font_with_family(family))
-            self._set_font_family(family)
-            self._refresh_color_button()
+            self.toolbar.set_font_family(family)
+            self.toolbar.set_color(self._color)
         else:
             self._editing_text_index = -1
             self._active_annotation = None
@@ -1097,13 +645,9 @@ class ScreenshotOverlay(QWidget):
             editor.selectAll()
         self._text_editor = editor
 
-    @staticmethod
-    def _text_rect(annotation):
-        return QRect(annotation["start"], annotation["size"])
-
     def _text_at(self, point):
         for annotation in reversed(self._annotations):
-            if annotation["kind"] == "text" and self._text_rect(annotation).contains(
+            if annotation["kind"] == "text" and text_rect(annotation).contains(
                 point
             ):
                 return annotation
@@ -1111,73 +655,19 @@ class ScreenshotOverlay(QWidget):
 
     def _annotation_at(self, point):
         for annotation in reversed(self._annotations):
-            if self._annotation_contains(annotation, point):
+            if annotation_contains(annotation, point):
                 return annotation
         return None
-
-    def _annotation_contains(self, annotation, point):
-        kind = annotation["kind"]
-        tolerance = max(6.0, float(annotation.get("width", 1)) + 3.0)
-        if kind == "text":
-            return self._text_rect(annotation).contains(point)
-        if kind in ("arrow",):
-            return self._distance_to_segment(
-                point, annotation["start"], annotation["end"]
-            ) <= tolerance
-        if kind == "rect":
-            rect = QRect(annotation["start"], annotation["end"]).normalized()
-            outer = rect.adjusted(-round(tolerance), -round(tolerance),
-                                  round(tolerance), round(tolerance))
-            inner = rect.adjusted(round(tolerance), round(tolerance),
-                                  -round(tolerance), -round(tolerance))
-            return outer.contains(point) and (not inner.isValid() or not inner.contains(point))
-        if kind == "ellipse":
-            rect = QRect(annotation["start"], annotation["end"]).normalized()
-            if not rect.adjusted(-round(tolerance), -round(tolerance),
-                                 round(tolerance), round(tolerance)).contains(point):
-                return False
-            rx = max(1.0, rect.width() / 2.0)
-            ry = max(1.0, rect.height() / 2.0)
-            dx = (point.x() - rect.center().x()) / rx
-            dy = (point.y() - rect.center().y()) / ry
-            normalized = math.hypot(dx, dy)
-            return abs(normalized - 1.0) <= tolerance / min(rx, ry)
-        if kind in ("pen", "mosaic"):
-            points = annotation.get("points", [])
-            if len(points) == 1:
-                return math.hypot(
-                    point.x() - points[0].x(), point.y() - points[0].y()
-                ) <= tolerance
-            return any(
-                self._distance_to_segment(point, start, end) <= tolerance
-                for start, end in zip(points, points[1:])
-            )
-        return False
-
-    @staticmethod
-    def _distance_to_segment(point, start, end):
-        dx = end.x() - start.x()
-        dy = end.y() - start.y()
-        if dx == 0 and dy == 0:
-            return math.hypot(point.x() - start.x(), point.y() - start.y())
-        ratio = ((point.x() - start.x()) * dx + (point.y() - start.y()) * dy) / (
-            dx * dx + dy * dy
-        )
-        ratio = min(1.0, max(0.0, ratio))
-        nearest_x = start.x() + ratio * dx
-        nearest_y = start.y() + ratio * dy
-        return math.hypot(point.x() - nearest_x, point.y() - nearest_y)
 
     def _select_annotation(self, annotation):
         self._active_annotation = annotation
         self._color = QColor(annotation["color"])
-        self._refresh_color_button()
-        self.width_spin.setValue(float(annotation["width"]))
+        self.toolbar.set_color(self._color)
+        self.toolbar.set_width(float(annotation["width"]))
         if annotation["kind"] == "text":
-            self.font_size_spin.setValue(float(annotation["font_size"]))
+            self.toolbar.set_font_size(float(annotation["font_size"]))
             family = annotation.get("font_family", self.font().family())
-            self.font_combo.setCurrentFont(self._font_with_family(family))
-            self._set_font_family(family)
+            self.toolbar.set_font_family(family)
 
     def _move_text_annotation(self, point):
         annotation = self._moving_text
@@ -1257,18 +747,7 @@ class ScreenshotOverlay(QWidget):
             QEvent.TouchUpdate,
             QEvent.TouchEnd,
         )
-        font_list_is_scrolling = (
-            self.font_combo.view().isVisible()
-            and event.type()
-            in (
-                QEvent.Wheel,
-                QEvent.NativeGesture,
-                QEvent.Gesture,
-                QEvent.TouchBegin,
-                QEvent.TouchUpdate,
-                QEvent.TouchEnd,
-            )
-        )
+        font_list_is_scrolling = self.toolbar.font_list_is_scrolling(event.type())
         if (
             is_locked_input
             and not font_list_is_scrolling
@@ -1289,8 +768,7 @@ class ScreenshotOverlay(QWidget):
     def _is_control_event_target(self, watched):
         if not isinstance(watched, QWidget):
             return False
-        roots = (self.font_combo, self.font_combo.view())
-        return any(root is watched or root.isAncestorOf(watched) for root in roots)
+        return self.toolbar.is_control_event_target(watched)
 
     def _install_input_lock(self):
         if self._input_lock_installed:
@@ -1313,21 +791,8 @@ class ScreenshotOverlay(QWidget):
             self._annotations.pop()
             self.update()
 
-    def _handle_points(self):
-        rect = self.selection
-        return {"tl": rect.topLeft(), "t": QPoint(rect.center().x(), rect.top()),
-                "tr": rect.topRight(), "r": QPoint(rect.right(), rect.center().y()),
-                "br": rect.bottomRight(), "b": QPoint(rect.center().x(), rect.bottom()),
-                "bl": rect.bottomLeft(), "l": QPoint(rect.left(), rect.center().y())}
-
-    def _hit_handle(self, point):
-        for name, handle_point in self._handle_points().items():
-            if (point - handle_point).manhattanLength() <= 10:
-                return name
-        return ""
-
     def _refresh_hover_cursor(self, point):
-        handle = self._hit_handle(point) if self.selection.isValid() else ""
+        handle = hit_handle(self.selection, point) if self.selection.isValid() else ""
         cursor_map = {
             "tl": Qt.SizeFDiagCursor,
             "br": Qt.SizeFDiagCursor,
@@ -1362,73 +827,8 @@ class ScreenshotOverlay(QWidget):
                 return QRect(screen_rect)
         return QRect()
 
-    @staticmethod
-    def _macos_dock_regions(geometry, available):
-        """Infer a visible bottom/side Dock from the system work area."""
-        regions = []
-        if available.bottom() < geometry.bottom():
-            regions.append(QRect(
-                geometry.left(), available.bottom() + 1, geometry.width(),
-                geometry.bottom() - available.bottom(),
-            ))
-        if available.left() > geometry.left():
-            regions.append(QRect(
-                geometry.left(), geometry.top(),
-                available.left() - geometry.left(), geometry.height(),
-            ))
-        if available.right() < geometry.right():
-            regions.append(QRect(
-                available.right() + 1, geometry.top(),
-                geometry.right() - available.right(), geometry.height(),
-            ))
-        return [region for region in regions if region.width() >= 12 and region.height() >= 12]
-
-    @staticmethod
-    def _unique_regions(regions):
-        result = []
-        seen = set()
-        for region in regions:
-            values = (region.x(), region.y(), region.width(), region.height())
-            if values not in seen:
-                seen.add(values)
-                result.append(QRect(region))
-        return result
-
-    def _translate_annotations(self, delta):
-        if delta.isNull():
-            return
-        for annotation in self._annotations:
-            annotation["start"] += delta
-            annotation["end"] += delta
-            if "points" in annotation:
-                annotation["points"] = [point + delta for point in annotation["points"]]
-
-    def _resize_selection(self, point):
-        rect = QRect(self._selection_start)
-        if "l" in self._handle:
-            rect.setLeft(point.x())
-        if "r" in self._handle:
-            rect.setRight(point.x())
-        if "t" in self._handle:
-            rect.setTop(point.y())
-        if "b" in self._handle:
-            rect.setBottom(point.y())
-        self.selection = rect.normalized().intersected(self.rect())
-
     def _position_toolbar(self):
-        self.toolbar.resize(self.toolbar.sizeHint().width(), self.TOOLBAR_HEIGHT)
-        self._center_toolbar_buttons()
-        x = min(max(8, self.selection.right() - self.toolbar.width()), self.width() - self.toolbar.width() - 8)
-        y = self.selection.bottom() + 10
-        if y + self.toolbar.height() > self.height() - 8:
-            y = self.selection.top() - self.toolbar.height() - 10
-        self.toolbar.move(x, max(8, y))
-
-    def _center_toolbar_buttons(self):
-        for button in self.toolbar.findChildren(
-            QPushButton, options=Qt.FindDirectChildrenOnly
-        ):
-            button.move(button.x(), (self.toolbar.height() - button.height()) // 2)
+        self.toolbar.position_for(self.selection, self.rect())
 
     def _render_selection(self):
         if not self.selection.isValid():

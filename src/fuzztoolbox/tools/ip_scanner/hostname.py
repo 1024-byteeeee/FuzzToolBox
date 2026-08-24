@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import socket
 import struct
-from typing import List, Optional, Tuple
 
 
-def reverse_dns(ip: str) -> Optional[str]:
+def reverse_dns(ip: str) -> str | None:
     """Resolve a PTR name through the operating system's configured resolver."""
     try:
         return socket.gethostbyaddr(ip)[0]
@@ -11,7 +12,7 @@ def reverse_dns(ip: str) -> Optional[str]:
         return None
 
 
-def multicast_dns(ip: str, source_ip: Optional[str], timeout: float = 0.8) -> Optional[str]:
+def multicast_dns(ip: str, source_ip: str | None, timeout: float = 0.8) -> str | None:
     """Request the reverse PTR record directly over multicast DNS."""
     reverse_name = ".".join(reversed(ip.split("."))) + ".in-addr.arpa"
     query = _dns_query(reverse_name, transaction_id=0, unicast_response=True)
@@ -32,7 +33,7 @@ def multicast_dns(ip: str, source_ip: Optional[str], timeout: float = 0.8) -> Op
         sock.close()
 
 
-def netbios_name(ip: str, source_ip: Optional[str], timeout: float = 0.8) -> Optional[str]:
+def netbios_name(ip: str, source_ip: str | None, timeout: float = 0.8) -> str | None:
     """Request a Windows machine's registered unique name with NBSTAT."""
     transaction_id = int.from_bytes(socket.inet_aton(ip)[-2:], "big") ^ 0xA51C
     query = build_nbstat_query(transaction_id)
@@ -61,8 +62,8 @@ def _dns_query(name: str, transaction_id: int, unicast_response: bool = False) -
     return header + _encode_dns_name(name) + struct.pack("!HH", 12, query_class)
 
 
-def _read_dns_name(packet: bytes, offset: int) -> Tuple[str, int]:
-    labels: List[str] = []
+def _read_dns_name(packet: bytes, offset: int) -> tuple[str, int]:
+    labels: list[str] = []
     next_offset = offset
     jumped = False
     visited = set()
@@ -93,7 +94,7 @@ def _read_dns_name(packet: bytes, offset: int) -> Tuple[str, int]:
     return ".".join(labels), next_offset
 
 
-def parse_dns_ptr(packet: bytes, expected_name: str) -> Optional[str]:
+def parse_dns_ptr(packet: bytes, expected_name: str) -> str | None:
     try:
         if len(packet) < 12:
             return None
@@ -129,7 +130,7 @@ def build_nbstat_query(transaction_id: int) -> bytes:
     return header + name + struct.pack("!HH", 0x21, 1)
 
 
-def parse_nbstat_response(packet: bytes, transaction_id: int) -> Optional[str]:
+def parse_nbstat_response(packet: bytes, transaction_id: int) -> str | None:
     try:
         if len(packet) < 12:
             return None

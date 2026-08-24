@@ -84,7 +84,7 @@ def detect_language(text):
         ("yaml", r"(?m)^\s*[\w.-]+:\s+\S"), ("markdown", r"(?m)^#{1,6}\s+|^```"),
     )
     for language, pattern in checks:
-        if re.search(pattern, sample, re.S):
+        if re.search(pattern, sample, re.DOTALL):
             return language
     return "text"
 

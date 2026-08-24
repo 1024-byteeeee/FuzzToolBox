@@ -1,18 +1,19 @@
 """Monotonic-clock countdown state independent from the GUI."""
+from __future__ import annotations
 
 import math
 import time
-from typing import Callable, Optional
+from typing import Callable
 
 
 class CountdownTimer:
-    def __init__(self, duration: float = 300, clock: Optional[Callable[[], float]] = None):
+    def __init__(self, duration: float = 300, clock: Callable[[], float] | None = None):
         if duration <= 0:
             raise ValueError("计时时长必须大于 0")
         self.clock = clock or time.monotonic
         self.duration = float(duration)
         self._remaining = float(duration)
-        self._deadline: Optional[float] = None
+        self._deadline: float | None = None
         self.state = "idle"
 
     @property
@@ -76,10 +77,10 @@ class CountdownTimer:
 class StopwatchTimer:
     """A monotonic stopwatch with pause and resume support."""
 
-    def __init__(self, clock: Optional[Callable[[], float]] = None):
+    def __init__(self, clock: Callable[[], float] | None = None):
         self.clock = clock or time.monotonic
         self._elapsed = 0.0
-        self._started_at: Optional[float] = None
+        self._started_at: float | None = None
         self.state = "idle"
 
     @property

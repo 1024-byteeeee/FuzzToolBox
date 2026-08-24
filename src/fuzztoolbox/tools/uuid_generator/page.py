@@ -1,7 +1,7 @@
 import csv
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt
+from PySide6.QtCore import QAbstractTableModel, QEvent, Qt
 from PySide6.QtGui import QFontDatabase, QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -39,10 +39,10 @@ class UUIDResultModel(QAbstractTableModel):
         self.values = []
         self.version = 4
 
-    def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else len(self.values)
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else len(self.values)
 
-    def columnCount(self, _parent=QModelIndex()):
+    def columnCount(self, _parent=None):
         return len(self.columns)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):

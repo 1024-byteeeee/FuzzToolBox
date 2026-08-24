@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from fuzztoolbox.tools.color_picker.eyedropper import (
     hide_window_instantly,
     native_window_is_visible,
-    show_window_instantly,
 )
 from fuzztoolbox.ui.app_settings import create_settings
+from fuzztoolbox.ui.app_state import ApplicationPreferences, CaptureKind
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style
 
@@ -20,8 +20,11 @@ from .overlay import ScreenshotOverlay
 
 
 class ScreenshotPage(QWidget):
-    def __init__(self):
+    capture_requested = Signal(bool)
+
+    def __init__(self, *, preferences: ApplicationPreferences | None = None):
         super().__init__()
+        self._preferences = preferences or ApplicationPreferences(create_settings())
         self._overlay = None
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 20)
@@ -44,14 +47,12 @@ class ScreenshotPage(QWidget):
         description.setWordWrap(True)
         description.setObjectName("screenshotLaunchDescription")
         content.addWidget(description)
-        button = QPushButton("开始截图")
-        button.setFixedWidth(150)
-        content.addWidget(button, 0, Qt.AlignCenter)
+        self.capture_button = QPushButton("开始截图")
+        self.capture_button.setFixedWidth(150)
+        content.addWidget(self.capture_button, 0, Qt.AlignCenter)
         self.keep_main_window = KeepWindowSwitch()
         self.keep_main_window.setChecked(
-            create_settings().value(
-                "capture/screenshot-keep-main", False, type=bool
-            )
+            self._preferences.keep_main_window(CaptureKind.SCREENSHOT)
         )
         content.addWidget(self.keep_main_window, 0, Qt.AlignCenter)
         self.status = QLabel("准备就绪")
@@ -60,32 +61,29 @@ class ScreenshotPage(QWidget):
         content.addWidget(self.status)
         root.addWidget(panel)
         root.addStretch()
-        button.clicked.connect(self.start_capture)
-        self.keep_main_window.toggled.connect(
-            lambda checked: create_settings().setValue(
-                "capture/screenshot-keep-main", checked
+        self.capture_button.clicked.connect(
+            lambda _checked=False: self.capture_requested.emit(
+                self.keep_main_window.isChecked()
             )
         )
-        self._restore_window_after_capture = False
+        self.keep_main_window.toggled.connect(
+            lambda checked: self._preferences.set_keep_main_window(
+                CaptureKind.SCREENSHOT, checked
+            )
+        )
         self._hidden_capture_overlay = None
 
-    def start_capture(
+    def begin_capture(
         self,
-        _checked=False,
         *,
-        keep_main_window: bool | None = None,
-        restore_main_window: bool = True,
-    ):
+        keep_main_window: bool,
+    ) -> ScreenshotOverlay | None:
+        """Start the overlay after the shell has acquired a capture session."""
         if self._overlay is not None:
-            return
+            return None
         self.status.setText("正在准备截图…")
-        if keep_main_window is None:
-            keep_main_window = self.keep_main_window.isChecked()
         main_window = self.window()
         should_hide_main_window = bool(main_window and not keep_main_window)
-        self._restore_window_after_capture = bool(
-            should_hide_main_window and restore_main_window
-        )
         if should_hide_main_window:
             hide_window_instantly(main_window)
         overlay = ScreenshotOverlay(include_app_window=keep_main_window)
@@ -97,6 +95,7 @@ class ScreenshotPage(QWidget):
             QTimer.singleShot(0, overlay.begin)
         else:
             self._wait_for_hide(overlay, main_window, time.monotonic())
+        return overlay
 
     def _wait_for_hide(self, overlay, main_window, started_at):
         elapsed = time.monotonic() - started_at
@@ -139,7 +138,6 @@ class ScreenshotPage(QWidget):
         if self._overlay is not None:
             self._overlay.deleteLater()
             self._overlay = None
-        main_window = self.window()
-        if main_window and self._restore_window_after_capture:
-            show_window_instantly(main_window)
-        self._restore_window_after_capture = False
+
+    def capture_blocked(self) -> None:
+        self.status.setText("另一项屏幕捕获正在进行")

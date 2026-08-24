@@ -237,7 +237,7 @@ class TextComparerPage(QWidget):
         self.syntax_detection_timer.stop()
         selected = self.language.currentData()
         if selected == "auto":
-            combined = "\n".join((self.left.toPlainText(), self.right.toPlainText())).strip()
+            combined = f"{self.left.toPlainText()}\n{self.right.toPlainText()}".strip()
             detected = detect_language(combined)
         else:
             detected = selected
@@ -324,13 +324,11 @@ class TextComparerPage(QWidget):
             background = marker = None
             if text.startswith("@@") or text == "***************" or text.startswith("*** ") and text.endswith(" ****"):
                 background, marker = theme_color("diff_info_bg"), "#4b8fce"
-            elif mode == "unified" and (text.startswith("--- ") or text.startswith("+++ ")):
+            elif mode == "unified" and (text.startswith(("--- ", "+++ "))) or mode == "context" and line_number <= 2:
                 background, marker = theme_color("diff_context_bg"), "#8492a6"
-            elif mode == "context" and line_number <= 2:
-                background, marker = theme_color("diff_context_bg"), "#8492a6"
-            elif text.startswith("+") or text.startswith("+ "):
+            elif text.startswith(("+", "+ ")):
                 background, marker = theme_color("diff_add_bg"), "#35a35a"
-            elif text.startswith("-") or text.startswith("- "):
+            elif text.startswith(("-", "- ")):
                 background, marker = theme_color("diff_remove_bg"), "#dc5a64"
             elif mode == "context" and text.startswith("! "):
                 background, marker = theme_color("diff_change_bg"), "#d79a20"

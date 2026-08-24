@@ -1,8 +1,9 @@
 """Parse, format and compact JSON using the Python standard library."""
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 Indent = Union[int, str]
 
@@ -57,7 +58,7 @@ def compact_json(source: str, *, sort_keys: bool = False) -> str:
     )
 
 
-def validate_json(source: str) -> Optional[JSONErrorDetails]:
+def validate_json(source: str) -> JSONErrorDetails | None:
     try:
         parse_json(source)
     except JSONValidationError as exc:

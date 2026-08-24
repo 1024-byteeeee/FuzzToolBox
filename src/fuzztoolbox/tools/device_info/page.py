@@ -28,7 +28,9 @@ class DeviceInfoWorker(QThread):
     def run(self):
         try:
             self.completed.emit(collect_device_info())
-        except Exception as exc:  # Keep a platform-specific probe failure inside the tool page.
+        # This is the worker boundary: platform probes may raise ctypes, psutil,
+        # subprocess or decoding errors, all of which must become a UI failure signal.
+        except Exception as exc:  # noqa: BLE001
             self.failed.emit(str(exc))
 
 
@@ -268,10 +270,9 @@ class DeviceInfoPage(QWidget):
     def prepare_close(self, on_ready) -> bool:
         self._refresh_timer.stop()
         worker = self.worker
-        if worker and worker.isRunning():
-            if not worker.wait(3000):
-                worker.finished.connect(on_ready)
-                return False
+        if worker and worker.isRunning() and not worker.wait(3000):
+            worker.finished.connect(on_ready)
+            return False
         return True
 
     def copy_all(self):

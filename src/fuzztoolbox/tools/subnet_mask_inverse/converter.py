@@ -39,7 +39,7 @@ def convert_mask(value: str) -> MaskConversion:
     if not text:
         raise ValueError("请输入子网掩码、通配符掩码或 CIDR 前缀")
 
-    prefix_text = text[1:] if text.startswith("/") else text
+    prefix_text = text.removeprefix("/")
     if prefix_text.isdecimal():
         prefix = int(prefix_text)
         if not 0 <= prefix <= 32:

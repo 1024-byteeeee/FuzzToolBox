@@ -1,6 +1,5 @@
 """Plain-text editor with a synchronized line-number gutter."""
-
-from typing import Optional
+from __future__ import annotations
 
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QTextFormat
@@ -10,7 +9,7 @@ from .style_loader import theme_color
 
 
 class LineNumberArea(QWidget):
-    def __init__(self, editor: "LineNumberEditor"):
+    def __init__(self, editor: LineNumberEditor):
         super().__init__(editor)
         self.editor = editor
 
@@ -27,7 +26,7 @@ class LineNumberEditor(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.line_number_area = LineNumberArea(self)
-        self._error_line: Optional[int] = None
+        self._error_line: int | None = None
         self._decorations = []
         self._line_markers = {}
         self._empty_line_markers = {}
@@ -179,7 +178,7 @@ class LineNumberEditor(QPlainTextEdit):
         self._highlight_read_only_line = bool(enabled)
         self.highlight_current_line()
 
-    def set_error_line(self, line: Optional[int]):
+    def set_error_line(self, line: int | None):
         self._error_line = line if line and line > 0 else None
         self.line_number_area.update()
 

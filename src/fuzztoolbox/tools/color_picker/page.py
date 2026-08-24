@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.ui.app_settings import create_settings
+from fuzztoolbox.ui.app_state import ApplicationPreferences, CaptureKind
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
@@ -29,7 +30,6 @@ from .eyedropper import (
     EyedropperOverlay,
     hide_window_instantly,
     native_window_is_visible,
-    show_window_instantly,
 )
 
 
@@ -97,8 +97,11 @@ class ColorPreview(QWidget):
 
 
 class ColorPickerPage(QWidget):
-    def __init__(self):
+    capture_requested = Signal(bool)
+
+    def __init__(self, *, preferences: ApplicationPreferences | None = None):
         super().__init__()
+        self._preferences = preferences or ApplicationPreferences(create_settings())
         self._updating = False
         self._build_ui()
         self._apply_value(ColorValue(64, 158, 255, 100))
@@ -206,9 +209,7 @@ class ColorPickerPage(QWidget):
 
         self.keep_main_window = KeepWindowSwitch()
         self.keep_main_window.setChecked(
-            create_settings().value(
-                "capture/color-picker-keep-main", False, type=bool
-            )
+            self._preferences.keep_main_window(CaptureKind.COLOR_PICKER)
         )
         self.eyedropper_button = QPushButton("屏幕取色")
         self.eyedropper_button.setObjectName("secondary")
@@ -243,14 +244,17 @@ class ColorPickerPage(QWidget):
         self.alpha.valueChanged.connect(self._sync_opacity_slider)
         self.opacity_slider.valueChanged.connect(self._set_alpha_from_slider)
         self.copy_all_button.clicked.connect(self.copy_all)
-        self.eyedropper_button.clicked.connect(self._start_eyedropper)
+        self.eyedropper_button.clicked.connect(
+            lambda _checked=False: self.capture_requested.emit(
+                self.keep_main_window.isChecked()
+            )
+        )
         self.keep_main_window.toggled.connect(
-            lambda checked: create_settings().setValue(
-                "capture/color-picker-keep-main", checked
+            lambda checked: self._preferences.set_keep_main_window(
+                CaptureKind.COLOR_PICKER, checked
             )
         )
         self._eyedropper = None
-        self._restore_window_after_eyedropper = False
 
     @staticmethod
     def _channel_input(
@@ -348,21 +352,19 @@ class ColorPickerPage(QWidget):
         QGuiApplication.clipboard().setText(text)
         self.status.setText("已复制全部颜色值")
 
-    def _start_eyedropper(
-        self, _checked=False, *, keep_main_window: bool | None = None
-    ) -> None:
+    def begin_eyedropper(
+        self, *, keep_main_window: bool
+    ) -> EyedropperOverlay | None:
+        """Start the overlay after the shell has acquired a capture session."""
         if self._eyedropper is not None:
-            return
+            return None
         self.status.setText("移动鼠标预览颜色，点击取色，Esc 取消")
         # Remove the main window instantly.  Qt hide() / setWindowOpacity()
         # route through AppKit / Core Animation implicit transitions on macOS,
         # causing a quick scale/fade flicker that gets captured in the shot.
         # -[NSWindow orderOut:] is a synchronous composite with no animation.
-        if keep_main_window is None:
-            keep_main_window = self.keep_main_window.isChecked()
         main_window = self.window()
-        self._restore_window_after_eyedropper = bool(main_window and not keep_main_window)
-        if self._restore_window_after_eyedropper:
+        if main_window and not keep_main_window:
             hide_window_instantly(main_window)
         overlay = EyedropperOverlay()
         self._eyedropper = overlay
@@ -375,6 +377,7 @@ class ColorPickerPage(QWidget):
             QTimer.singleShot(0, overlay.begin)
         else:
             self._wait_for_window_to_hide(overlay, main_window, time.monotonic())
+        return overlay
 
     def _wait_for_window_to_hide(self, overlay, main_window, started_at: float) -> None:
         elapsed = time.monotonic() - started_at
@@ -399,17 +402,12 @@ class ColorPickerPage(QWidget):
             ColorValue(color.red(), color.green(), color.blue(), self.alpha.value())
         )
         self.status.setText(f"已从屏幕取色 {color.name().upper()}")
-        self._restore_main_window()
 
     def _eyedropper_cancelled(self) -> None:
         if self._eyedropper is not None:
             self._eyedropper.deleteLater()
             self._eyedropper = None
         self.status.setText("已取消屏幕取色")
-        self._restore_main_window()
 
-    def _restore_main_window(self) -> None:
-        main_window = self.window()
-        if main_window and self._restore_window_after_eyedropper:
-            show_window_instantly(main_window)
-        self._restore_window_after_eyedropper = False
+    def capture_blocked(self) -> None:
+        self.status.setText("另一项屏幕捕获正在进行")

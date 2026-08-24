@@ -26,8 +26,11 @@ class RomanNumeralConverterTests(unittest.TestCase):
                 roman_to_integer(value)
 
     def test_invalid_integer_values_are_rejected(self):
-        for value in (0, 4000, -1, 1.5, True):
+        for value in (0, 4000, -1):
             with self.subTest(value=value), self.assertRaises(ValueError):
+                integer_to_roman(value)
+        for value in (1.5, True):
+            with self.subTest(value=value), self.assertRaises(TypeError):
                 integer_to_roman(value)
 
 

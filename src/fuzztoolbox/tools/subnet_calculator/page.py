@@ -62,10 +62,10 @@ class SubnetResultModel(QAbstractTableModel):
     def total(self) -> int:
         return self.plan.total if self.plan else len(self.allocations)
 
-    def rowCount(self, parent=QModelIndex()):
-        return 0 if parent.isValid() else self.loaded_count
+    def rowCount(self, parent=None):
+        return 0 if parent is not None and parent.isValid() else self.loaded_count
 
-    def columnCount(self, _parent=QModelIndex()):
+    def columnCount(self, _parent=None):
         return len(self.columns)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -123,11 +123,12 @@ class SubnetResultModel(QAbstractTableModel):
         self.endResetModel()
         self.load_state_changed.emit()
 
-    def canFetchMore(self, parent=QModelIndex()):
-        return not parent.isValid() and self.window_start + self.loaded_count < self.total
+    def canFetchMore(self, parent=None):
+        parent_is_valid = parent is not None and parent.isValid()
+        return not parent_is_valid and self.window_start + self.loaded_count < self.total
 
-    def fetchMore(self, parent=QModelIndex()):
-        if parent.isValid() or not self.canFetchMore(parent):
+    def fetchMore(self, parent=None):
+        if parent is not None and parent.isValid() or not self.canFetchMore(parent):
             return
         amount = min(
             FETCH_BATCH_SIZE,

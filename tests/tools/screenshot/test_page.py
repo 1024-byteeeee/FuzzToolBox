@@ -22,11 +22,11 @@ class ScreenshotPageTests(unittest.TestCase):
         ) as hide_window, patch(
             "fuzztoolbox.tools.screenshot.page.QTimer.singleShot"
         ) as single_shot:
-            page.start_capture(keep_main_window=True)
+            returned = page.begin_capture(keep_main_window=True)
 
         hide_window.assert_not_called()
         overlay_type.assert_called_once_with(include_app_window=True)
-        self.assertFalse(page._restore_window_after_capture)
+        self.assertIs(returned, overlay)
         self.assertTrue(overlay.completed.connect.called)
         self.assertTrue(overlay.cancelled.connect.called)
         single_shot.assert_called_once()
@@ -34,7 +34,7 @@ class ScreenshotPageTests(unittest.TestCase):
         page._overlay = None
         page.close()
 
-    def test_background_capture_hides_without_restoring_main_window(self):
+    def test_background_capture_hides_and_page_only_cleans_up_overlay(self):
         for finish_method in ("_completed", "_cancelled"):
             with self.subTest(finish_method=finish_method):
                 page = ScreenshotPage()
@@ -44,37 +44,28 @@ class ScreenshotPageTests(unittest.TestCase):
                     return_value=overlay,
                 ), patch(
                     "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
-                ) as hide_window, patch(
-                    "fuzztoolbox.tools.screenshot.page.show_window_instantly"
-                ) as show_window, patch.object(page, "_wait_for_hide"):
-                    page.start_capture(
-                        keep_main_window=False,
-                        restore_main_window=False,
-                    )
+                ) as hide_window, patch.object(page, "_wait_for_hide"):
+                    page.begin_capture(keep_main_window=False)
                     getattr(page, finish_method)()
 
                 hide_window.assert_called_once_with(page)
-                show_window.assert_not_called()
-                self.assertFalse(page._restore_window_after_capture)
+                self.assertIsNone(page._overlay)
                 page.close()
 
-    def test_page_capture_restores_main_window_when_finished(self):
+    def test_page_button_requests_capture_policy_from_shell(self):
         page = ScreenshotPage()
-        overlay = Mock()
-        with patch(
-            "fuzztoolbox.tools.screenshot.page.ScreenshotOverlay",
-            return_value=overlay,
-        ), patch(
-            "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
-        ) as hide_window, patch(
-            "fuzztoolbox.tools.screenshot.page.show_window_instantly"
-        ) as show_window, patch.object(page, "_wait_for_hide"):
-            page.start_capture(keep_main_window=False)
-            page._completed()
+        requested = Mock()
+        page.capture_requested.connect(requested)
 
-        hide_window.assert_called_once_with(page)
-        show_window.assert_called_once_with(page)
-        self.assertFalse(page._restore_window_after_capture)
+        page.keep_main_window.setChecked(False)
+        page.capture_button.click()
+        page.keep_main_window.setChecked(True)
+        page.capture_button.click()
+
+        self.assertEqual(
+            [call.args[0] for call in requested.call_args_list],
+            [False, True],
+        )
         page.close()
 
     def test_background_capture_rehides_a_window_reordered_by_macos(self):

@@ -26,6 +26,7 @@ from fuzztoolbox.tools.ip_scanner.page import ResultModel, ScanWorker
 from fuzztoolbox.tools.subnet_calculator.calculator import FLSMPlan, parse_network
 from fuzztoolbox.tools.subnet_calculator.page import FETCH_BATCH_SIZE, SubnetResultModel
 from fuzztoolbox.ui.animations import PageTransitionController, ThemeTransitionController
+from fuzztoolbox.ui.app_state import CaptureKind, CaptureSessionState, ShortcutAction
 from fuzztoolbox.ui.components import (
     ComboItemDelegate,
     ComboListView,
@@ -626,14 +627,14 @@ class ResultModelTests(unittest.TestCase):
         page.close()
 
     def test_main_window_saves_favorites_in_registry_order(self):
-        settings = Mock()
+        preferences = Mock()
         window_state = SimpleNamespace(
-            settings=settings,
+            app_state=SimpleNamespace(preferences=preferences),
             home_page=SimpleNamespace(favorite_ids={"json-formatter", "ip-scanner"}),
         )
         MainWindow._save_favorites(window_state)
-        settings.setValue.assert_called_once_with(
-            "home/favorites", ["ip-scanner", "json-formatter"]
+        preferences.set_favorite_ids.assert_called_once_with(
+            ["ip-scanner", "json-formatter"]
         )
 
     def test_tool_card_hover_uses_short_motion_animation(self):
@@ -873,6 +874,12 @@ class ResultModelTests(unittest.TestCase):
         window._screenshot_hotkey = Mock()
         window._color_keep_hotkey = Mock()
         window._screenshot_keep_hotkey = Mock()
+        window._shortcut_managers = lambda: (
+            window._color_hotkey,
+            window._screenshot_hotkey,
+            window._color_keep_hotkey,
+            window._screenshot_keep_hotkey,
+        )
         window.validate_global_hotkeys = Mock()
         window.refresh_shortcuts = Mock()
 
@@ -899,67 +906,155 @@ class ResultModelTests(unittest.TestCase):
 
         window._load_tool_page.assert_not_called()
 
+    def test_shortcut_action_routes_capture_kind_and_window_policy(self):
+        window = Mock()
+
+        MainWindow._activate_shortcut(window, ShortcutAction.COLOR_PICKER_KEEP_MAIN)
+        MainWindow._activate_shortcut(window, ShortcutAction.SCREENSHOT)
+
+        window.start_color_picker.assert_called_once_with(
+            keep_main_window=True,
+            restore_main_window=False,
+            reveal_result=True,
+        )
+        window.start_screenshot.assert_called_once_with(
+            keep_main_window=False,
+            restore_main_window=False,
+        )
+
     def test_keep_main_shortcuts_route_to_explicit_capture_policy(self):
         window = Mock()
         window._shortcuts_suspended = False
+        window.app_state = SimpleNamespace(capture=CaptureSessionState())
         color_page = Mock()
         color_overlay = Mock()
-        color_page._eyedropper = color_overlay
+        color_page.begin_eyedropper.return_value = color_overlay
         screenshot_page = Mock()
+        screenshot_overlay = Mock()
+        screenshot_page.begin_capture.return_value = screenshot_overlay
         window._load_tool_page.side_effect = lambda tool_id: {
             "color-picker": color_page,
             "screenshot": screenshot_page,
         }[tool_id]
 
         MainWindow.start_color_picker(window, keep_main_window=True)
-        MainWindow.start_screenshot(window, keep_main_window=True)
-
         window.open_tool.assert_not_called()
-        color_page._start_eyedropper.assert_called_once_with(keep_main_window=True)
+        color_page.begin_eyedropper.assert_called_once_with(keep_main_window=True)
         color_overlay.color_picked.connect.assert_called_once()
-        screenshot_page.start_capture.assert_called_once_with(
+
+        window._application_quitting = False
+        MainWindow._capture_finished(
+            window,
+            window.app_state.capture.active.token,
+            result_tool="color-picker",
+        )
+        window.open_tool.assert_called_once_with("color-picker")
+
+        MainWindow.start_screenshot(window, keep_main_window=True)
+        screenshot_page.begin_capture.assert_called_once_with(keep_main_window=True)
+
+    def test_page_capture_requests_restore_hidden_main_window(self):
+        window = Mock()
+
+        MainWindow._request_page_color_picker(window, False)
+        MainWindow._request_page_screenshot(window, False)
+
+        window.start_color_picker.assert_called_once_with(
+            keep_main_window=False,
+            restore_main_window=True,
+            reveal_result=False,
+        )
+        window.start_screenshot.assert_called_once_with(
+            keep_main_window=False,
+            restore_main_window=True,
+        )
+
+    def test_capture_completion_consumes_restore_policy_once(self):
+        window = Mock()
+        capture = CaptureSessionState()
+        session = capture.begin(
+            CaptureKind.SCREENSHOT,
+            keep_main_window=False,
+            restore_main_window=True,
+        )
+        window.app_state = SimpleNamespace(capture=capture)
+        window._application_quitting = False
+
+        with patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly"
+        ) as restore_window:
+            MainWindow._capture_finished(window, session.token)
+            MainWindow._capture_finished(window, session.token)
+
+        restore_window.assert_called_once_with(window)
+        self.assertFalse(capture.is_active)
+
+    def test_stale_capture_completion_cannot_restore_or_reveal(self):
+        window = Mock()
+        capture = CaptureSessionState()
+        first = capture.begin(
+            CaptureKind.COLOR_PICKER,
+            keep_main_window=False,
+            restore_main_window=True,
+        )
+        capture.abort(first.token)
+        second = capture.begin(
+            CaptureKind.SCREENSHOT,
             keep_main_window=True,
             restore_main_window=False,
         )
+        window.app_state = SimpleNamespace(capture=capture)
+        window._application_quitting = False
 
-        color_overlay.color_picked.connect.call_args.args[0](Mock())
-        window.open_tool.assert_called_once_with("color-picker")
+        with patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly"
+        ) as restore_window:
+            MainWindow._capture_finished(
+                window, first.token, result_tool="color-picker"
+            )
+
+        restore_window.assert_not_called()
+        window.open_tool.assert_not_called()
+        self.assertEqual(capture.active, second)
 
     def test_regular_color_picker_shortcut_opens_tool_before_capture(self):
         window = Mock()
         window._shortcuts_suspended = False
+        window.app_state = SimpleNamespace(capture=CaptureSessionState())
         color_page = window._load_tool_page.return_value
+        color_page.begin_eyedropper.return_value = Mock()
 
         MainWindow.start_color_picker(window)
 
         window.open_tool.assert_called_once_with("color-picker")
-        color_page._start_eyedropper.assert_called_once_with(keep_main_window=False)
+        color_page.begin_eyedropper.assert_called_once_with(keep_main_window=False)
 
     def test_regular_screenshot_shortcut_stays_in_background_after_capture(self):
         window = Mock()
         window._shortcuts_suspended = False
+        window.app_state = SimpleNamespace(capture=CaptureSessionState())
         screenshot_page = window._load_tool_page.return_value
-        overlay = screenshot_page._overlay
+        overlay = Mock()
+        screenshot_page.begin_capture.return_value = overlay
 
         MainWindow.start_screenshot(window)
 
-        screenshot_page.start_capture.assert_called_once_with(
-            keep_main_window=False,
-            restore_main_window=False,
-        )
-        self.assertTrue(window._background_screenshot_active)
-        self.assertTrue(window._block_activation_restore)
-        overlay.completed.connect.assert_called_once_with(
-            window._background_screenshot_finished
-        )
-        overlay.cancelled.connect.assert_called_once_with(
-            window._background_screenshot_finished
-        )
+        screenshot_page.begin_capture.assert_called_once_with(keep_main_window=False)
+        self.assertTrue(window.app_state.capture.is_active)
+        self.assertTrue(window.app_state.capture.activation_restore_blocked)
+        overlay.completed.connect.assert_called_once()
+        overlay.cancelled.connect.assert_called_once()
 
     def test_background_screenshot_blocks_synthetic_macos_activation(self):
         window = Mock()
-        window._background_screenshot_active = False
-        window._block_activation_restore = True
+        capture = CaptureSessionState()
+        session = capture.begin(
+            CaptureKind.SCREENSHOT,
+            keep_main_window=False,
+            restore_main_window=False,
+        )
+        capture.finish(session.token)
+        window.app_state = SimpleNamespace(capture=capture)
         window.isVisible.return_value = False
         window._application_quitting = False
 
@@ -977,21 +1072,33 @@ class ResultModelTests(unittest.TestCase):
 
     def test_background_screenshot_releases_activation_guard_after_settle(self):
         window = Mock()
-        window._background_screenshot_active = True
-        window._block_activation_restore = True
+        capture = CaptureSessionState()
+        session = capture.begin(
+            CaptureKind.SCREENSHOT,
+            keep_main_window=False,
+            restore_main_window=False,
+        )
+        window.app_state = SimpleNamespace(capture=capture)
+        window._application_quitting = False
 
         with patch("fuzztoolbox.ui.main_window.QTimer.singleShot") as single_shot:
-            MainWindow._background_screenshot_finished(window)
+            MainWindow._capture_finished(window, session.token)
 
-        self.assertFalse(window._background_screenshot_active)
+        self.assertFalse(capture.is_active)
         self.assertEqual(single_shot.call_args.args[0], 180)
         MainWindow._release_screenshot_activation_guard(window)
-        self.assertFalse(window._block_activation_restore)
+        self.assertFalse(capture.activation_restore_blocked)
 
     def test_macos_activation_restores_after_app_moves_to_background(self):
         window = Mock()
-        window._background_screenshot_active = False
-        window._block_activation_restore = True
+        capture = CaptureSessionState()
+        session = capture.begin(
+            CaptureKind.SCREENSHOT,
+            keep_main_window=False,
+            restore_main_window=False,
+        )
+        capture.finish(session.token)
+        window.app_state = SimpleNamespace(capture=capture)
         window.isVisible.return_value = False
         window._application_quitting = False
 
@@ -1005,12 +1112,12 @@ class ResultModelTests(unittest.TestCase):
                 window, Qt.ApplicationActive
             )
 
-        self.assertFalse(window._block_activation_restore)
+        self.assertFalse(capture.activation_restore_blocked)
         restore_window.assert_called_once_with(window)
 
     def test_macos_activation_restores_native_opacity_after_background_capture(self):
         window = Mock()
-        window._block_activation_restore = False
+        window.app_state = SimpleNamespace(capture=CaptureSessionState())
         window.isVisible.return_value = False
         window._application_quitting = False
 
@@ -1273,13 +1380,31 @@ class ResultModelTests(unittest.TestCase):
         ) as hide_window, patch(
             "fuzztoolbox.tools.color_picker.page.QTimer.singleShot"
         ) as single_shot:
-            page._start_eyedropper(keep_main_window=True)
+            returned = page.begin_eyedropper(keep_main_window=True)
 
         hide_window.assert_not_called()
-        self.assertFalse(page._restore_window_after_eyedropper)
+        self.assertIs(returned, overlay)
         single_shot.assert_called_once()
         self.assertIs(single_shot.call_args.args[1], overlay.begin)
         page._eyedropper = None
+        page.close()
+
+    def test_color_picker_button_requests_capture_policy_from_shell(self):
+        from fuzztoolbox.tools.color_picker.page import ColorPickerPage
+
+        page = ColorPickerPage()
+        requested = Mock()
+        page.capture_requested.connect(requested)
+
+        page.keep_main_window.setChecked(False)
+        page.eyedropper_button.click()
+        page.keep_main_window.setChecked(True)
+        page.eyedropper_button.click()
+
+        self.assertEqual(
+            [call.args[0] for call in requested.call_args_list],
+            [False, True],
+        )
         page.close()
 
     def test_color_wheel_uses_antialiased_vector_gradient(self):

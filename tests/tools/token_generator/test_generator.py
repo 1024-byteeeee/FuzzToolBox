@@ -42,6 +42,8 @@ class TokenGeneratorTests(unittest.TestCase):
         self.assertEqual(len(generate_token(MAX_LENGTH)), MAX_LENGTH)
 
     def test_invalid_length_and_empty_character_pool_are_rejected(self):
+        with self.assertRaisesRegex(TypeError, "必须是整数"):
+            generate_token(1.5)
         with self.assertRaisesRegex(ValueError, "1–512"):
             generate_token(0)
         with self.assertRaisesRegex(ValueError, "1–512"):

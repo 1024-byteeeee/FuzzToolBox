@@ -1,18 +1,28 @@
 """Full-screen eyedropper overlay for sampling a color from anywhere on screen."""
+from __future__ import annotations
 
 import ctypes
+import logging
 import os
 import platform
 import subprocess
 import tempfile
 import threading
-from typing import Optional
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QColorSpace, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from fuzztoolbox.ui.app_settings import application_root
+
+logger = logging.getLogger(__name__)
+_NATIVE_WINDOW_ERRORS = (
+    OSError,
+    AttributeError,
+    TypeError,
+    ctypes.ArgumentError,
+    RuntimeError,
+)
 
 
 def _raise_window_level(widget) -> None:
@@ -38,8 +48,8 @@ def _raise_window_level(widget) -> None:
                 ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long]
             objc.objc_msgSend(
                 ns_window, objc.sel_registerName(b"setLevel:"), 26)
-    except Exception:
-        pass
+    except _NATIVE_WINDOW_ERRORS:
+        logger.debug("无法提升 macOS 取色覆盖层级", exc_info=True)
 
 
 def _ns_window(widget):
@@ -54,11 +64,11 @@ def _ns_window(widget):
         objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         return objc.objc_msgSend(
             widget.winId(), objc.sel_registerName(b"window"))
-    except Exception:
+    except _NATIVE_WINDOW_ERRORS:
         return None
 
 
-def native_window_is_visible(widget) -> Optional[bool]:
+def native_window_is_visible(widget) -> bool | None:
     """Return AppKit's visibility state, or None when unavailable."""
     ns_window = _ns_window(widget)
     if ns_window is None:
@@ -70,8 +80,10 @@ def native_window_is_visible(widget) -> Optional[bool]:
         objc.objc_msgSend.restype = ctypes.c_bool
         objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         return bool(objc.objc_msgSend(ns_window, objc.sel_registerName(b"isVisible")))
-    except Exception:
+    except _NATIVE_WINDOW_ERRORS:
         return None
+
+
 def _set_window_opacity_no_animation(widget, opacity: float) -> None:
     """Set NSWindow.alphaValue inside a zero-duration NSAnimationContext.
 
@@ -103,7 +115,7 @@ def _set_window_opacity_no_animation(widget, opacity: float) -> None:
         objc.objc_msgSend(ns_window, objc.sel_registerName(b"setAlphaValue:"), opacity)
         objc.objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         objc.objc_msgSend(ctx_class, objc.sel_registerName(b"endGrouping"))
-    except Exception:
+    except _NATIVE_WINDOW_ERRORS:
         widget.setWindowOpacity(opacity)
 
 
@@ -133,8 +145,8 @@ def hide_window_instantly(widget) -> None:
             # Qt from re-ordering the window while the compositor settles.
             widget.hide()
             return
-        except Exception:
-            pass
+        except _NATIVE_WINDOW_ERRORS:
+            logger.debug("AppKit 隐藏窗口失败，回退至 Qt", exc_info=True)
     _set_window_opacity_no_animation(widget, 0.0)
     widget.hide()
 
@@ -155,8 +167,8 @@ def show_window_instantly(widget) -> None:
             widget.raise_()
             widget.activateWindow()
             return
-        except Exception:
-            pass
+        except _NATIVE_WINDOW_ERRORS:
+            logger.debug("AppKit 恢复窗口失败，回退至 Qt", exc_info=True)
     # On Windows/Linux the native AppKit path is unavailable.  The hide path
     # used widget.hide(), so restore the Qt visibility state before raising;
     # changing opacity alone does not remap a hidden widget.
@@ -320,15 +332,15 @@ def _grab_screen(screen) -> QPixmap:
                 "-R", f"{screen_rect.x()},{screen_rect.y()},{screen_rect.width()},{screen_rect.height()}",
                 tmp_path,
             ],
-            capture_output=True, timeout=5,
+            capture_output=True, timeout=5, check=False,
         )
         if result.returncode == 0 and os.path.exists(tmp_path):
             pixmap = QPixmap(tmp_path)
             if not pixmap.isNull():
                 pixmap.setDevicePixelRatio(screen.devicePixelRatio())
                 return _to_srgb_pixmap(pixmap)
-    except Exception:
-        pass
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        logger.debug("screencapture 回退捕获失败", exc_info=True)
     finally:
         try:
             os.unlink(tmp_path)
@@ -394,7 +406,7 @@ class EyedropperOverlay(QWidget):
                     for screen in screens
                 ]
                 self._show_overlay(shots)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- GUI 边界必须恢复窗口并发出取消信号。
                 import traceback
                 traceback.print_exc()
                 self.cancelled.emit()
@@ -408,7 +420,7 @@ class EyedropperOverlay(QWidget):
                     pixmap = _grab_screen(screen)
                     shots.append((screen.geometry(), pixmap))
                 self._screens_ready.emit(shots)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- 后台任务边界必须将任意原生错误转为取消信号。
                 # Never let a background-thread exception silently swallow
                 # the signal; surface it as a cancellation so the caller
                 # can restore the main window and report status.

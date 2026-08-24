@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import ipaddress
 import platform
 import re
-import subprocess
 import time
 from dataclasses import replace
-from typing import Callable, List, Optional
+from typing import Callable
 
 from getmac import get_mac_address
 
@@ -16,8 +17,8 @@ from .hostname import multicast_dns, netbios_name, reverse_dns
 from .models import ScanConfig, ScanProgress, ScanResult
 from .targets import TargetRange
 
-ResultCallback = Callable[[List[ScanResult]], None]
-UpdateCallback = Callable[[List[ScanResult]], None]
+ResultCallback = Callable[[list[ScanResult]], None]
+UpdateCallback = Callable[[list[ScanResult]], None]
 ProgressCallback = Callable[[ScanProgress], None]
 
 
@@ -28,7 +29,7 @@ class ScanCancelled(Exception):
 class Scanner:
     """Bounded producer/consumer scanner; memory use is independent of target size."""
 
-    def __init__(self, config: ScanConfig, network_info: Optional[NetworkInfo] = None):
+    def __init__(self, config: ScanConfig, network_info: NetworkInfo | None = None):
         config.validate()
         self.config = config
         self.network_info = network_info or NetworkInfo()
@@ -55,12 +56,12 @@ class Scanner:
     async def scan(
         self,
         targets: TargetRange,
-        on_results: Optional[ResultCallback] = None,
-        on_progress: Optional[ProgressCallback] = None,
-        on_updates: Optional[UpdateCallback] = None,
+        on_results: ResultCallback | None = None,
+        on_progress: ProgressCallback | None = None,
+        on_updates: UpdateCallback | None = None,
         batch_size: int = 512,
         retain_results: bool = True,
-    ) -> List[ScanResult]:
+    ) -> list[ScanResult]:
         started = time.monotonic()
         queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
         result_queue: asyncio.Queue = asyncio.Queue(maxsize=self.config.concurrency * 2)
@@ -85,7 +86,7 @@ class Scanner:
                         result = await self._probe_liveness(str(item))
                     except asyncio.CancelledError:
                         raise
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001 -- isolate one host probe failure.
                         # One OS/network failure must not kill a worker and leave the
                         # coordinator waiting forever.
                         result = ScanResult(
@@ -106,10 +107,10 @@ class Scanner:
         producer_task = asyncio.create_task(producer())
         workers = [asyncio.create_task(worker()) for _ in range(self.config.concurrency)]
         scanned = alive = finished_workers = 0
-        retained: List[ScanResult] = []
+        retained: list[ScanResult] = []
         retained_rows = {}
-        batch: List[ScanResult] = []
-        update_batch: List[ScanResult] = []
+        batch: list[ScanResult] = []
+        update_batch: list[ScanResult] = []
         last_progress_emit = 0.0
         last_progress_scanned = -1
 
@@ -287,8 +288,8 @@ class Scanner:
         )
 
     async def _check_ports(
-        self, ip: str, ports: List[int], stability_timeout: float, batch_size: int = 64
-    ) -> List[bool]:
+        self, ip: str, ports: list[int], stability_timeout: float, batch_size: int = 64
+    ) -> list[bool]:
         results = []
         for start in range(0, len(ports), batch_size):
             if self._cancelled.is_set():
@@ -328,7 +329,7 @@ class Scanner:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(writer.wait_closed(), timeout=0.5)
 
-    async def _ping_probe(self, ip: str, timeout: Optional[float] = None) -> ScanResult:
+    async def _ping_probe(self, ip: str, timeout: float | None = None) -> ScanResult:
         system = platform.system()
         effective_timeout = self.config.timeout if timeout is None else timeout
         timeout_ms = max(1, int(effective_timeout * 1000))
@@ -385,7 +386,7 @@ class Scanner:
         return any(ip_pattern.search(line) and ttl_pattern.search(line) for line in text.splitlines())
 
     @staticmethod
-    def _parse_ping_time(text: str, ip: str) -> Optional[float]:
+    def _parse_ping_time(text: str, ip: str) -> float | None:
         """Extract network RTT only, never subprocess startup/teardown time."""
         address = re.escape(ip)
         ip_pattern = re.compile(rf"(?<![\d.]){address}(?![\d.])")
@@ -415,7 +416,7 @@ class Scanner:
         except (ipaddress.AddressValueError, ValueError):
             return False
 
-    async def _resolve_hostname(self, ip: str) -> Optional[str]:
+    async def _resolve_hostname(self, ip: str) -> str | None:
         # Angry IP Scanner's order: regular reverse DNS, then local-link mDNS,
         # then NetBIOS. The latter two are deliberately restricted to this subnet.
         async with self._hostname_semaphore:
@@ -438,7 +439,7 @@ class Scanner:
             return self._clean_hostname(hostname, ip) if hostname else None
 
     @staticmethod
-    def _clean_hostname(value: str, ip: str) -> Optional[str]:
+    def _clean_hostname(value: str, ip: str) -> str | None:
         hostname = value.strip().rstrip(".")
         if not hostname or hostname.casefold() == "localhost" or hostname == ip:
             return None
@@ -456,7 +457,7 @@ class Scanner:
         except ValueError:
             return hostname
 
-    async def _lookup_mac(self, ip: str) -> Optional[str]:
+    async def _lookup_mac(self, ip: str) -> str | None:
         async with self._neighbor_semaphore:
             try:
                 value = await asyncio.wait_for(
@@ -481,7 +482,7 @@ class Scanner:
             _, stdout = command_result
             return self._parse_mac(stdout.decode(errors="ignore"))
 
-    async def _run_command(self, args: List[str], timeout: float):
+    async def _run_command(self, args: list[str], timeout: float):
         try:
             process = await asyncio.create_subprocess_exec(
                 *args,
@@ -517,7 +518,7 @@ class Scanner:
                     transport.close()
 
     @staticmethod
-    def _parse_mac(text: str) -> Optional[str]:
+    def _parse_mac(text: str) -> str | None:
         match = re.search(r"(?i)\b(?:[0-9a-f]{1,2}[:-]){5}[0-9a-f]{1,2}\b", text)
         if not match:
             return None
