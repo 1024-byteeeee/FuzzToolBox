@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -125,9 +126,18 @@ class IPLookupPage(QWidget):
         self._report_text = ""
         self._result_columns = 2
         self._detail_cards = []
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("ipLookupScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content_widget = QWidget()
+        root = QVBoxLayout(content_widget)
         root.setContentsMargins(24, 20, 24, 16)
         root.setSpacing(12)
+        scroll.setWidget(content_widget)
+        outer.addWidget(scroll)
 
         intro = QLabel(
             "查询当前或指定公网 IP 的归属、ASN、ISP 与 PTR / rDNS 信息"
@@ -223,7 +233,7 @@ class IPLookupPage(QWidget):
         content.addStretch()
         self.result_content.setVisible(False)
         result_layout.addWidget(self.result_content)
-        root.addWidget(self.result_card, 1)
+        root.addWidget(self.result_card)
 
         actions = QHBoxLayout()
         actions.addStretch()
