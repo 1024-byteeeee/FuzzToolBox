@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import stat
 import tempfile
 import unittest
@@ -96,6 +97,11 @@ class FrozenApplicationSmokeHelperTests(unittest.TestCase):
             )
             self.assertTrue(marker_matches(marker, pid=42, activation=True))
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "POSIX-only: simulates a frozen app with an executable shebang "
+        "script, which Windows cannot launch directly",
+    )
     def test_lock_without_ready_window_is_rejected(self):
         """A process holding only the early startup lock is not UI-ready."""
         with tempfile.TemporaryDirectory() as directory:

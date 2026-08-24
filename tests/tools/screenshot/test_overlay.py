@@ -1,3 +1,4 @@
+import platform
 import unittest
 from unittest.mock import Mock, patch
 
@@ -302,6 +303,12 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertTrue(self.overlay._is_control_event_target(view.viewport()))
         self.assertFalse(self.overlay._is_control_event_target(self.overlay))
 
+    @unittest.skipUnless(
+        platform.system() == "Darwin",
+        "macOS-only: verifies native scroll routing through a visible font "
+        "popup; on Windows the QComboBox popup is a native window whose "
+        "internal view() is not reported visible in CI",
+    )
     def test_visible_font_popup_accepts_native_scroll_routing(self):
         self.overlay.show()
         self.overlay.toolbar.font_panel.show()
