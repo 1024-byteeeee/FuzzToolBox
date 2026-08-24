@@ -10,6 +10,10 @@ from ctypes import wintypes
 from PySide6.QtCore import QAbstractNativeEventFilter, QObject, Signal
 
 
+class _MacEventHotKeyID(ctypes.Structure):
+    _fields_ = [("signature", ctypes.c_uint32), ("id", ctypes.c_uint32)]
+
+
 def _parse_shortcut(sequence: str):
     parts = [part.strip().lower() for part in sequence.split("+") if part.strip()]
     if len(parts) < 2:
@@ -44,6 +48,26 @@ def _simple_shortcut(parts):
     ):
         return None
     return set(parts[:-1]), parts[-1]
+
+
+def _macos_event_matches(carbon, event, hotkey_id: int) -> bool:
+    """Return whether a Carbon event belongs to this manager's hotkey."""
+    event_hotkey = _MacEventHotKeyID()
+    actual_size = ctypes.c_uint32()
+    status = carbon.GetEventParameter(
+        event,
+        0x2D2D2D2D,  # kEventParamDirectObject ('----')
+        0x686B6964,  # typeEventHotKeyID ('hkid')
+        None,
+        ctypes.sizeof(event_hotkey),
+        ctypes.byref(actual_size),
+        ctypes.byref(event_hotkey),
+    )
+    return (
+        status == 0
+        and event_hotkey.signature == _fourcc("FZTB")
+        and event_hotkey.id == hotkey_id
+    )
 
 
 def _windows_key_code(key: str):
@@ -439,15 +463,24 @@ class GlobalHotkeyManager(QObject):
         class EventTypeSpec(ctypes.Structure):
             _fields_ = [("eventClass", ctypes.c_uint32), ("eventKind", ctypes.c_uint32)]
 
-        class EventHotKeyID(ctypes.Structure):
-            _fields_ = [("signature", ctypes.c_uint32), ("id", ctypes.c_uint32)]
+        carbon.GetEventParameter.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_void_p,
+        ]
+        carbon.GetEventParameter.restype = ctypes.c_int32
 
         callback_type = ctypes.CFUNCTYPE(
             ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
         )
 
         def callback(_next, _event, _data):
-            self.activated.emit()
+            if _macos_event_matches(carbon, _event, self.hotkey_id):
+                self.activated.emit()
             return 0
 
         self._mac_callback = callback_type(callback)
@@ -464,7 +497,7 @@ class GlobalHotkeyManager(QObject):
         carbon.RegisterEventHotKey.argtypes = [
             ctypes.c_uint32,
             ctypes.c_uint32,
-            EventHotKeyID,
+            _MacEventHotKeyID,
             ctypes.c_void_p,
             ctypes.c_uint32,
             ctypes.POINTER(ctypes.c_void_p),
@@ -482,7 +515,7 @@ class GlobalHotkeyManager(QObject):
         )
         if handler_status != 0:
             return False
-        hotkey_id = EventHotKeyID(_fourcc("FZTB"), self.hotkey_id)
+        hotkey_id = _MacEventHotKeyID(_fourcc("FZTB"), self.hotkey_id)
         status = carbon.RegisterEventHotKey(
             key_code,
             native_modifiers,

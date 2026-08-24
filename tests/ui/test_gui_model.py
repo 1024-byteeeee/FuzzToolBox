@@ -1,3 +1,4 @@
+import ctypes
 import math
 import time
 import unittest
@@ -35,6 +36,8 @@ from fuzztoolbox.ui.components import (
 from fuzztoolbox.ui.global_hotkey import (
     GlobalHotkeyManager,
     WindowsShortcutRecorder,
+    _MacEventHotKeyID,
+    _macos_event_matches,
     canonical_shortcut,
     windows_shortcut_needs_registration_probe,
     windows_shortcut_supported,
@@ -170,6 +173,21 @@ class ResultModelTests(unittest.TestCase):
         manager._update_chord(expected, "a", False)
         manager._update_chord(expected, "a", True)
         self.assertEqual(triggered.call_count, 2)
+
+    def test_macos_hotkey_event_is_routed_by_carbon_hotkey_id(self):
+        carbon = Mock()
+
+        def fill_event(_event, _param, _type, _out, _size, _actual, destination):
+            value = ctypes.cast(
+                destination, ctypes.POINTER(_MacEventHotKeyID)
+            ).contents
+            value.signature = int.from_bytes(b"FZTB", "big")
+            value.id = 2
+            return 0
+
+        carbon.GetEventParameter.side_effect = fill_event
+        self.assertTrue(_macos_event_matches(carbon, Mock(), 2))
+        self.assertFalse(_macos_event_matches(carbon, Mock(), 1))
 
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
