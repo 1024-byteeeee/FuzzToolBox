@@ -98,6 +98,35 @@ class ScreenshotPageTests(unittest.TestCase):
         self.assertEqual(single_shot.call_args.args[0], 25)
         page.close()
 
+    def test_background_capture_keeps_window_hidden_until_pixels_are_frozen(self):
+        page = ScreenshotPage()
+        overlay = Mock()
+        page._overlay = overlay
+        page._hidden_capture_overlay = overlay
+
+        with patch(
+            "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
+        ) as hide_window, patch(
+            "fuzztoolbox.tools.screenshot.page.QTimer.singleShot"
+        ) as single_shot:
+            page._keep_main_hidden(overlay, page)
+
+        hide_window.assert_called_once_with(page)
+        self.assertEqual(single_shot.call_args.args[0], 25)
+
+        page._capture_ready(overlay)
+        with patch(
+            "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
+        ) as hide_window, patch(
+            "fuzztoolbox.tools.screenshot.page.QTimer.singleShot"
+        ) as single_shot:
+            page._keep_main_hidden(overlay, page)
+
+        hide_window.assert_not_called()
+        single_shot.assert_not_called()
+        page._overlay = None
+        page.close()
+
 
 if __name__ == "__main__":
     unittest.main()

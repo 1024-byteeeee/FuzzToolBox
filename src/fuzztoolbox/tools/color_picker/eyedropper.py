@@ -118,6 +118,11 @@ def hide_window_instantly(widget) -> None:
     ns_window = _ns_window(widget)
     if ns_window is not None:
         try:
+            # Clear the window's compositor surface before removing it from the
+            # ordered window list.  AppKit can report ``isVisible == False``
+            # while the previous opaque frame is still present in a display
+            # capture, especially when a global shortcut activates the app.
+            _set_window_opacity_no_animation(widget, 0.0)
             objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
             objc.sel_registerName.restype = ctypes.c_void_p
             objc.sel_registerName.argtypes = [ctypes.c_char_p]
@@ -139,6 +144,7 @@ def show_window_instantly(widget) -> None:
     ns_window = _ns_window(widget)
     if ns_window is not None:
         try:
+            _set_window_opacity_no_animation(widget, 1.0)
             widget.show()
             objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
             objc.sel_registerName.restype = ctypes.c_void_p

@@ -67,6 +67,7 @@ class ScreenshotPage(QWidget):
             )
         )
         self._restore_window_after_capture = False
+        self._hidden_capture_overlay = None
 
     def start_capture(
         self,
@@ -91,6 +92,7 @@ class ScreenshotPage(QWidget):
         self._overlay = overlay
         overlay.completed.connect(self._completed)
         overlay.cancelled.connect(self._cancelled)
+        overlay.capture_ready.connect(lambda: self._capture_ready(overlay))
         if keep_main_window:
             QTimer.singleShot(0, overlay.begin)
         else:
@@ -105,9 +107,24 @@ class ScreenshotPage(QWidget):
         if visible is True:
             hide_window_instantly(main_window)
         if elapsed >= 1.0 or (elapsed >= 0.35 and visible is not True):
+            self._hidden_capture_overlay = overlay
+            self._keep_main_hidden(overlay, main_window)
             overlay.begin()
             return
         QTimer.singleShot(25, lambda: self._wait_for_hide(overlay, main_window, started_at))
+
+    def _keep_main_hidden(self, overlay, main_window):
+        """Keep AppKit from reordering the main window during pixel capture."""
+        if self._overlay is not overlay or self._hidden_capture_overlay is not overlay:
+            return
+        hide_window_instantly(main_window)
+        QTimer.singleShot(
+            25, lambda: self._keep_main_hidden(overlay, main_window)
+        )
+
+    def _capture_ready(self, overlay):
+        if self._hidden_capture_overlay is overlay:
+            self._hidden_capture_overlay = None
 
     def _completed(self):
         self.status.setText("截图已完成")
@@ -118,6 +135,7 @@ class ScreenshotPage(QWidget):
         self._finish()
 
     def _finish(self):
+        self._hidden_capture_overlay = None
         if self._overlay is not None:
             self._overlay.deleteLater()
             self._overlay = None

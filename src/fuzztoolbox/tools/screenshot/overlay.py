@@ -178,6 +178,7 @@ class ScreenshotScrollBar(QScrollBar):
 class ScreenshotOverlay(QWidget):
     completed = Signal()
     cancelled = Signal()
+    capture_ready = Signal()
     _screens_ready = Signal(list)
 
     TOOLS = (("矩形", "rect"), ("椭圆", "ellipse"), ("箭头", "arrow"),
@@ -455,6 +456,9 @@ class ScreenshotOverlay(QWidget):
             target = QRect(geometry.topLeft() - self._virtual.topLeft(), geometry.size())
             painter.drawPixmap(QRectF(target), pixmap, QRectF(pixmap.rect()))
         painter.end()
+        # The frozen desktop no longer depends on the live window server.  The
+        # launcher may stop its macOS order-out watchdog at this exact point.
+        self.capture_ready.emit()
         native_candidates = []
         for window_rect in enumerate_window_rects(
             include_current_process=self._include_app_window

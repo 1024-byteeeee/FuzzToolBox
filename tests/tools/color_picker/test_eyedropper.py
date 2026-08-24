@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QColorSpace, QImage, QPixmap
@@ -7,6 +8,8 @@ from PySide6.QtWidgets import QApplication
 from fuzztoolbox.tools.color_picker.eyedropper import (
     EyedropperOverlay,
     _to_srgb_pixmap,
+    hide_window_instantly,
+    show_window_instantly,
 )
 
 
@@ -69,6 +72,50 @@ class EyedropperColorManagementTests(unittest.TestCase):
         self.assertTrue(overlay.windowFlags() & Qt.WindowStaysOnTopHint)
         self.assertIsNone(overlay.parentWidget())
         overlay.deleteLater()
+
+    def test_native_hide_clears_compositor_pixels_before_ordering_window_out(self):
+        widget = Mock()
+        objc = Mock()
+        objc.sel_registerName.side_effect = lambda name: name
+        events = []
+        objc.objc_msgSend.side_effect = lambda *_args: events.append("order-out")
+
+        with patch(
+            "fuzztoolbox.tools.color_picker.eyedropper._ns_window",
+            return_value=123,
+        ), patch(
+            "fuzztoolbox.tools.color_picker.eyedropper._set_window_opacity_no_animation",
+            side_effect=lambda _widget, opacity: events.append(f"opacity-{opacity}"),
+        ), patch(
+            "fuzztoolbox.tools.color_picker.eyedropper.ctypes.CDLL",
+            return_value=objc,
+        ):
+            hide_window_instantly(widget)
+
+        self.assertEqual(events[:2], ["opacity-0.0", "order-out"])
+        widget.hide.assert_called_once_with()
+
+    def test_native_show_restores_opacity_before_ordering_window_front(self):
+        widget = Mock()
+        objc = Mock()
+        objc.sel_registerName.side_effect = lambda name: name
+        events = []
+        widget.show.side_effect = lambda: events.append("show")
+        objc.objc_msgSend.side_effect = lambda *_args: events.append("order-front")
+
+        with patch(
+            "fuzztoolbox.tools.color_picker.eyedropper._ns_window",
+            return_value=123,
+        ), patch(
+            "fuzztoolbox.tools.color_picker.eyedropper._set_window_opacity_no_animation",
+            side_effect=lambda _widget, opacity: events.append(f"opacity-{opacity}"),
+        ), patch(
+            "fuzztoolbox.tools.color_picker.eyedropper.ctypes.CDLL",
+            return_value=objc,
+        ):
+            show_window_instantly(widget)
+
+        self.assertEqual(events[:3], ["opacity-1.0", "show", "order-front"])
 
 
 if __name__ == "__main__":
