@@ -31,6 +31,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("缺少 GUI 依赖，请运行：pip install -e '.'") from exc
 
 from .. import __version__
+from ..tools.color_picker.eyedropper import show_window_instantly
 from .animations import PageTransitionController, ThemeTransitionController
 from .app_settings import create_settings
 from .global_hotkey import (
@@ -435,6 +436,9 @@ class MainWindow(QMainWindow):
     def restore_from_tray(self):
         if self._application_quitting:
             return
+        if sys.platform == "darwin":
+            show_window_instantly(self)
+            return
         restore_main_window(self)
 
     def show_in_saved_state(self) -> None:
@@ -611,9 +615,11 @@ class MainWindow(QMainWindow):
         if self._block_activation_restore:
             return
         if not self.isVisible() and not self._application_quitting:
-            self.show()
-            self.raise_()
-            self.activateWindow()
+            # Background capture hides the AppKit window with alpha 0.  A
+            # plain QWidget.show() maps that still-transparent native window,
+            # leaving the app active but visually absent.  Restore through
+            # the same native path used by the eyedropper instead.
+            show_window_instantly(self)
 
     def _finish_deferred_close(self):
         if self._closing_after_worker:

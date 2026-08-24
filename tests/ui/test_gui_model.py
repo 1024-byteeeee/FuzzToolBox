@@ -963,7 +963,10 @@ class ResultModelTests(unittest.TestCase):
         window.isVisible.return_value = False
         window._application_quitting = False
 
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly",
+            side_effect=lambda _window: window.show(),
+        ):
             MainWindow.restore_from_application_activation(
                 window, Qt.ApplicationActive
             )
@@ -992,7 +995,9 @@ class ResultModelTests(unittest.TestCase):
         window.isVisible.return_value = False
         window._application_quitting = False
 
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly"
+        ) as restore_window:
             MainWindow.restore_from_application_activation(
                 window, Qt.ApplicationInactive
             )
@@ -1001,9 +1006,35 @@ class ResultModelTests(unittest.TestCase):
             )
 
         self.assertFalse(window._block_activation_restore)
-        window.show.assert_called_once_with()
-        window.raise_.assert_called_once_with()
-        window.activateWindow.assert_called_once_with()
+        restore_window.assert_called_once_with(window)
+
+    def test_macos_activation_restores_native_opacity_after_background_capture(self):
+        window = Mock()
+        window._block_activation_restore = False
+        window.isVisible.return_value = False
+        window._application_quitting = False
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly"
+        ) as restore_window:
+            MainWindow.restore_from_application_activation(
+                window, Qt.ApplicationActive
+            )
+
+        restore_window.assert_called_once_with(window)
+        window.show.assert_not_called()
+
+    def test_macos_single_instance_activation_restores_native_opacity(self):
+        window = Mock()
+        window._application_quitting = False
+
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly"
+        ) as restore_window:
+            MainWindow.restore_from_tray(window)
+
+        restore_window.assert_called_once_with(window)
+        window.show.assert_not_called()
 
     def test_macos_close_hides_window_and_explicit_quit_cleans_up(self):
         with patch("fuzztoolbox.tools.ip_scanner.page.get_network_info") as network_info:
@@ -1017,7 +1048,10 @@ class ResultModelTests(unittest.TestCase):
         window.ip_lookup_page.prepare_close = Mock(return_value=True)
         window.device_info_page.prepare_close = Mock(return_value=True)
 
-        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"):
+        with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
+            "fuzztoolbox.ui.main_window.show_window_instantly",
+            side_effect=lambda _window: window.show(),
+        ):
             close_event = QCloseEvent()
             window.closeEvent(close_event)
             self.assertFalse(close_event.isAccepted())
