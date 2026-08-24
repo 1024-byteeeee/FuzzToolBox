@@ -352,6 +352,7 @@ class IPLookupPage(QWidget):
         self.my_ip_button.setEnabled(False)
         self.progress.setVisible(True)
         self.status.setText("正在获取当前公网 IP…")
+        self._show_loading_state()
         self.public_ip_timeout.start()
         self.public_ip_worker = PublicIPWorker()
         self.public_ip_worker.completed.connect(self._set_public_ip)
@@ -369,6 +370,7 @@ class IPLookupPage(QWidget):
             self.status.setText("已获取当前公网 IP")
         else:
             self.status.setText("获取当前公网 IP 失败，请手动输入")
+            self._show_result_message("获取当前公网 IP 失败\n请输入公网 IP 后开始查询")
         self.ip_input.setPlaceholderText("输入公网 IPv4 / IPv6")
         self.ip_input.setEnabled(True)
         self.query_button.setEnabled(True)
@@ -387,6 +389,7 @@ class IPLookupPage(QWidget):
         self.my_ip_button.setEnabled(True)
         self.progress.setVisible(False)
         self.status.setText("获取当前公网 IP 超时（30 秒），请手动输入")
+        self._show_result_message("获取当前公网 IP 超时\n请输入公网 IP 后开始查询")
 
     def start_lookup(self):
         if self.worker and self.worker.isRunning():
@@ -453,6 +456,13 @@ class IPLookupPage(QWidget):
         apply_style(self.result_state, "tools.ip_lookup.page:405")
         self.result_state.setVisible(True)
         self.status.setText(f"查询失败：{message}")
+
+    def _show_result_message(self, message: str):
+        self.result_content.setVisible(False)
+        self.skeleton_content.setVisible(False)
+        self.result_state.setText(message)
+        self.result_state.setObjectName("ipResultState")
+        self.result_state.setVisible(True)
 
     def copy_report(self):
         QGuiApplication.clipboard().setText(self._report_text)
