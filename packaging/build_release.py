@@ -291,11 +291,19 @@ def build() -> Path:
         plist["CFBundleAllowMixedLocalizations"] = True
         with plist_path.open("wb") as handle:
             plistlib.dump(plist, handle)
-        ensure_stable_signing_identity()
+        try:
+            ensure_stable_signing_identity()
+            signing_identity = SIGN_IDENTITY
+        except (OSError, subprocess.CalledProcessError) as exc:
+            # Some local/headless macOS environments reject custom keychains
+            # through Security.framework.  Ad-hoc signing still produces a
+            # runnable app and keeps local builds from failing outright.
+            print(f"Warning: stable signing unavailable ({exc}); using ad-hoc signing.")
+            signing_identity = "-"
         subprocess.run(
             [
                 "/usr/bin/codesign", "--force", "--deep", "--sign",
-                SIGN_IDENTITY, str(built_path),
+                signing_identity, str(built_path),
             ],
             check=True,
         )

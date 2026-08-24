@@ -32,6 +32,23 @@ VersionInfoCompany=1024_byteeeee
 VersionInfoDescription=FuzzToolBox Windows Installer
 VersionInfoProductName=FuzzToolBox
 
+[Messages]
+ButtonBack=上一步(&B)
+ButtonNext=下一步(&N)
+ButtonInstall=安装(&I)
+ButtonCancel=取消
+ButtonFinish=完成
+ButtonYes=是
+ButtonNo=否
+WelcomeLabel1=欢迎使用 FuzzToolBox 安装向导
+WelcomeLabel2=此向导将引导你完成 FuzzToolBox 的安装。
+SelectDirLabel3=请选择 FuzzToolBox 的安装目录。
+SelectTasksLabel2=请选择要执行的附加任务。
+FinishedHeadingLabel=安装完成
+FinishedLabel=FuzzToolBox 已成功安装。
+UninstallAppFullTitle=卸载 FuzzToolBox
+ConfirmUninstall=确定要卸载 FuzzToolBox 吗？
+
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: unchecked
 
@@ -44,3 +61,9 @@ Name: "{autodesktop}\FuzzToolBox"; Filename: "{app}\FuzzToolBox.exe"; WorkingDir
 
 [Run]
 Filename: "{app}\FuzzToolBox.exe"; Description: "启动 FuzzToolBox"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/IM FuzzToolBox.exe /T /F"; Flags: runhidden waituntilterminated
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}\data"

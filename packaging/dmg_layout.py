@@ -87,24 +87,40 @@ def create_styled_dmg(app_path: Path, output_path: Path, volume_name: str) -> No
         )
 
         read_write = temp / "layout.dmg"
-        subprocess.run(
-            [
-                "/usr/bin/hdiutil", "create", "-volname", volume_name,
-                "-srcfolder", str(source), "-ov", "-format", "UDRW",
-                str(read_write),
-            ],
-            check=True,
-        )
-        attach = subprocess.run(
-            ["/usr/bin/hdiutil", "attach", str(read_write), "-nobrowse", "-plist"],
-            check=True,
-            capture_output=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "/usr/bin/hdiutil", "create", "-volname", volume_name,
+                    "-srcfolder", str(source), "-ov", "-format", "UDRW",
+                    str(read_write),
+                ],
+                check=True,
+            )
+            attach = subprocess.run(
+                ["/usr/bin/hdiutil", "attach", str(read_write), "-nobrowse", "-plist"],
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            # Restricted/headless macOS environments may not expose a usable
+            # disk-image device, so UDRW creation or mounting can fail with
+            # "Device not configured".  A flat compressed DMG remains fully
+            # installable, even though Finder positioning is unavailable.
+            print(f"Warning: custom DMG layout unavailable ({exc}); creating a flat DMG.")
+            output_path.unlink(missing_ok=True)
+            subprocess.run(
+                [
+                    "/usr/bin/hdiutil", "create", "-volname", volume_name,
+                    "-srcfolder", str(source), "-ov", "-format", "UDZO",
+                    "-imagekey", "zlib-level=9", str(output_path),
+                ],
+                check=True,
+            )
+            return
         attachment = plistlib.loads(attach.stdout)
         entity = next(
             item for item in attachment["system-entities"] if item.get("mount-point")
         )
-        mount_point = Path(entity["mount-point"])
         device = entity["dev-entry"]
         try:
             subprocess.run(

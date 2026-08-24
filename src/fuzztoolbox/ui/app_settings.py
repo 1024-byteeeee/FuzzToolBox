@@ -19,4 +19,14 @@ def application_root() -> Path:
 
 
 def create_settings() -> QSettings:
-    return QSettings(str(application_root() / "FuzzToolBox.ini"), QSettings.IniFormat)
+    root = application_root()
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = data_dir / "FuzzToolBox.ini"
+    legacy_path = root / "FuzzToolBox.ini"
+    if legacy_path.is_file() and not settings_path.exists():
+        try:
+            legacy_path.replace(settings_path)
+        except OSError:
+            pass
+    return QSettings(str(settings_path), QSettings.IniFormat)
