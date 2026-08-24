@@ -14,6 +14,21 @@ class _MacEventHotKeyID(ctypes.Structure):
     _fields_ = [("signature", ctypes.c_uint32), ("id", ctypes.c_uint32)]
 
 
+class _MacEventTypeSpec(ctypes.Structure):
+    _fields_ = [("eventClass", ctypes.c_uint32), ("eventKind", ctypes.c_uint32)]
+
+
+# Carbon dispatches every registered global shortcut through the application
+# event target.  Installing one handler per shortcut makes delivery depend on
+# handler-chain order and a stale handler can swallow another shortcut after a
+# settings refresh.  Keep one process-wide dispatcher and route by the Carbon
+# EventHotKeyID instead.
+_MAC_HOTKEY_MANAGERS = {}
+_MAC_EVENT_CARBON = None
+_MAC_EVENT_HANDLER = ctypes.c_void_p()
+_MAC_EVENT_CALLBACK = None
+
+
 def _parse_shortcut(sequence: str):
     parts = [part.strip().lower() for part in sequence.split("+") if part.strip()]
     if len(parts) < 2:
@@ -52,6 +67,11 @@ def _simple_shortcut(parts):
 
 def _macos_event_matches(carbon, event, hotkey_id: int) -> bool:
     """Return whether a Carbon event belongs to this manager's hotkey."""
+    return _macos_event_hotkey_id(carbon, event) == hotkey_id
+
+
+def _macos_event_hotkey_id(carbon, event):
+    """Read FuzzToolBox's registered Carbon hotkey id from an event."""
     event_hotkey = _MacEventHotKeyID()
     actual_size = ctypes.c_uint32()
     status = carbon.GetEventParameter(
@@ -63,11 +83,68 @@ def _macos_event_matches(carbon, event, hotkey_id: int) -> bool:
         ctypes.byref(actual_size),
         ctypes.byref(event_hotkey),
     )
-    return (
-        status == 0
-        and event_hotkey.signature == _fourcc("FZTB")
-        and event_hotkey.id == hotkey_id
+    if status != 0 or event_hotkey.signature != _fourcc("FZTB"):
+        return None
+    return int(event_hotkey.id)
+
+
+def _macos_hotkey_dispatcher():
+    """Return the shared Carbon dispatcher, installing it once if needed."""
+    global _MAC_EVENT_CALLBACK, _MAC_EVENT_CARBON, _MAC_EVENT_HANDLER
+    if _MAC_EVENT_CARBON is not None and _MAC_EVENT_HANDLER.value:
+        return _MAC_EVENT_CARBON
+
+    carbon = ctypes.cdll.LoadLibrary(
+        "/System/Library/Frameworks/Carbon.framework/Carbon"
     )
+    carbon.GetEventParameter.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_void_p,
+    ]
+    carbon.GetEventParameter.restype = ctypes.c_int32
+    callback_type = ctypes.CFUNCTYPE(
+        ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+    )
+
+    def callback(_next, event, _data):
+        hotkey_id = _macos_event_hotkey_id(carbon, event)
+        manager = _MAC_HOTKEY_MANAGERS.get(hotkey_id)
+        if manager is not None:
+            manager.activated.emit()
+        return 0
+
+    carbon.GetApplicationEventTarget.restype = ctypes.c_void_p
+    carbon.InstallEventHandler.argtypes = [
+        ctypes.c_void_p,
+        callback_type,
+        ctypes.c_uint32,
+        ctypes.POINTER(_MacEventTypeSpec),
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    carbon.InstallEventHandler.restype = ctypes.c_int32
+    event_type = _MacEventTypeSpec(_fourcc("keyb"), 6)
+    callback_ref = callback_type(callback)
+    handler = ctypes.c_void_p()
+    status = carbon.InstallEventHandler(
+        carbon.GetApplicationEventTarget(),
+        callback_ref,
+        1,
+        ctypes.byref(event_type),
+        None,
+        ctypes.byref(handler),
+    )
+    if status != 0:
+        return None
+    _MAC_EVENT_CARBON = carbon
+    _MAC_EVENT_HANDLER = handler
+    _MAC_EVENT_CALLBACK = callback_ref
+    return carbon
 
 
 def _windows_key_code(key: str):
@@ -256,21 +333,16 @@ class GlobalHotkeyManager(QObject):
             ctypes.windll.user32.UnhookWindowsHookEx(self._windows_hook)
             self._windows_hook = None
             self._windows_hook_callback = None
-        elif sys.platform == "darwin" and (
-            self._mac_ref.value or self._mac_handler.value
-        ):
-            carbon = ctypes.cdll.LoadLibrary(
+        elif sys.platform == "darwin" and self._mac_ref.value:
+            carbon = _MAC_EVENT_CARBON or ctypes.cdll.LoadLibrary(
                 "/System/Library/Frameworks/Carbon.framework/Carbon"
             )
             if self._mac_ref.value:
                 carbon.UnregisterEventHotKey.argtypes = [ctypes.c_void_p]
                 carbon.UnregisterEventHotKey.restype = ctypes.c_int32
                 carbon.UnregisterEventHotKey(self._mac_ref)
-            if self._mac_handler.value:
-                carbon.RemoveEventHandler.argtypes = [ctypes.c_void_p]
-                carbon.RemoveEventHandler.restype = ctypes.c_int32
-                carbon.RemoveEventHandler(self._mac_handler)
-                self._mac_handler = ctypes.c_void_p()
+            if _MAC_HOTKEY_MANAGERS.get(self.hotkey_id) is self:
+                _MAC_HOTKEY_MANAGERS.pop(self.hotkey_id, None)
             self._mac_ref = ctypes.c_void_p()
         if sys.platform == "darwin" and self._mac_source.value:
             core_foundation = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
@@ -456,44 +528,9 @@ class GlobalHotkeyManager(QObject):
                 return False
             native_modifiers |= value
 
-        carbon = ctypes.cdll.LoadLibrary(
-            "/System/Library/Frameworks/Carbon.framework/Carbon"
-        )
-
-        class EventTypeSpec(ctypes.Structure):
-            _fields_ = [("eventClass", ctypes.c_uint32), ("eventKind", ctypes.c_uint32)]
-
-        carbon.GetEventParameter.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_uint32,
-            ctypes.c_uint32,
-            ctypes.c_void_p,
-            ctypes.c_uint32,
-            ctypes.POINTER(ctypes.c_uint32),
-            ctypes.c_void_p,
-        ]
-        carbon.GetEventParameter.restype = ctypes.c_int32
-
-        callback_type = ctypes.CFUNCTYPE(
-            ctypes.c_int32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
-        )
-
-        def callback(_next, _event, _data):
-            if _macos_event_matches(carbon, _event, self.hotkey_id):
-                self.activated.emit()
-            return 0
-
-        self._mac_callback = callback_type(callback)
-        carbon.GetApplicationEventTarget.restype = ctypes.c_void_p
-        carbon.InstallEventHandler.argtypes = [
-            ctypes.c_void_p,
-            callback_type,
-            ctypes.c_uint32,
-            ctypes.POINTER(EventTypeSpec),
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_void_p),
-        ]
-        carbon.InstallEventHandler.restype = ctypes.c_int32
+        carbon = _macos_hotkey_dispatcher()
+        if carbon is None:
+            return False
         carbon.RegisterEventHotKey.argtypes = [
             ctypes.c_uint32,
             ctypes.c_uint32,
@@ -504,17 +541,6 @@ class GlobalHotkeyManager(QObject):
         ]
         carbon.RegisterEventHotKey.restype = ctypes.c_int32
         target = carbon.GetApplicationEventTarget()
-        event_type = EventTypeSpec(_fourcc("keyb"), 6)
-        handler_status = carbon.InstallEventHandler(
-            target,
-            self._mac_callback,
-            1,
-            ctypes.byref(event_type),
-            None,
-            ctypes.byref(self._mac_handler),
-        )
-        if handler_status != 0:
-            return False
         hotkey_id = _MacEventHotKeyID(_fourcc("FZTB"), self.hotkey_id)
         status = carbon.RegisterEventHotKey(
             key_code,
@@ -524,12 +550,10 @@ class GlobalHotkeyManager(QObject):
             0,
             ctypes.byref(self._mac_ref),
         )
-        if status != 0 and self._mac_handler.value:
-            carbon.RemoveEventHandler.argtypes = [ctypes.c_void_p]
-            carbon.RemoveEventHandler.restype = ctypes.c_int32
-            carbon.RemoveEventHandler(self._mac_handler)
-            self._mac_handler = ctypes.c_void_p()
-        return status == 0
+        if status != 0:
+            return False
+        _MAC_HOTKEY_MANAGERS[self.hotkey_id] = self
+        return True
 
 
 def _fourcc(value: str) -> int:

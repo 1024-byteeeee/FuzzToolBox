@@ -422,13 +422,15 @@ class MainWindow(QMainWindow):
 
     def _background_screenshot_finished(self):
         # Hiding the overlay after an Enter-key capture can reactivate the
-        # application on macOS.  Keep blocking that synthetic activation until
-        # the application has genuinely moved to the background; the next Dock
-        # activation can then restore the main window normally.
+        # application on macOS.  Block only that short-lived synthetic
+        # activation, then always release the guard.  Waiting indefinitely for
+        # an ApplicationInactive transition leaves the app hidden forever when
+        # macOS keeps it active after the overlay has closed.
         self._background_screenshot_active = False
-        app = QApplication.instance()
-        if app is not None and app.applicationState() != Qt.ApplicationActive:
-            self._block_activation_restore = False
+        QTimer.singleShot(180, self._release_screenshot_activation_guard)
+
+    def _release_screenshot_activation_guard(self):
+        self._block_activation_restore = False
 
     def restore_from_tray(self):
         if self._application_quitting:

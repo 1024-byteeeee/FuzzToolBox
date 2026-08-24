@@ -37,6 +37,7 @@ from fuzztoolbox.ui.global_hotkey import (
     GlobalHotkeyManager,
     WindowsShortcutRecorder,
     _MacEventHotKeyID,
+    _macos_event_hotkey_id,
     _macos_event_matches,
     canonical_shortcut,
     windows_shortcut_needs_registration_probe,
@@ -188,6 +189,7 @@ class ResultModelTests(unittest.TestCase):
         carbon.GetEventParameter.side_effect = fill_event
         self.assertTrue(_macos_event_matches(carbon, Mock(), 2))
         self.assertFalse(_macos_event_matches(carbon, Mock(), 1))
+        self.assertEqual(_macos_event_hotkey_id(carbon, Mock()), 2)
 
     def test_windows_main_window_is_shown_exactly_once(self):
         window = Mock()
@@ -969,6 +971,19 @@ class ResultModelTests(unittest.TestCase):
         window.show.assert_not_called()
         window.raise_.assert_not_called()
         window.activateWindow.assert_not_called()
+
+    def test_background_screenshot_releases_activation_guard_after_settle(self):
+        window = Mock()
+        window._background_screenshot_active = True
+        window._block_activation_restore = True
+
+        with patch("fuzztoolbox.ui.main_window.QTimer.singleShot") as single_shot:
+            MainWindow._background_screenshot_finished(window)
+
+        self.assertFalse(window._background_screenshot_active)
+        self.assertEqual(single_shot.call_args.args[0], 180)
+        MainWindow._release_screenshot_activation_guard(window)
+        self.assertFalse(window._block_activation_restore)
 
     def test_macos_activation_restores_after_app_moves_to_background(self):
         window = Mock()
