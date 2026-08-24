@@ -99,6 +99,11 @@ class ScreenshotPage(QWidget):
     def _wait_for_hide(self, overlay, main_window, started_at):
         elapsed = time.monotonic() - started_at
         visible = native_window_is_visible(main_window)
+        # AppKit can re-order a Qt window while the screenshot overlay is
+        # becoming active. Re-issue orderOut during the settling window so a
+        # regular shortcut capture never includes the FuzzToolBox window.
+        if visible is True:
+            hide_window_instantly(main_window)
         if elapsed >= 1.0 or (elapsed >= 0.35 and visible is not True):
             overlay.begin()
             return

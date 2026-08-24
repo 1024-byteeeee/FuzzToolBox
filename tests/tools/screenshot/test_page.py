@@ -77,6 +77,27 @@ class ScreenshotPageTests(unittest.TestCase):
         self.assertFalse(page._restore_window_after_capture)
         page.close()
 
+    def test_background_capture_rehides_a_window_reordered_by_macos(self):
+        page = ScreenshotPage()
+        overlay = Mock()
+        with patch(
+            "fuzztoolbox.tools.screenshot.page.native_window_is_visible",
+            return_value=True,
+        ), patch(
+            "fuzztoolbox.tools.screenshot.page.hide_window_instantly"
+        ) as hide_window, patch(
+            "fuzztoolbox.tools.screenshot.page.QTimer.singleShot"
+        ) as single_shot, patch(
+            "fuzztoolbox.tools.screenshot.page.time.monotonic",
+            return_value=10.1,
+        ):
+            page._wait_for_hide(overlay, page, 10.0)
+
+        hide_window.assert_called_once_with(page)
+        overlay.begin.assert_not_called()
+        self.assertEqual(single_shot.call_args.args[0], 25)
+        page.close()
+
 
 if __name__ == "__main__":
     unittest.main()
