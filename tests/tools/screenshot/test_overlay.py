@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QPixmap, QWheelEvent
+from PySide6.QtGui import QColor, QKeyEvent, QPainter, QPixmap, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -466,6 +466,21 @@ class ScreenshotOverlayTests(unittest.TestCase):
         QTest.mouseRelease(self.overlay, Qt.LeftButton, pos=QPoint(350, 280))
 
         self.assertEqual(self.overlay.selection.topLeft(), QPoint(150, 130))
+
+    def test_moving_selection_uses_pixels_from_the_new_screen_region(self):
+        self.overlay.resize(120, 60)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#ff4d4f"))
+        painter = QPainter(self.overlay._desktop)
+        painter.fillRect(QRect(60, 0, 60, 60), QColor("#409eff"))
+        painter.end()
+        self.overlay.selection = QRect(0, 0, 40, 40)
+
+        self.overlay._committed_annotation_layer()
+        self.overlay.selection = QRect(70, 0, 40, 40)
+
+        rendered = self.overlay._render_selection().toImage()
+        self.assertEqual(rendered.pixelColor(20, 20), QColor("#409eff"))
 
     def test_toolbar_and_option_panels_use_the_standard_arrow_cursor(self):
         self.assertEqual(self.overlay.toolbar.cursor().shape(), Qt.ArrowCursor)

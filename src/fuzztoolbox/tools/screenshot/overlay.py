@@ -109,6 +109,7 @@ class ScreenshotOverlay(QWidget):
         self._selection_start = QRect()
         self._annotations = []
         self._annotation_layer = QPixmap()
+        self._annotation_layer_selection = QRect()
         self._annotation_layer_dirty = True
         self._current = None
         self._tool = ""
@@ -292,6 +293,7 @@ class ScreenshotOverlay(QWidget):
             not self._annotation_layer_dirty
             and not self._annotation_layer.isNull()
             and self._annotation_layer.size() == pixel_size
+            and self._annotation_layer_selection == self.selection
         ):
             return self._annotation_layer
         layer = QPixmap(pixel_size)
@@ -325,6 +327,7 @@ class ScreenshotOverlay(QWidget):
                 self._paint_annotation(painter, annotation)
         painter.end()
         self._annotation_layer = layer
+        self._annotation_layer_selection = QRect(self.selection)
         self._annotation_layer_dirty = False
         return self._annotation_layer
 
