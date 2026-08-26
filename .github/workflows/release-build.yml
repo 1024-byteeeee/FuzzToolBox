@@ -48,7 +48,13 @@ jobs:
       - name: Run automated tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        shell: bash
+        run: |
+          set -e
+          python -m pytest -q tests --ignore=tests/ui
+          for test_file in tests/ui/test_*.py; do
+            python -m pytest -q "$test_file"
+          done
 
       - name: Ensure Inno Setup is available
         if: runner.os == 'Windows'
