@@ -345,6 +345,65 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertEqual(annotation["width"], 12)
         self.assertEqual(annotation["color"], QColor("#409eff"))
 
+    def test_dragging_selected_shape_moves_it_without_finishing_capture(self):
+        self.overlay.selection = QRect(20, 20, 600, 400)
+        annotation = new_annotation(
+            "arrow", QPoint(80, 90), QPoint(240, 190), self.overlay._color, 6
+        )
+        self.overlay._annotations.append(annotation)
+        completed = []
+        self.overlay.completed.connect(lambda: completed.append(True))
+
+        QTest.mousePress(self.overlay, Qt.LeftButton, pos=QPoint(160, 140))
+        QTest.mouseMove(self.overlay, QPoint(200, 170))
+        QTest.mouseRelease(self.overlay, Qt.LeftButton, pos=QPoint(200, 170))
+
+        self.assertEqual(annotation["start"], QPoint(120, 120))
+        self.assertEqual(annotation["end"], QPoint(280, 220))
+        self.assertEqual(completed, [])
+
+    def test_delete_key_removes_the_selected_annotation(self):
+        self.overlay.selection = QRect(20, 20, 600, 400)
+        annotation = new_annotation(
+            "rect", QPoint(80, 90), QPoint(240, 190), self.overlay._color, 6
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._select_annotation(annotation)
+
+        QTest.keyClick(self.overlay, Qt.Key_Delete)
+
+        self.assertEqual(self.overlay._annotations, [])
+        self.assertIsNone(self.overlay._active_annotation)
+
+    def test_selected_shape_can_be_resized_from_its_anchor(self):
+        self.overlay.selection = QRect(20, 20, 600, 400)
+        annotation = new_annotation(
+            "rect", QPoint(80, 90), QPoint(240, 190), self.overlay._color, 6
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._select_annotation(annotation)
+
+        QTest.mousePress(self.overlay, Qt.LeftButton, pos=QPoint(240, 190))
+        QTest.mouseMove(self.overlay, QPoint(320, 250))
+        QTest.mouseRelease(self.overlay, Qt.LeftButton, pos=QPoint(320, 250))
+
+        self.assertEqual(annotation["start"], QPoint(80, 90))
+        self.assertEqual(annotation["end"], QPoint(320, 250))
+
+    def test_double_clicking_shape_does_not_finish_capture(self):
+        self.overlay.selection = QRect(20, 20, 600, 400)
+        annotation = new_annotation(
+            "rect", QPoint(80, 90), QPoint(240, 190), self.overlay._color, 6
+        )
+        self.overlay._annotations.append(annotation)
+        completed = []
+        self.overlay.completed.connect(lambda: completed.append(True))
+
+        QTest.mouseDClick(self.overlay, Qt.LeftButton, pos=QPoint(80, 140))
+
+        self.assertIs(self.overlay._active_annotation, annotation)
+        self.assertEqual(completed, [])
+
     def test_font_list_is_exempt_from_frozen_canvas_input_lock(self):
         view = self.overlay.toolbar.font_combo.view()
 
@@ -618,6 +677,142 @@ class ScreenshotOverlayTests(unittest.TestCase):
         center = result.pixelColor(60, 45)
 
         self.assertGreater(center.red(), center.blue())
+
+    def test_mosaic_composite_is_cached_between_pointer_frames(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#0055ff"))
+        layer = self.overlay._committed_annotation_layer()
+
+        first = self.overlay._annotation_composite(layer)
+        second = self.overlay._annotation_composite(layer)
+
+        self.assertIs(first, second)
+        self.overlay._invalidate_annotation_layer()
+        rebuilt_layer = self.overlay._committed_annotation_layer()
+        rebuilt = self.overlay._annotation_composite(rebuilt_layer)
+        self.assertIsNot(rebuilt, first)
+
+    def test_eraser_restores_the_frozen_desktop_under_annotations(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#0055ff"))
+        pen = new_annotation(
+            "pen", QPoint(20, 45), QPoint(20, 45), QColor("#ff0000"), 20
+        )
+        append_brush_points(pen, QPoint(100, 45))
+        eraser = new_annotation(
+            "eraser", QPoint(60, 45), QPoint(60, 45), QColor(Qt.transparent), 8
+        )
+        self.overlay._annotations.extend((pen, eraser))
+        self.overlay._invalidate_annotation_layer()
+
+        result = self.overlay._render_selection().toImage()
+
+        self.assertEqual(result.pixelColor(60, 45), QColor("#0055ff"))
+        self.assertEqual(result.pixelColor(30, 45), QColor("#ff0000"))
+
+    def test_eraser_clears_annotation_pixels_instead_of_repainting_background(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#2166cc"))
+        pen = new_annotation(
+            "pen", QPoint(10, 45), QPoint(10, 45), QColor("#ff4d4f"), 24
+        )
+        append_brush_points(pen, QPoint(110, 45))
+        eraser = new_annotation(
+            "eraser", QPoint(60, 45), QPoint(60, 45), QColor(Qt.transparent), 8
+        )
+        self.overlay._annotations.extend((pen, eraser))
+        self.overlay._invalidate_annotation_layer()
+
+        annotation_layer = self.overlay._committed_annotation_layer().toImage()
+
+        self.assertEqual(annotation_layer.pixelColor(60, 45).alpha(), 0)
+        self.assertGreater(annotation_layer.pixelColor(30, 45).alpha(), 0)
+
+    def test_eraser_has_a_hard_square_edge_and_leaves_no_blended_pixels(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#2166cc"))
+        pen = new_annotation(
+            "pen", QPoint(10, 45), QPoint(10, 45), QColor("#ff4d4f"), 24
+        )
+        append_brush_points(pen, QPoint(110, 45))
+        eraser = new_annotation(
+            "eraser", QPoint(60, 45), QPoint(60, 45), QColor(Qt.transparent), 8
+        )
+        self.overlay._annotations.extend((pen, eraser))
+        self.overlay._invalidate_annotation_layer()
+
+        result = self.overlay._render_selection().toImage()
+
+        for y in range(34, 57):
+            for x in range(49, 72):
+                self.assertEqual(result.pixelColor(x, y), QColor("#2166cc"))
+
+    def test_element_resize_dirty_region_covers_old_selection_handles(self):
+        self.overlay.selection = QRect(20, 20, 600, 400)
+        annotation = new_annotation(
+            "arrow", QPoint(120, 100), QPoint(120, 260), QColor("#ff4d4f"), 1
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._active_annotation = annotation
+        self.overlay._drag_mode = "resize_element"
+
+        dirty = self.overlay._active_draw_region()
+
+        for point in handle_points(self.overlay._editable_annotation_bounds()).values():
+            handle_rect = QRect(point.x() - 4, point.y() - 4, 8, 8)
+            self.assertTrue(dirty.contains(handle_rect))
+
+    def test_element_edit_recomposes_only_the_affected_annotation_region(self):
+        self.overlay.resize(900, 600)
+        self.overlay.selection = QRect(20, 20, 840, 540)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        for row in range(10):
+            for column in range(20):
+                left = 30 + column * 40
+                top = 30 + row * 45
+                self.overlay._annotations.append(
+                    new_annotation(
+                        "rect",
+                        QPoint(left, top),
+                        QPoint(left + 18, top + 18),
+                        QColor("#409eff"),
+                        2,
+                    )
+                )
+        active = new_annotation(
+            "arrow", QPoint(100, 520), QPoint(170, 520), QColor("#ff4d4f"), 6
+        )
+        self.overlay._annotations.append(active)
+        self.overlay._committed_annotation_layer()
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(130, 520)
+        self.overlay._element_start = active.copy()
+        self.overlay._element_bounds_start = self.overlay._editable_annotation_bounds()
+        old_region = self.overlay._active_draw_region()
+
+        with patch.object(
+            self.overlay,
+            "_paint_annotation",
+            wraps=self.overlay._paint_annotation,
+        ) as paint_annotation:
+            self.overlay._move_active_annotation(QPoint(230, 520))
+            dirty = old_region.united(self.overlay._active_draw_region())
+            self.overlay._refresh_annotation_layer_region(dirty)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(115, 500).alpha(), 0)
+        self.assertGreater(layer.pixelColor(215, 500).alpha(), 0)
+        self.assertLess(paint_annotation.call_count, 20)
 
     def test_clicking_a_detected_window_selects_its_region(self):
         candidate = QRect(120, 80, 500, 360)

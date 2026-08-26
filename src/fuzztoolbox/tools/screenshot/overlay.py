@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import platform
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QWidget,
 )
@@ -45,8 +47,10 @@ from fuzztoolbox.ui.style_loader import apply_style
 from .annotations import (
     annotation_bounds,
     annotation_contains,
+    annotation_geometry,
     append_brush_points,
     new_annotation,
+    resize_annotation,
     text_rect,
     translate_annotations,
 )
@@ -77,7 +81,8 @@ class ScreenshotOverlay(QWidget):
     capture_ready = Signal()
 
     TOOLS = (("矩形", "rect"), ("椭圆", "ellipse"), ("箭头", "arrow"),
-             ("画笔", "pen"), ("文字", "text"), ("马赛克", "mosaic"))
+             ("画笔", "pen"), ("文字", "text"), ("马赛克", "mosaic"),
+             ("橡皮擦", "eraser"))
     COLORS = (QColor("#ff4d4f"), QColor("#409eff"), QColor("#19be6b"),
               QColor("#ffd43b"), QColor("#ffffff"), QColor("#202124"))
     CORNER_RADIUS_MAXIMUM = 100
@@ -111,6 +116,8 @@ class ScreenshotOverlay(QWidget):
         self._annotation_layer = QPixmap()
         self._annotation_layer_selection = QRect()
         self._annotation_layer_dirty = True
+        self._annotation_composite_cache = QPixmap()
+        self._annotation_composite_key = None
         self._current = None
         self._tool = ""
         self._color_index = 0
@@ -123,6 +130,8 @@ class ScreenshotOverlay(QWidget):
         self._cursor_pos = QPoint()
         self._text_editor = None
         self._active_annotation = None
+        self._element_start = None
+        self._element_bounds_start = QRect()
         self._editing_text_index = -1
         self._moving_text = None
         self._moving_text_start = QPoint()
@@ -256,8 +265,22 @@ class ScreenshotOverlay(QWidget):
                     self._paint_annotation(
                         painter,
                         self._current,
-                        mosaic_source=self._committed_annotation_layer(),
+                        mosaic_source=self._annotation_composite(
+                            self._committed_annotation_layer()
+                        ),
                         mosaic_source_rect=self.selection,
+                    )
+                elif self._current["kind"] == "eraser":
+                    self._paint_annotation(
+                        painter,
+                        self._current,
+                        eraser_source=self._desktop,
+                        eraser_source_rect=QRectF(
+                            0,
+                            0,
+                            self._desktop.width() / max(0.01, self._dpr),
+                            self._desktop.height() / max(0.01, self._dpr),
+                        ),
                     )
                 else:
                     self._paint_annotation(painter, self._current)
@@ -267,6 +290,8 @@ class ScreenshotOverlay(QWidget):
             painter.drawPath(selection_path)
             if not self._selection_is_locked():
                 self._paint_handles(painter)
+            if self._active_annotation in self._annotations:
+                self._paint_annotation_handles(painter)
         else:
             if self._hovered_window.isValid():
                 painter.drawPixmap(
@@ -300,21 +325,11 @@ class ScreenshotOverlay(QWidget):
         layer.setDevicePixelRatio(self._dpr)
         layer.fill(Qt.transparent)
         painter = QPainter(layer)
-        painter.drawPixmap(
-            QRectF(QRect(QPoint(), self.selection.size())),
-            self._desktop,
-            QRectF(
-                self.selection.x() * self._dpr,
-                self.selection.y() * self._dpr,
-                self.selection.width() * self._dpr,
-                self.selection.height() * self._dpr,
-            ),
-        )
         self._prepare_annotation_layer_painter(painter)
         for annotation in self._annotations:
             if annotation["kind"] == "mosaic":
                 painter.end()
-                source = layer.copy()
+                source = self._annotation_composite(layer)
                 painter = QPainter(layer)
                 self._prepare_annotation_layer_painter(painter)
                 self._paint_annotation(
@@ -331,8 +346,87 @@ class ScreenshotOverlay(QWidget):
         self._annotation_layer_dirty = False
         return self._annotation_layer
 
+    def _annotation_composite(self, annotation_layer):
+        """Combine the frozen desktop and annotations for mosaic sampling."""
+        cache_key = (
+            annotation_layer.cacheKey(),
+            self._desktop.cacheKey(),
+            self.selection.x(),
+            self.selection.y(),
+            self.selection.width(),
+            self.selection.height(),
+            round(self._dpr * 1000),
+        )
+        if (
+            not self._annotation_composite_cache.isNull()
+            and self._annotation_composite_key == cache_key
+        ):
+            return self._annotation_composite_cache
+        composite = QPixmap(self._selection_pixel_size())
+        composite.setDevicePixelRatio(self._dpr)
+        composite.fill(Qt.transparent)
+        painter = QPainter(composite)
+        painter.drawPixmap(
+            QRectF(QRect(QPoint(), self.selection.size())),
+            self._desktop,
+            QRectF(
+                self.selection.x() * self._dpr,
+                self.selection.y() * self._dpr,
+                self.selection.width() * self._dpr,
+                self.selection.height() * self._dpr,
+            ),
+        )
+        painter.drawPixmap(QPoint(), annotation_layer)
+        painter.end()
+        self._annotation_composite_cache = composite
+        self._annotation_composite_key = cache_key
+        return self._annotation_composite_cache
+
     def _invalidate_annotation_layer(self):
         self._annotation_layer_dirty = True
+        self._annotation_composite_cache = QPixmap()
+        self._annotation_composite_key = None
+
+    def _refresh_annotation_layer_region(self, dirty):
+        """Recompose only pixels affected by an interactive element edit."""
+        dirty = dirty.intersected(self.selection)
+        if not dirty.isValid():
+            return
+        if (
+            self._annotation_layer_dirty
+            or self._annotation_layer.isNull()
+            or self._annotation_layer.size() != self._selection_pixel_size()
+            or self._annotation_layer_selection != self.selection
+        ):
+            self._invalidate_annotation_layer()
+            return
+
+        painter = QPainter(self._annotation_layer)
+        self._prepare_annotation_layer_painter(painter)
+        painter.setClipRect(dirty, Qt.IntersectClip)
+        painter.setCompositionMode(QPainter.CompositionMode_Clear)
+        painter.fillRect(dirty, Qt.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        for annotation in self._annotations:
+            if not annotation_bounds(annotation).intersects(dirty):
+                continue
+            if annotation["kind"] == "mosaic":
+                painter.end()
+                source = self._annotation_composite(self._annotation_layer)
+                painter = QPainter(self._annotation_layer)
+                self._prepare_annotation_layer_painter(painter)
+                painter.setClipRect(dirty, Qt.IntersectClip)
+                self._paint_annotation(
+                    painter,
+                    annotation,
+                    mosaic_source=source,
+                    mosaic_source_rect=self.selection,
+                )
+            else:
+                self._paint_annotation(painter, annotation)
+        painter.end()
+        self._annotation_composite_cache = QPixmap()
+        self._annotation_composite_key = None
 
     def _prepare_annotation_layer_painter(self, painter):
         painter.setRenderHint(QPainter.Antialiasing, True)
@@ -353,6 +447,20 @@ class ScreenshotOverlay(QWidget):
         painter.setBrush(QColor("#55b6ff"))
         for point in handle_points(self.selection).values():
             painter.drawRect(QRect(point.x() - 4, point.y() - 4, 8, 8))
+
+    def _paint_annotation_handles(self, painter):
+        bounds = self._editable_annotation_bounds()
+        if not bounds.isValid():
+            return
+        painter.save()
+        painter.setPen(QPen(QColor("#55b6ff"), 1, Qt.DashLine))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(bounds)
+        painter.setPen(QPen(Qt.white, 1))
+        painter.setBrush(QColor("#55b6ff"))
+        for point in handle_points(bounds).values():
+            painter.drawRect(QRect(point.x() - 4, point.y() - 4, 8, 8))
+        painter.restore()
 
     def _selection_path(self, *, local=False):
         rect = (
@@ -481,6 +589,14 @@ class ScreenshotOverlay(QWidget):
                 self.selection = QRect(point, point)
             return
         locked = self._selection_is_locked()
+        if self._active_annotation in self._annotations and not self._tool:
+            handle = hit_handle(self._editable_annotation_bounds(), point)
+            if handle:
+                self._drag_mode = "resize_element"
+                self._handle = handle
+                self._element_start = copy.deepcopy(self._active_annotation)
+                self._element_bounds_start = self._editable_annotation_bounds()
+                return
         handle = hit_handle(self.selection, point) if not locked else ""
         if handle:
             self._drag_mode = "resize"
@@ -498,7 +614,9 @@ class ScreenshotOverlay(QWidget):
                 self._moving_text = annotation
                 self._moving_text_start = QPoint(annotation["start"])
             else:
-                self._drag_mode = "element_selected"
+                self._drag_mode = "move_element"
+                self._element_start = copy.deepcopy(annotation)
+                self._element_bounds_start = self._editable_annotation_bounds()
             return
         self._active_annotation = None
         if self._tool and self.selection.contains(point):
@@ -552,7 +670,7 @@ class ScreenshotOverlay(QWidget):
                     self._color,
                     self._width,
                 )
-                if self._current["kind"] in ("pen", "mosaic"):
+                if self._current["kind"] in ("pen", "mosaic", "eraser"):
                     append_brush_points(self._current, point)
         elif self._drag_mode == "select":
             self.selection = QRect(self._drag_start, point).normalized().intersected(self.rect())
@@ -571,9 +689,24 @@ class ScreenshotOverlay(QWidget):
             )
         elif self._drag_mode == "move_text" and self._moving_text is not None:
             self._move_text_annotation(point)
+        elif self._drag_mode == "move_element" and self._active_annotation is not None:
+            self._move_active_annotation(point)
+        elif self._drag_mode == "resize_element" and self._active_annotation is not None:
+            target = resize_selection(
+                self._element_bounds_start,
+                self._handle,
+                point,
+                self.selection,
+            )
+            self._restore_active_annotation()
+            resize_annotation(
+                self._active_annotation,
+                self._element_bounds_start,
+                target,
+            )
         elif self._drag_mode == "annotate" and self._current:
             self._current["end"] = point
-            if self._current["kind"] in ("pen", "mosaic"):
+            if self._current["kind"] in ("pen", "mosaic", "eraser"):
                 append_brush_points(self._current, point)
         elif not self._drag_mode:
             self._refresh_hover_cursor(point)
@@ -581,9 +714,13 @@ class ScreenshotOverlay(QWidget):
             self._sync_selection_options()
             new_selection_region = self._selection_dirty_region(self.selection)
             self.update(old_selection_region.united(new_selection_region))
-        elif self._drag_mode in ("annotate", "move_text"):
+        elif self._drag_mode in (
+            "annotate", "move_text", "move_element", "resize_element"
+        ):
             new_annotation_region = self._active_draw_region()
             dirty = old_annotation_region.united(new_annotation_region)
+            if self._drag_mode in ("move_text", "move_element", "resize_element"):
+                self._refresh_annotation_layer_region(dirty)
             if dirty.isValid():
                 self.update(dirty.intersected(self.rect()))
             else:
@@ -603,6 +740,13 @@ class ScreenshotOverlay(QWidget):
             return annotation_bounds(self._current)
         if self._drag_mode == "move_text" and self._moving_text is not None:
             return annotation_bounds(self._moving_text)
+        if (
+            self._drag_mode in ("move_element", "resize_element")
+            and self._active_annotation is not None
+        ):
+            bounds = annotation_bounds(self._active_annotation)
+            handles = self._editable_annotation_bounds().adjusted(-5, -5, 5, 5)
+            return bounds.united(handles)
         return QRect()
 
     def _selection_is_locked(self):
@@ -654,9 +798,11 @@ class ScreenshotOverlay(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         point = event.position().toPoint()
-        annotation = self._text_at(point)
+        annotation = self._annotation_at(point)
         if annotation is not None:
-            self._begin_text_edit(annotation["start"], annotation=annotation)
+            self._select_annotation(annotation)
+            if annotation["kind"] == "text":
+                self._begin_text_edit(annotation["start"], annotation=annotation)
             event.accept()
             return
         if self.selection.contains(point):
@@ -680,8 +826,22 @@ class ScreenshotOverlay(QWidget):
             self._copy_and_finish()
         elif event.modifiers() & (Qt.ControlModifier | Qt.MetaModifier) and event.key() == Qt.Key_Z:
             self._undo()
+        elif event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            self._delete_active_annotation()
         else:
             super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        annotation = self._annotation_at(event.pos())
+        if annotation is None:
+            event.ignore()
+            return
+        self._select_annotation(annotation)
+        menu = QMenu(self)
+        apply_style(menu, "tools.screenshot.overlay:workspace")
+        delete_action = menu.addAction("删除元素")
+        delete_action.triggered.connect(self._delete_active_annotation)
+        menu.exec(event.globalPos())
 
     @staticmethod
     def _is_zoom_shortcut(event):
@@ -717,9 +877,11 @@ class ScreenshotOverlay(QWidget):
         self.toolbar.set_active_tool(tool, checked)
         if checked:
             self._tool = tool
+            self._active_annotation = None
         else:
             self._tool = ""
         self._refresh_cursor()
+        self.update()
 
     def _choose_color(self, color):
         self._color = QColor(color)
@@ -821,7 +983,7 @@ class ScreenshotOverlay(QWidget):
             self.update()
 
     def _refresh_cursor(self):
-        if self._tool != "mosaic":
+        if self._tool not in ("mosaic", "eraser"):
             self.setCursor(Qt.CrossCursor)
             return
         diameter = min(96, max(8, round(self._width * 3)))
@@ -832,9 +994,9 @@ class ScreenshotOverlay(QWidget):
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(QColor(0, 0, 0, 190), 3))
-        painter.drawEllipse(QRectF(3, 3, diameter, diameter))
+        painter.drawRect(QRectF(3, 3, diameter, diameter))
         painter.setPen(QPen(Qt.white, 1))
-        painter.drawEllipse(QRectF(3, 3, diameter, diameter))
+        painter.drawRect(QRectF(3, 3, diameter, diameter))
         painter.end()
         self.setCursor(QCursor(pixmap, size // 2, size // 2))
 
@@ -894,7 +1056,7 @@ class ScreenshotOverlay(QWidget):
 
     def _annotation_at(self, point):
         for annotation in reversed(self._annotations):
-            if annotation_contains(annotation, point):
+            if annotation["kind"] != "eraser" and annotation_contains(annotation, point):
                 return annotation
         return None
 
@@ -918,7 +1080,52 @@ class ScreenshotOverlay(QWidget):
         desired.setY(min(max(desired.y(), self.selection.top()), max_y))
         annotation["start"] = desired
         annotation["end"] = QPoint(desired)
+
+    def _editable_annotation_bounds(self):
+        annotation = self._active_annotation
+        if annotation is None:
+            return QRect()
+        bounds = annotation_geometry(annotation)
+        if not bounds.isValid():
+            return QRect()
+        if bounds.width() < 16:
+            bounds.adjust(-8, 0, 8, 0)
+        if bounds.height() < 16:
+            bounds.adjust(0, -8, 0, 8)
+        return bounds
+
+    def _restore_active_annotation(self):
+        if self._active_annotation is None or self._element_start is None:
+            return
+        self._active_annotation.clear()
+        self._active_annotation.update(copy.deepcopy(self._element_start))
+
+    def _move_active_annotation(self, point):
+        if self._active_annotation is None or self._element_start is None:
+            return
+        desired = point - self._drag_start
+        source = self._element_bounds_start
+        moved = source.translated(desired)
+        if moved.left() < self.selection.left():
+            desired.setX(desired.x() + self.selection.left() - moved.left())
+        if moved.right() > self.selection.right():
+            desired.setX(desired.x() + self.selection.right() - moved.right())
+        if moved.top() < self.selection.top():
+            desired.setY(desired.y() + self.selection.top() - moved.top())
+        if moved.bottom() > self.selection.bottom():
+            desired.setY(desired.y() + self.selection.bottom() - moved.bottom())
+        self._restore_active_annotation()
+        translate_annotations([self._active_annotation], desired)
+
+    def _delete_active_annotation(self):
+        annotation = self._active_annotation
+        if annotation not in self._annotations:
+            return
+        self._annotations.remove(annotation)
+        self._active_annotation = None
+        self._renderer.retain_annotations(self._annotations)
         self._invalidate_annotation_layer()
+        self.update()
 
     def _font_with_family(self, family):
         font = self.font()
@@ -1033,14 +1240,21 @@ class ScreenshotOverlay(QWidget):
 
     def _undo(self):
         if self._annotations:
-            self._annotations.pop()
+            removed = self._annotations.pop()
+            if self._active_annotation is removed:
+                self._active_annotation = None
             self._renderer.retain_annotations(self._annotations)
             self._invalidate_annotation_layer()
             self.update()
 
     def _refresh_hover_cursor(self, point):
         locked = self._selection_is_locked()
-        handle = (
+        annotation_handle = (
+            hit_handle(self._editable_annotation_bounds(), point)
+            if self._active_annotation in self._annotations and not self._tool
+            else ""
+        )
+        handle = annotation_handle or (
             hit_handle(self.selection, point)
             if self.selection.isValid() and not locked
             else ""

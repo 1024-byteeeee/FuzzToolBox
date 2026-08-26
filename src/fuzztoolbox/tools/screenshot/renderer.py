@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPoint, QRect, QRectF, Qt
-from PySide6.QtGui import QPainterPath, QPainterPathStroker, QPen, QPixmap, QPolygon
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QPainter, QPainterPath, QPen, QPixmap, QPolygon
+
+from .annotations import arrow_head_length
 
 
 class AnnotationRenderer:
@@ -51,6 +53,8 @@ class AnnotationRenderer:
         *,
         mosaic_source: QPixmap | None = None,
         mosaic_source_rect: QRect | None = None,
+        eraser_source: QPixmap | None = None,
+        eraser_source_rect: QRectF | None = None,
     ) -> None:
         kind = annotation["kind"]
         color = annotation["color"]
@@ -96,6 +100,13 @@ class AnnotationRenderer:
                 source=mosaic_source,
                 source_rect=mosaic_source_rect,
             )
+        elif kind == "eraser":
+            self.paint_eraser_stroke(
+                painter,
+                annotation,
+                source=eraser_source,
+                source_rect=eraser_source_rect,
+            )
         painter.restore()
 
     def _paint_pen(self, painter, annotation: dict) -> None:
@@ -105,9 +116,10 @@ class AnnotationRenderer:
 
     def _stroke_path(self, annotation: dict) -> QPainterPath:
         points = annotation.get("points", [])
+        revision = annotation.get("_geometry_revision", 0)
         key = (id(annotation), "pen")
         cached = self._path_cache.get(key)
-        if self._can_extend_path(cached, points):
+        if self._can_extend_path(cached, points, revision):
             path = cached["path"]
             for point in points[cached["count"]:]:
                 path.lineTo(point)
@@ -117,67 +129,72 @@ class AnnotationRenderer:
                 path.moveTo(points[0])
                 for point in points[1:]:
                     path.lineTo(point)
-        self._path_cache[key] = self._path_state(path, points)
+        self._path_cache[key] = self._path_state(path, points, revision)
         return path
 
     def _mosaic_path(self, annotation: dict) -> QPainterPath:
         points = annotation.get("points", [])
         diameter = max(8, round(annotation["width"] * 3))
         radius = diameter // 2
+        revision = annotation.get("_geometry_revision", 0)
         key = (id(annotation), "mosaic")
         cached = self._path_cache.get(key)
-        if (
-            cached is not None
-            and cached["count"] == len(points)
+        can_extend = (
+            self._can_extend_path(cached, points, revision)
             and cached["width"] == diameter
-            and (not points or cached["first"] == points[0])
-            and (not points or cached["last"] == points[-1])
-        ):
-            return cached["path"]
-        if len(points) == 1:
+        )
+        if can_extend:
+            path = cached["path"]
+            new_points = points[cached["count"]:]
+        else:
             path = QPainterPath()
-            path.addEllipse(
+            new_points = points
+        for point in new_points:
+            path.addRect(
                 QRectF(
-                    points[0].x() - radius,
-                    points[0].y() - radius,
+                    point.x() - radius,
+                    point.y() - radius,
                     diameter,
                     diameter,
                 )
             )
-        else:
-            centerline = self._stroke_path(annotation)
-            stroker = QPainterPathStroker()
-            stroker.setWidth(diameter)
-            stroker.setCapStyle(Qt.RoundCap)
-            stroker.setJoinStyle(Qt.RoundJoin)
-            path = stroker.createStroke(centerline)
-        state = self._path_state(path, points)
+        # Overlapping brush rectangles must union, not cancel: the default
+        # OddEvenFill rule punches holes where an even number of rects
+        # overlap, which made mosaic strokes discontinuous and left striped
+        # residue after erasing.
+        path.setFillRule(Qt.WindingFill)
+        if can_extend and cached["count"] == len(points):
+            return path
+        state = self._path_state(path, points, revision)
         state["width"] = diameter
         self._path_cache[key] = state
         return path
 
     @staticmethod
-    def _can_extend_path(cached, points) -> bool:
+    def _can_extend_path(cached, points, revision) -> bool:
         if cached is None or not points or cached["count"] > len(points):
             return False
         if cached["first"] != points[0]:
             return False
-        return cached["count"] == 0 or cached["last"] == points[cached["count"] - 1]
+        if cached["count"] and cached["last"] != points[cached["count"] - 1]:
+            return False
+        return cached["count"] < len(points) or cached["revision"] == revision
 
     @staticmethod
-    def _path_state(path, points):
+    def _path_state(path, points, revision):
         return {
             "path": path,
             "count": len(points),
             "first": QPoint(points[0]) if points else QPoint(),
             "last": QPoint(points[-1]) if points else QPoint(),
+            "revision": revision,
         }
 
     @staticmethod
     def paint_arrow(painter, start, end, color, width) -> None:
         painter.drawLine(start, end)
         angle = math.atan2(start.y() - end.y(), start.x() - end.x())
-        length = max(12, width * 4)
+        length = arrow_head_length(width)
         points = [end]
         for delta in (-0.55, 0.55):
             points.append(
@@ -213,6 +230,32 @@ class AnnotationRenderer:
         painter.drawPixmap(target, pixelated, QRectF(pixelated.rect()))
         painter.restore()
 
+    def paint_eraser_stroke(
+        self,
+        painter,
+        annotation: dict,
+        *,
+        source: QPixmap | None = None,
+        source_rect: QRectF | None = None,
+    ) -> None:
+        path = self._mosaic_path(annotation)
+        if path.isEmpty():
+            return
+        painter.save()
+        painter.setClipPath(path, Qt.IntersectClip)
+        if source is None:
+            painter.setCompositionMode(QPainter.CompositionMode_Clear)
+            painter.fillPath(path, Qt.transparent)
+        elif not source.isNull():
+            target = source_rect or QRectF(
+                0,
+                0,
+                source.width() / max(0.01, self._device_pixel_ratio),
+                source.height() / max(0.01, self._device_pixel_ratio),
+            )
+            painter.drawPixmap(target, source, QRectF(source.rect()))
+        painter.restore()
+
     def _cached_pixelated_source(self, source: QPixmap) -> QPixmap:
         cache_key = (
             source.cacheKey(),
@@ -225,12 +268,61 @@ class AnnotationRenderer:
             return self._pixelated_desktop
         ratio = max(0.01, self._device_pixel_ratio)
         block_size = max(1, round(12 * ratio))
-        self._pixelated_desktop = source.scaled(
-            max(1, source.width() // block_size),
-            max(1, source.height() // block_size),
+        columns = max(1, math.ceil(source.width() / block_size))
+        rows = max(1, math.ceil(source.height() / block_size))
+        padded_size = QSize(columns * block_size, rows * block_size)
+        padded = QPixmap(padded_size)
+        padded.fill(Qt.transparent)
+        pad_painter = QPainter(padded)
+        source_rect = QRectF(source.rect())
+        pad_painter.drawPixmap(QRectF(source.rect()), source, source_rect)
+        if padded.width() > source.width():
+            pad_painter.drawPixmap(
+                QRectF(
+                    source.width(),
+                    0,
+                    padded.width() - source.width(),
+                    source.height(),
+                ),
+                source,
+                QRectF(source.width() - 1, 0, 1, source.height()),
+            )
+        if padded.height() > source.height():
+            pad_painter.drawPixmap(
+                QRectF(
+                    0,
+                    source.height(),
+                    source.width(),
+                    padded.height() - source.height(),
+                ),
+                source,
+                QRectF(0, source.height() - 1, source.width(), 1),
+            )
+        if padded.width() > source.width() and padded.height() > source.height():
+            pad_painter.drawPixmap(
+                QRectF(
+                    source.width(),
+                    source.height(),
+                    padded.width() - source.width(),
+                    padded.height() - source.height(),
+                ),
+                source,
+                QRectF(source.width() - 1, source.height() - 1, 1, 1),
+            )
+        pad_painter.end()
+        reduced = padded.scaled(
+            columns,
+            rows,
+            Qt.IgnoreAspectRatio,
+            Qt.SmoothTransformation,
+        )
+        expanded = reduced.scaled(
+            padded_size,
             Qt.IgnoreAspectRatio,
             Qt.FastTransformation,
         )
+        self._pixelated_desktop = expanded.copy(QRect(QPoint(), source.size()))
+        self._pixelated_desktop.setDevicePixelRatio(source.devicePixelRatio())
         self._pixelated_desktop_key = cache_key
         return self._pixelated_desktop
 

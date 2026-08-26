@@ -7,9 +7,11 @@ from PySide6.QtWidgets import QApplication
 
 from fuzztoolbox.tools.screenshot.annotations import (
     annotation_contains,
+    annotation_geometry,
     append_brush_points,
     distance_to_segment,
     new_annotation,
+    resize_annotation,
     translate_annotations,
 )
 from fuzztoolbox.tools.screenshot.capture_backend import (
@@ -76,6 +78,17 @@ class SelectionGeometryTests(unittest.TestCase):
 
 
 class AnnotationStateTests(unittest.TestCase):
+    def test_resizing_annotation_maps_all_geometry_into_new_bounds(self):
+        annotation = new_annotation(
+            "arrow", QPoint(10, 20), QPoint(110, 70), QColor(Qt.red), 4
+        )
+
+        resize_annotation(annotation, QRect(10, 20, 101, 51), QRect(20, 40, 201, 101))
+
+        self.assertEqual(annotation["start"], QPoint(20, 40))
+        self.assertEqual(annotation["end"], QPoint(220, 140))
+        self.assertEqual(annotation_geometry(annotation), QRect(20, 40, 201, 101))
+
     def test_annotation_owns_mutable_values_and_interpolates_brush_motion(self):
         start = QPoint(10, 10)
         color = QColor("#ff4d4f")
@@ -120,6 +133,73 @@ class AnnotationStateTests(unittest.TestCase):
 
 
 class CaptureAndRendererTests(unittest.TestCase):
+    def test_pixelated_source_preserves_exact_source_colors(self):
+        color = QColor("#21bf55")
+        desktop = QPixmap(64, 64)
+        desktop.fill(color)
+        renderer = AnnotationRenderer(desktop, QRect(0, 0, 64, 64), 1, "Arial")
+
+        pixelated = renderer._cached_pixelated_source(desktop).toImage()
+
+        self.assertEqual(pixelated.pixelColor(8, 8), color)
+        self.assertEqual(pixelated.pixelColor(55, 55), color)
+
+    def test_mosaic_brush_uses_a_square_footprint(self):
+        desktop = QPixmap(100, 100)
+        desktop.fill(Qt.white)
+        renderer = AnnotationRenderer(desktop, QRect(0, 0, 100, 100), 1, "Arial")
+        annotation = new_annotation(
+            "mosaic", QPoint(50, 50), QPoint(50, 50), QColor(Qt.black), 8
+        )
+
+        path = renderer._mosaic_path(annotation)
+
+        self.assertTrue(path.contains(QPoint(39, 39)))
+        self.assertTrue(path.contains(QPoint(61, 61)))
+
+    def test_pen_path_cache_is_invalidated_when_interior_geometry_changes(self):
+        desktop = QPixmap(140, 80)
+        renderer = AnnotationRenderer(desktop, QRect(0, 0, 140, 80), 1, "Arial")
+        annotation = new_annotation(
+            "pen", QPoint(10, 20), QPoint(10, 20), QColor(Qt.black), 4
+        )
+        annotation["points"] = [QPoint(10, 20), QPoint(50, 30), QPoint(10, 40)]
+
+        before = renderer._stroke_path(annotation).boundingRect()
+        resize_annotation(annotation, QRect(10, 20, 41, 21), QRect(10, 20, 81, 21))
+        after = renderer._stroke_path(annotation).boundingRect()
+
+        self.assertEqual(round(before.right()), 50)
+        self.assertEqual(round(after.right()), 90)
+
+    def test_mosaic_mask_cache_is_invalidated_when_interior_geometry_changes(self):
+        desktop = QPixmap(140, 80)
+        renderer = AnnotationRenderer(desktop, QRect(0, 0, 140, 80), 1, "Arial")
+        annotation = new_annotation(
+            "mosaic", QPoint(10, 20), QPoint(10, 20), QColor(Qt.black), 4
+        )
+        annotation["points"] = [QPoint(10, 20), QPoint(50, 30), QPoint(10, 40)]
+
+        before = renderer._mosaic_path(annotation).boundingRect()
+        resize_annotation(annotation, QRect(10, 20, 41, 21), QRect(10, 20, 81, 21))
+        after = renderer._mosaic_path(annotation).boundingRect()
+
+        self.assertEqual(round(before.right()), 56)
+        self.assertEqual(round(after.right()), 96)
+
+    def test_pixelation_keeps_a_complete_partial_edge_block(self):
+        desktop = QPixmap(25, 12)
+        painter = QPainter(desktop)
+        painter.fillRect(QRect(0, 0, 12, 12), QColor("#ff0000"))
+        painter.fillRect(QRect(12, 0, 12, 12), QColor("#00ff00"))
+        painter.fillRect(QRect(24, 0, 1, 12), QColor("#0000ff"))
+        painter.end()
+        renderer = AnnotationRenderer(desktop, QRect(0, 0, 25, 12), 1, "Arial")
+
+        result = renderer._cached_pixelated_source(desktop).toImage()
+
+        self.assertGreater(result.pixelColor(24, 6).blue(), 200)
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

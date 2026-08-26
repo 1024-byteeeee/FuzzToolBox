@@ -174,7 +174,7 @@ class BatchRenamerPage(QWidget):
         source_layout.addWidget(self.clear_button)
         source_layout.addSpacing(8)
         source_layout.addWidget(self.recursive)
-        source_layout.addSpacing(10)
+        source_layout.addSpacing(20)
         source_layout.addWidget(self.preserve_extension)
         source_layout.addStretch()
         self.source_count = QLabel("拖入文件或选择文件夹")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable
 
-from PySide6.QtCore import QPoint, QRect
+from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtGui import QColor
 
 
@@ -25,7 +25,7 @@ def new_annotation(
         "color": QColor(color),
         "width": width,
     }
-    if kind in ("pen", "mosaic"):
+    if kind in ("pen", "mosaic", "eraser"):
         annotation["points"] = [QPoint(start)]
         annotation["_geometry_revision"] = 0
         annotation["_point_bounds"] = QRect(start, start)
@@ -72,19 +72,29 @@ def _brush_point_bounds(annotation: dict) -> QRect:
     return QRect(bounds)
 
 
+def arrow_head_length(width: float) -> float:
+    """Return how far the arrow head extends beyond the end point."""
+    return max(12.0, float(width) * 4)
+
+
 def annotation_bounds(annotation: dict) -> QRect:
     """Return the pixels affected by an annotation, including stroke width."""
     kind = annotation["kind"]
     if kind == "text":
         bounds = text_rect(annotation)
-    elif kind in ("pen", "mosaic"):
+    elif kind in ("pen", "mosaic", "eraser"):
         bounds = _brush_point_bounds(annotation)
     else:
         bounds = QRect(annotation["start"], annotation["end"]).normalized()
     if not bounds.isValid():
         return QRect()
-    if kind == "mosaic":
+    if kind in ("mosaic", "eraser"):
         padding = max(4, round(float(annotation.get("width", 1)) * 1.5)) + 2
+    elif kind == "arrow":
+        # The head polygon extends up to one head length past the end point
+        # in any direction; dirty regions must cover it or old head pixels
+        # are never repainted (ghosting while drawing/resizing).
+        padding = math.ceil(arrow_head_length(annotation.get("width", 1))) + 2
     else:
         padding = max(2, math.ceil(float(annotation.get("width", 1)) / 2)) + 2
     return bounds.adjusted(-padding, -padding, padding, padding)
@@ -107,6 +117,46 @@ def distance_to_segment(point: QPoint, start: QPoint, end: QPoint) -> float:
 
 def text_rect(annotation: dict) -> QRect:
     return QRect(annotation["start"], annotation["size"])
+
+
+def annotation_geometry(annotation: dict) -> QRect:
+    """Return the editable geometry without hit-test padding."""
+    kind = annotation["kind"]
+    if kind == "text":
+        return text_rect(annotation)
+    if kind in ("pen", "mosaic", "eraser"):
+        return _brush_point_bounds(annotation)
+    return QRect(annotation["start"], annotation["end"]).normalized()
+
+
+def resize_annotation(annotation: dict, source: QRect, target: QRect) -> None:
+    """Map one annotation from *source* bounds into *target* bounds."""
+    if not source.isValid() or not target.isValid():
+        return
+
+    def mapped(point: QPoint) -> QPoint:
+        source_width = max(1, source.width() - 1)
+        source_height = max(1, source.height() - 1)
+        target_width = max(0, target.width() - 1)
+        target_height = max(0, target.height() - 1)
+        return QPoint(
+            target.left()
+            + round((point.x() - source.left()) * target_width / source_width),
+            target.top()
+            + round((point.y() - source.top()) * target_height / source_height),
+        )
+
+    annotation["start"] = mapped(annotation["start"])
+    annotation["end"] = mapped(annotation["end"])
+    if "points" in annotation:
+        annotation["points"] = [mapped(point) for point in annotation["points"]]
+        annotation.pop("_point_bounds", None)
+        annotation["_point_bounds_count"] = 0
+        annotation["_geometry_revision"] = annotation.get("_geometry_revision", 0) + 1
+    if annotation["kind"] == "text":
+        annotation["size"] = QSize(target.width(), target.height())
+        scale = min(target.width() / source.width(), target.height() / source.height())
+        annotation["font_size"] = max(1.0, annotation["font_size"] * scale)
 
 
 def annotation_contains(annotation: dict, point: QPoint) -> bool:
@@ -155,7 +205,7 @@ def annotation_contains(annotation: dict, point: QPoint) -> bool:
         offset_y = (point.y() - rect.center().y()) / radius_y
         normalized = math.hypot(offset_x, offset_y)
         return abs(normalized - 1.0) <= tolerance / min(radius_x, radius_y)
-    if kind in ("pen", "mosaic"):
+    if kind in ("pen", "mosaic", "eraser"):
         points = annotation.get("points", [])
         if len(points) == 1:
             return (
