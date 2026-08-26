@@ -8,6 +8,8 @@ from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
+from shiboken6 import isValid
+
 from .theme_colors import DARK, DARK_REPLACEMENTS, LIGHT
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -99,7 +101,8 @@ def refresh_widget_styles(widgets) -> None:
     alive = []
     for reference in _callbacks:
         callback = reference()
-        if callback is not None:
+        owner = getattr(callback, "__self__", None) if callback is not None else None
+        if callback is not None and (owner is None or isValid(owner)):
             callback()
             alive.append(reference)
     _callbacks[:] = alive

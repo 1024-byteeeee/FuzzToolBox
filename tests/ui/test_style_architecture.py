@@ -2,10 +2,15 @@ import re
 import unittest
 from pathlib import Path
 
+from PySide6.QtCore import QObject
+from shiboken6 import delete
+
 from fuzztoolbox.ui.style_loader import (
     STYLE_DIR,
     current_theme,
     load_qss,
+    on_theme_changed,
+    refresh_widget_styles,
     set_theme,
     style_text,
     theme_color,
@@ -15,6 +20,17 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src" / "fuzztoolbox"
 
 
 class StyleArchitectureTests(unittest.TestCase):
+    def test_theme_refresh_discards_callbacks_whose_qt_owner_was_deleted(self):
+        class Listener(QObject):
+            def apply_theme(self):
+                self.objectName()
+
+        listener = Listener()
+        on_theme_changed(listener.apply_theme)
+        delete(listener)
+
+        refresh_widget_styles([])
+
     def test_python_ui_modules_do_not_embed_widget_styles(self):
         allowed = {
             SOURCE_ROOT / "ui" / "main_window.py",
