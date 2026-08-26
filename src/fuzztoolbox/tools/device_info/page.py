@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from ...ui.components import SkeletonBar
 from ...ui.style_loader import apply_style
+from ...ui.tool_runtime import ToolActivity
 from .collector import DeviceReport, InfoSection, collect_device_info
 
 # 设备信息实时刷新间隔。
@@ -274,6 +275,13 @@ class DeviceInfoPage(QWidget):
             worker.finished.connect(on_ready)
             return False
         return True
+
+    def runtime_activity(self) -> ToolActivity:
+        if self.worker and self.worker.isRunning():
+            return ToolActivity.running("正在读取设备信息")
+        if self._refresh_timer.isActive():
+            return ToolActivity.running("正在实时更新设备信息")
+        return ToolActivity()
 
     def copy_all(self):
         if not self.report:

@@ -615,3 +615,7 @@ class EyedropperOverlay(QWidget):
         self._active = False
         self.hide()
         self.cancelled.emit()
+
+    def cancel(self) -> None:
+        """Cancel the active eyedropper through its regular signal path."""
+        self._cancel()

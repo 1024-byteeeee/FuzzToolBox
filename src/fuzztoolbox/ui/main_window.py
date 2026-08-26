@@ -51,7 +51,9 @@ from .global_hotkey import (
 from .home_page import ToolboxHomePage
 from .settings_dialog import SettingsDialog
 from .system_tray import SystemTrayController
+from .task_manager_dialog import TaskManagerDialog
 from .tool_registry import TOOLS
+from .tool_runtime import ToolRuntimeManager
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 # PNG is used at runtime because the Windows taskbar icon path is more
@@ -265,11 +267,14 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.top_bar)
 
         self.pages = QStackedWidget()
+        self._tool_pages = {}
+        self.tool_runtime = ToolRuntimeManager(
+            TOOLS, self._dispose_tool_page, parent=self
+        )
         self.home_page = ToolboxHomePage(
             favorite_ids=self.app_state.preferences.favorite_ids()
         )
         self.pages.addWidget(self.home_page)
-        self._tool_pages = {}
         self._tool_factories = self._build_tool_factories()
         root_layout.addWidget(self.pages, 1)
 
@@ -281,7 +286,9 @@ class MainWindow(QMainWindow):
         self.home_page.tool_requested.connect(self.open_tool)
         self.home_page.theme_requested.connect(self.cycle_theme)
         self.home_page.settings_requested.connect(self.open_settings)
+        self.home_page.tasks_requested.connect(self.open_task_manager)
         self.home_page.favorite_changed.connect(self._save_favorites)
+        self.tool_runtime.changed.connect(self._refresh_task_manager_button)
         quit_action = QAction(self)
         quit_action.setText("退出 FuzzToolBox")
         quit_action.setMenuRole(QAction.QuitRole)
@@ -317,6 +324,20 @@ class MainWindow(QMainWindow):
         if sys.platform == "win32" and QSystemTrayIcon.isSystemTrayAvailable():
             self._tray_controller = SystemTrayController(self, APP_ICON_PATH)
         self.show_home()
+
+    def open_task_manager(self):
+        dialog = TaskManagerDialog(self.tool_runtime, self)
+        dialog.open_requested.connect(self.open_tool)
+        dialog.exec()
+
+    def _refresh_task_manager_button(self):
+        count = self.tool_runtime.loaded_count
+        self.home_page.tasks_button.set_count(count)
+        self.home_page.tasks_button.setToolTip(
+            "任务管理器\n管理已加载和正在运行的工具"
+            if not count
+            else f"任务管理器\n已加载 {count} 个工具"
+        )
 
     def open_settings(self):
         self._shortcuts_suspended = True
@@ -562,11 +583,25 @@ class MainWindow(QMainWindow):
         refresh_widget_styles(QApplication.allWidgets())
         self.home_page.refresh_favorite_icons()
         self.home_page.settings_button.setIcon(QIcon(str(ASSET_DIR / ("settings-dark.svg" if resolved == "dark" else "settings.svg"))))
+        self.home_page.tasks_button.setIcon(
+            QIcon(
+                str(
+                    ASSET_DIR
+                    / (
+                        "task-manager-dark.svg"
+                        if resolved == "dark"
+                        else "task-manager.svg"
+                    )
+                )
+            )
+        )
         self.home_page.theme_button.setText("")
         next_mode = "light" if resolved == "dark" else "dark"
         icon_name = "theme-sun-dark.svg" if resolved == "dark" else "theme-moon.svg"
         self.home_page.theme_button.setIcon(QIcon(str(ASSET_DIR / icon_name)))
-        self.home_page.theme_button.setToolTip(f"切换到{'浅色' if next_mode == 'light' else '深色'}模式")
+        self.home_page.theme_button.setToolTip(
+            f"切换界面主题\n切换到{'浅色' if next_mode == 'light' else '深色'}模式"
+        )
         github_icon = ASSET_DIR / ("github-dark.svg" if resolved == "dark" else "github.svg")
         self.footer.set_content(
             f"FuzzToolBox v{__version__} · {FOOTER_COPYRIGHT}",
@@ -582,12 +617,7 @@ class MainWindow(QMainWindow):
     def _build_tool_factories(self):
         """Return lazy page factories so the home page starts quickly."""
         def network_pages():
-            from ..tools.ip_scanner.page import IPScannerPage
-            scanner = self._tool_pages.get("ip-scanner")
-            if scanner is None:
-                scanner = IPScannerPage()
-                self._tool_pages["ip-scanner"] = scanner
-                self.pages.addWidget(scanner)
+            scanner = self._load_tool_page("ip-scanner")
             return scanner.network_info
 
         def color_picker_page():
@@ -616,6 +646,7 @@ class MainWindow(QMainWindow):
             "docker-compose-converter": lambda: __import__("fuzztoolbox.tools.docker_compose_converter.page", fromlist=["DockerComposeConverterPage"]).DockerComposeConverterPage(),
             "text-comparer": lambda: __import__("fuzztoolbox.tools.text_comparer.page", fromlist=["TextComparerPage"]).TextComparerPage(),
             "text-statistics": lambda: __import__("fuzztoolbox.tools.text_statistics.page", fromlist=["TextStatisticsPage"]).TextStatisticsPage(),
+            "batch-renamer": lambda: __import__("fuzztoolbox.tools.batch_renamer.page", fromlist=["BatchRenamerPage"]).BatchRenamerPage(),
             "lorem-ipsum": lambda: __import__("fuzztoolbox.tools.lorem_ipsum.page", fromlist=["LoremIpsumPage"]).LoremIpsumPage(),
             "ipv4-converter": lambda: __import__("fuzztoolbox.tools.ipv4_converter.page", fromlist=["IPv4ConverterPage"]).IPv4ConverterPage(network_pages()),
             "qr-generator": lambda: __import__("fuzztoolbox.tools.qr_generator.page", fromlist=["QRGeneratorPage"]).QRGeneratorPage(),
@@ -642,7 +673,22 @@ class MainWindow(QMainWindow):
         # while still creating the page only when it is first requested.
         setattr(self, f"{tool_id.replace('-', '_')}_page", page)
         self.pages.addWidget(page)
+        self.tool_runtime.register(tool_id, page)
         return page
+
+    def _dispose_tool_page(self, tool_id, page):
+        if self._tool_pages.get(tool_id) is not page:
+            return
+        was_current = self.pages.currentWidget() is page
+        self._tool_pages.pop(tool_id, None)
+        legacy_name = f"{tool_id.replace('-', '_')}_page"
+        if self.__dict__.get(legacy_name) is page:
+            self.__dict__.pop(legacy_name, None)
+        self.pages.removeWidget(page)
+        page.close()
+        page.deleteLater()
+        if was_current and not self._application_quitting:
+            self.show_home()
 
     def __getattr__(self, name):
         """Lazily resolve legacy ``<tool>_page`` attributes."""
@@ -686,14 +732,10 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.hide()
             return
-        worker_states = [
-            page.prepare_close(self._finish_deferred_close)
-            for tool_id in ("ip-scanner", "ip-lookup", "device-info")
-            for page in (self._tool_pages.get(tool_id),)
-            if page is not None
-        ]
-        workers_ready = all(worker_states)
-        if workers_ready:
+        tools_ready = self.tool_runtime.request_close_all(
+            self._finish_deferred_close
+        )
+        if tools_ready:
             event.accept()
             if self._application_quitting:
                 QTimer.singleShot(0, QApplication.instance().quit)

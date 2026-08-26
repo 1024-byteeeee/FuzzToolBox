@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from fuzztoolbox.ui.components import SkeletonBar
 from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 from .service import LookupReport, discover_public_ips, lookup
 
@@ -490,3 +491,10 @@ class IPLookupPage(QWidget):
             running[-1].finished.connect(on_ready)
             return False
         return True
+
+    def runtime_activity(self) -> ToolActivity:
+        if self.worker and self.worker.isRunning():
+            return ToolActivity.running("正在查询公网 IP 信息")
+        if self.public_ip_worker and self.public_ip_worker.isRunning():
+            return ToolActivity.running("正在获取当前公网 IP")
+        return ToolActivity()

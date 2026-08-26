@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 try:
     from PySide6.QtCore import (
@@ -639,3 +640,9 @@ class IPScannerPage(QWidget):
                 worker.finished.connect(on_ready)
                 return False
         return True
+
+    def runtime_activity(self) -> ToolActivity:
+        worker = self.worker
+        if worker and worker.isRunning():
+            return ToolActivity.running(self.status_label.text())
+        return ToolActivity()

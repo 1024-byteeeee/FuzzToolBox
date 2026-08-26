@@ -5,13 +5,14 @@ from pathlib import Path
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QPoint,
     QPropertyAnimation,
     QSize,
     Qt,
     QVariantAnimation,
     Signal,
 )
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QIcon, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -38,19 +39,32 @@ class ThemeToggleButton(QPushButton):
 
     NORMAL_ICON_SIZE = QSize(23, 23)
     HOVER_ICON_SIZE = QSize(28, 28)
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setIconSize(self.NORMAL_ICON_SIZE)
         self._icon_animation = QPropertyAnimation(self, b"iconSize", self)
         self._icon_animation.setDuration(160)
         self._icon_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._hover_tooltip = QLabel(
+            "",
+            self,
+            Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus,
+        )
+        self._hover_tooltip.setObjectName("headerActionTooltip")
+        self._hover_tooltip.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._hover_tooltip.setAttribute(Qt.WA_TransparentForMouseEvents)
+        apply_style(self._hover_tooltip, "ui.home_page:header_tooltip")
+        self._hover_tooltip.hide()
 
     def event(self, event):
         if event.type() == QEvent.Enter:
             self._animate_icon(self.HOVER_ICON_SIZE)
         elif event.type() == QEvent.Leave:
             self._animate_icon(self.NORMAL_ICON_SIZE)
+            self._hover_tooltip.hide()
+        elif event.type() == QEvent.ToolTip:
+            self._show_hover_tooltip()
+            return True
         return super().event(event)
 
     def _animate_icon(self, target: QSize):
@@ -59,9 +73,79 @@ class ThemeToggleButton(QPushButton):
         self._icon_animation.setEndValue(target)
         self._icon_animation.start()
 
+    def _show_hover_tooltip(self) -> None:
+        text = self.toolTip()
+        if not text:
+            return
+        self._hover_tooltip.setText(text)
+        self._hover_tooltip.adjustSize()
+        cursor = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        position = self._tooltip_position(
+            cursor,
+            self._hover_tooltip.size(),
+            screen.availableGeometry(),
+        )
+        self._hover_tooltip.move(position)
+        self._hover_tooltip.show()
+
+    @staticmethod
+    def _tooltip_position(cursor, tooltip_size, available):
+        gap_x, gap_y = 8, 12
+        x = cursor.x() + gap_x
+        y = cursor.y() + gap_y
+        if x + tooltip_size.width() > available.right() + 1:
+            x = cursor.x() - tooltip_size.width() - gap_x
+        if y + tooltip_size.height() > available.bottom() + 1:
+            y = cursor.y() - tooltip_size.height() - gap_y
+        x = max(available.left(), min(x, available.right() - tooltip_size.width() + 1))
+        y = max(available.top(), min(y, available.bottom() - tooltip_size.height() + 1))
+        return QPoint(x, y)
 
 class SettingsButton(ThemeToggleButton):
     """Settings control with the same smooth hover scaling as the theme button."""
+
+
+class TaskManagerButton(ThemeToggleButton):
+    """Task manager control with a compact loaded-tool count badge."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._count = 0
+
+    def set_count(self, count: int) -> None:
+        count = max(0, int(count))
+        if count == self._count:
+            return
+        self._count = count
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._count <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#f56c6c"))
+        diameter = 16
+        painter.drawEllipse(self.width() - diameter - 2, 2, diameter, diameter)
+        painter.setPen(Qt.white)
+        font = painter.font()
+        font.setPointSize(8)
+        font.setBold(True)
+        painter.setFont(font)
+        text = "9+" if self._count > 9 else str(self._count)
+        painter.drawText(
+            self.width() - diameter - 2,
+            2,
+            diameter,
+            diameter,
+            Qt.AlignCenter,
+            text,
+        )
 
 
 class FavoriteButton(QPushButton):
@@ -198,6 +282,7 @@ class ToolboxHomePage(QWidget):
     tool_requested = Signal(str)
     theme_requested = Signal()
     settings_requested = Signal()
+    tasks_requested = Signal()
     favorite_changed = Signal(str, bool)
 
     def __init__(self, tools=TOOLS, favorite_ids=()):
@@ -221,13 +306,20 @@ class ToolboxHomePage(QWidget):
         self.theme_button.clicked.connect(self.theme_requested.emit)
         self.settings_button = SettingsButton()
         self.settings_button.setObjectName("themeToggle")
-        self.settings_button.setToolTip("打开设置")
+        self.settings_button.setToolTip("设置\n配置快捷键和工具选项")
         self.settings_button.setFixedSize(42, 42)
         self.settings_button.setIconSize(QSize(24, 24))
         self.settings_button.clicked.connect(self.settings_requested.emit)
+        self.tasks_button = TaskManagerButton()
+        self.tasks_button.setObjectName("themeToggle")
+        self.tasks_button.setToolTip("任务管理器\n管理已加载和正在运行的工具")
+        self.tasks_button.setFixedSize(42, 42)
+        self.tasks_button.setIconSize(QSize(24, 24))
+        self.tasks_button.clicked.connect(self.tasks_requested.emit)
         heading.addWidget(self.title)
         heading.addStretch()
         heading.addWidget(self.theme_button)
+        heading.addWidget(self.tasks_button)
         heading.addWidget(self.settings_button)
         subtitle = QLabel("为 IT 工作准备的一站式桌面工具箱")
         apply_style(subtitle, "ui.home_page:83")

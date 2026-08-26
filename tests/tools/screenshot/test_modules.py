@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
@@ -22,6 +23,7 @@ from fuzztoolbox.tools.screenshot.selection import (
     handle_points,
     hit_handle,
     macos_dock_regions,
+    move_selection,
     resize_selection,
     unique_regions,
 )
@@ -54,6 +56,16 @@ class SelectionGeometryTests(unittest.TestCase):
         )
 
         self.assertEqual(resized, QRect(300, 0, 50, 250))
+
+    def test_move_clamps_to_vertical_edges_in_one_step(self):
+        bounds = QRect(0, 0, 900, 600)
+        selection = QRect(100, 100, 400, 300)
+
+        moved_to_top = move_selection(selection, QPoint(0, -1000), bounds)
+        moved_to_bottom = move_selection(selection, QPoint(0, 1000), bounds)
+
+        self.assertEqual(moved_to_top.top(), bounds.top())
+        self.assertEqual(moved_to_bottom.bottom(), bounds.bottom())
 
     def test_dock_inference_and_region_deduplication(self):
         geometry = QRect(0, 0, 1440, 900)
@@ -143,6 +155,49 @@ class CaptureAndRendererTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0][0], screen.geometry())
         self.assertEqual(failures, [])
+
+    def test_long_mosaic_stroke_draws_one_cached_source_instead_of_each_point(self):
+        desktop = QPixmap(1200, 800)
+        desktop.fill(Qt.white)
+        annotation = new_annotation(
+            "mosaic", QPoint(10, 40), QPoint(10, 40), QColor(Qt.black), 8
+        )
+        for x in range(11, 1011):
+            annotation["points"].append(QPoint(x, 40))
+        renderer = AnnotationRenderer(
+            desktop,
+            QRect(0, 0, 1200, 800),
+            1.0,
+            self.app.font().family(),
+        )
+        painter = Mock()
+
+        renderer.paint_mosaic_stroke(painter, annotation)
+
+        self.assertEqual(painter.drawPixmap.call_count, 1)
+
+    def test_long_pen_reuses_its_compiled_path_until_geometry_changes(self):
+        desktop = QPixmap(1200, 800)
+        annotation = new_annotation(
+            "pen", QPoint(10, 40), QPoint(10, 40), QColor(Qt.black), 4
+        )
+        for x in range(11, 1011):
+            annotation["points"].append(QPoint(x, 40))
+        renderer = AnnotationRenderer(
+            desktop,
+            QRect(0, 0, 1200, 800),
+            1.0,
+            self.app.font().family(),
+        )
+
+        first = renderer._stroke_path(annotation)
+        second = renderer._stroke_path(annotation)
+        annotation["points"].append(QPoint(1011, 40))
+        third = renderer._stroke_path(annotation)
+
+        self.assertIs(first, second)
+        self.assertIs(second, third)
+        self.assertEqual(third.elementCount(), len(annotation["points"]))
 
     def test_capture_coordinator_converts_native_failure_to_signal(self):
         coordinator = ScreenCaptureCoordinator(

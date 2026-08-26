@@ -43,6 +43,18 @@ def resize_selection(
     return rect.normalized().intersected(bounds)
 
 
+def move_selection(initial: QRect, delta: QPoint, bounds: QRect) -> QRect:
+    """Translate a selection while keeping its full size inside *bounds*."""
+    if not initial.isValid() or not bounds.isValid():
+        return QRect(initial)
+    max_x = bounds.left() + max(0, bounds.width() - initial.width())
+    max_y = bounds.top() + max(0, bounds.height() - initial.height())
+    desired = initial.topLeft() + delta
+    x = min(max(desired.x(), bounds.left()), max_x)
+    y = min(max(desired.y(), bounds.top()), max_y)
+    return QRect(QPoint(x, y), initial.size())
+
+
 def macos_dock_regions(geometry: QRect, available: QRect) -> list[QRect]:
     regions = []
     if available.bottom() < geometry.bottom():

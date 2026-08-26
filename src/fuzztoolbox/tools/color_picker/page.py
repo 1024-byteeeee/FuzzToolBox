@@ -23,6 +23,7 @@ from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.app_state import ApplicationPreferences, CaptureKind
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style, theme_color
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 from .color_wheel import ColorWheel
 from .converter import ColorValue
@@ -411,3 +412,13 @@ class ColorPickerPage(QWidget):
 
     def capture_blocked(self) -> None:
         self.status.setText("另一项屏幕捕获正在进行")
+
+    def runtime_activity(self) -> ToolActivity:
+        if self._eyedropper is not None:
+            return ToolActivity.running("屏幕取色正在进行")
+        return ToolActivity()
+
+    def prepare_close(self, _on_ready) -> bool:
+        if self._eyedropper is not None:
+            self._eyedropper.cancel()
+        return True

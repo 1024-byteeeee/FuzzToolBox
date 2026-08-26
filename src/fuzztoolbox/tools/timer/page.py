@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.ui.style_loader import apply_style, set_style_state
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 from .countdown import CountdownTimer, StopwatchTimer, format_duration
 
@@ -375,3 +376,19 @@ class TimerPage(QWidget):
             QApplication.beep()
             QApplication.alert(self.window(), 3000)
             QMessageBox.information(self, "计时完成", "倒计时已结束。")
+
+    def runtime_activity(self) -> ToolActivity:
+        state = (
+            self.stopwatch_state.state
+            if self.mode == "stopwatch"
+            else self.timer_state.state
+        )
+        if state in {"running", "paused"}:
+            mode = "正计时" if self.mode == "stopwatch" else "倒计时"
+            status = "已暂停" if state == "paused" else "运行中"
+            return ToolActivity.running(f"{mode}{status} · {self.display.text()}")
+        return ToolActivity()
+
+    def prepare_close(self, _on_ready) -> bool:
+        self.reset()
+        return True

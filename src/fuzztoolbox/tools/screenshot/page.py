@@ -15,6 +15,7 @@ from fuzztoolbox.ui.app_settings import create_settings
 from fuzztoolbox.ui.app_state import ApplicationPreferences, CaptureKind
 from fuzztoolbox.ui.components import KeepWindowSwitch
 from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 from .overlay import ScreenshotOverlay
 
@@ -141,3 +142,13 @@ class ScreenshotPage(QWidget):
 
     def capture_blocked(self) -> None:
         self.status.setText("另一项屏幕捕获正在进行")
+
+    def runtime_activity(self) -> ToolActivity:
+        if self._overlay is not None:
+            return ToolActivity.running("截图会话正在进行")
+        return ToolActivity()
+
+    def prepare_close(self, _on_ready) -> bool:
+        if self._overlay is not None:
+            self._overlay.cancel()
+        return True

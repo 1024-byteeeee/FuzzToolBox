@@ -27,6 +27,9 @@ def new_annotation(
     }
     if kind in ("pen", "mosaic"):
         annotation["points"] = [QPoint(start)]
+        annotation["_geometry_revision"] = 0
+        annotation["_point_bounds"] = QRect(start, start)
+        annotation["_point_bounds_count"] = 1
     annotation.update(extra)
     return annotation
 
@@ -37,14 +40,54 @@ def append_brush_points(annotation: dict, point: QPoint) -> None:
     distance = math.hypot(point.x() - previous.x(), point.y() - previous.y())
     spacing = max(1.0, annotation["width"] * 0.7)
     steps = max(1, math.ceil(distance / spacing))
+    point_bounds = _brush_point_bounds(annotation)
     for index in range(1, steps + 1):
         ratio = index / steps
-        annotation["points"].append(
-            QPoint(
-                round(previous.x() + (point.x() - previous.x()) * ratio),
-                round(previous.y() + (point.y() - previous.y()) * ratio),
-            )
+        interpolated = QPoint(
+            round(previous.x() + (point.x() - previous.x()) * ratio),
+            round(previous.y() + (point.y() - previous.y()) * ratio),
         )
+        annotation["points"].append(interpolated)
+        point_bounds = point_bounds.united(QRect(interpolated, interpolated))
+    annotation["_geometry_revision"] = annotation.get("_geometry_revision", 0) + 1
+    annotation["_point_bounds"] = point_bounds
+    annotation["_point_bounds_count"] = len(annotation["points"])
+
+
+def _brush_point_bounds(annotation: dict) -> QRect:
+    points = annotation.get("points", [])
+    if not points:
+        return QRect()
+    cached = annotation.get("_point_bounds")
+    if (
+        isinstance(cached, QRect)
+        and annotation.get("_point_bounds_count") == len(points)
+    ):
+        return QRect(cached)
+    bounds = QRect(points[0], points[0])
+    for point in points[1:]:
+        bounds = bounds.united(QRect(point, point))
+    annotation["_point_bounds"] = bounds
+    annotation["_point_bounds_count"] = len(points)
+    return QRect(bounds)
+
+
+def annotation_bounds(annotation: dict) -> QRect:
+    """Return the pixels affected by an annotation, including stroke width."""
+    kind = annotation["kind"]
+    if kind == "text":
+        bounds = text_rect(annotation)
+    elif kind in ("pen", "mosaic"):
+        bounds = _brush_point_bounds(annotation)
+    else:
+        bounds = QRect(annotation["start"], annotation["end"]).normalized()
+    if not bounds.isValid():
+        return QRect()
+    if kind == "mosaic":
+        padding = max(4, round(float(annotation.get("width", 1)) * 1.5)) + 2
+    else:
+        padding = max(2, math.ceil(float(annotation.get("width", 1)) / 2)) + 2
+    return bounds.adjusted(-padding, -padding, padding, padding)
 
 
 def distance_to_segment(point: QPoint, start: QPoint, end: QPoint) -> float:
@@ -135,3 +178,10 @@ def translate_annotations(annotations: Iterable[dict], delta: QPoint) -> None:
         annotation["end"] += delta
         if "points" in annotation:
             annotation["points"] = [point + delta for point in annotation["points"]]
+            cached = annotation.get("_point_bounds")
+            if isinstance(cached, QRect):
+                annotation["_point_bounds"] = cached.translated(delta)
+            annotation["_point_bounds_count"] = len(annotation["points"])
+            annotation["_geometry_revision"] = (
+                annotation.get("_geometry_revision", 0) + 1
+            )

@@ -121,6 +121,14 @@ TOOLS = (
         keywords=("text", "statistics", "count", "文本", "统计", "字数", "字符", "单词", "行数", "大小"),
     ),
     ToolDefinition(
+        id="batch-renamer",
+        name="文件批量重命名",
+        description="组合规则并实时预览，安全地批量修改文件名称。",
+        category="系统工具",
+        icon="tool-batch-renamer.svg",
+        keywords=("file", "rename", "batch", "文件", "批量", "重命名", "正则", "编号"),
+    ),
+    ToolDefinition(
         id="lorem-ipsum",
         name="Lorem Ipsum 生成器",
         description="按单词、句子或段落生成排版与原型设计所需的占位文本。",

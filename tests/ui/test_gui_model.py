@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QEasingCurve, QRect, Qt
+from PySide6.QtCore import QEasingCurve, QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QKeySequence, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -419,6 +419,7 @@ class ResultModelTests(unittest.TestCase):
         self.assertEqual(filter_tools(TOOLS, "字数")[0].id, "text-statistics")
         self.assertEqual(filter_tools(TOOLS, "时间戳")[0].id, "datetime-converter")
         self.assertEqual(filter_tools(TOOLS, "Compose")[0].id, "docker-compose-converter")
+        self.assertEqual(filter_tools(TOOLS, "批量")[0].id, "batch-renamer")
 
     def test_every_tool_has_a_unique_existing_svg_icon(self):
         assets = Path(__file__).resolve().parents[2] / "src" / "fuzztoolbox" / "assets"
@@ -866,6 +867,22 @@ class ResultModelTests(unittest.TestCase):
         self.assertTrue(window.top_bar.isHidden())
         window.close()
 
+    def test_task_manager_unloads_and_recreates_tool_pages(self):
+        window = MainWindow()
+        window.open_tool("timer")
+        first_page = window.timer_page
+        window.show_home()
+
+        self.assertIs(window.tool_runtime.page("timer"), first_page)
+        self.assertTrue(window.tool_runtime.request_close("timer"))
+        self.app.processEvents()
+        self.assertIsNone(window.tool_runtime.page("timer"))
+        self.assertNotIn("timer", window._tool_pages)
+
+        window.open_tool("timer")
+        self.assertIsNot(window.timer_page, first_page)
+        window.hide()
+
     def test_settings_suspend_global_hotkeys_until_dialog_closes(self):
         window = Mock()
         window.settings = Mock()
@@ -1151,9 +1168,12 @@ class ResultModelTests(unittest.TestCase):
             window = MainWindow()
         window.show()
         self.app.processEvents()
-        window.ip_scanner_page.prepare_close = Mock(return_value=True)
-        window.ip_lookup_page.prepare_close = Mock(return_value=True)
-        window.device_info_page.prepare_close = Mock(return_value=True)
+        scanner_page = window.ip_scanner_page
+        lookup_page = window.ip_lookup_page
+        device_page = window.device_info_page
+        scanner_page.prepare_close = Mock(return_value=True)
+        lookup_page.prepare_close = Mock(return_value=True)
+        device_page.prepare_close = Mock(return_value=True)
 
         with patch("fuzztoolbox.ui.main_window.sys.platform", "darwin"), patch(
             "fuzztoolbox.ui.main_window.show_window_instantly",
@@ -1163,7 +1183,7 @@ class ResultModelTests(unittest.TestCase):
             window.closeEvent(close_event)
             self.assertFalse(close_event.isAccepted())
             self.assertTrue(window.isHidden())
-            window.ip_scanner_page.prepare_close.assert_not_called()
+            scanner_page.prepare_close.assert_not_called()
 
             window.restore_from_application_activation(Qt.ApplicationActive)
             self.assertTrue(window.isVisible())
@@ -1171,9 +1191,9 @@ class ResultModelTests(unittest.TestCase):
             with patch("fuzztoolbox.ui.main_window.QTimer.singleShot") as single_shot:
                 window.request_application_quit()
                 self.assertTrue(window._application_quitting)
-                window.ip_scanner_page.prepare_close.assert_called_once()
-                window.ip_lookup_page.prepare_close.assert_called_once()
-                window.device_info_page.prepare_close.assert_called_once()
+                scanner_page.prepare_close.assert_called_once()
+                lookup_page.prepare_close.assert_called_once()
+                device_page.prepare_close.assert_called_once()
                 single_shot.assert_called_once()
         window.hide()
 
@@ -1248,7 +1268,43 @@ class ResultModelTests(unittest.TestCase):
             ThemeToggleButton.NORMAL_ICON_SIZE.width(),
         )
         self.assertEqual(button._icon_animation.duration(), 160)
-        self.assertEqual(button._icon_animation.easingCurve().type(), QEasingCurve.InOutCubic)
+        self.assertEqual(
+            button._icon_animation.easingCurve().type(),
+            QEasingCurve.InOutCubic,
+        )
+
+    def test_home_header_actions_have_descriptive_tooltips(self):
+        home = ToolboxHomePage()
+
+        self.assertIn("切换", home.theme_button.toolTip())
+        self.assertIn("任务管理器", home.tasks_button.toolTip())
+        self.assertIn("已加载", home.tasks_button.toolTip())
+        self.assertIn("设置", home.settings_button.toolTip())
+        self.assertIn("快捷键", home.settings_button.toolTip())
+        self.assertIn("\n", home.tasks_button.toolTip())
+        self.assertIn("\n", home.settings_button.toolTip())
+
+    def test_header_tooltip_stays_close_to_pointer_and_flips_at_edges(self):
+        area = QRect(0, 0, 1000, 800)
+        size = QSize(180, 50)
+
+        self.assertEqual(
+            ThemeToggleButton._tooltip_position(QPoint(100, 100), size, area),
+            QPoint(108, 112),
+        )
+        self.assertEqual(
+            ThemeToggleButton._tooltip_position(QPoint(990, 790), size, area),
+            QPoint(802, 728),
+        )
+
+    def test_task_manager_tooltip_tracks_loaded_tool_count(self):
+        window = MainWindow()
+        self.assertIn("管理已加载", window.home_page.tasks_button.toolTip())
+
+        window.open_tool("timer")
+
+        self.assertIn("已加载 1 个工具", window.home_page.tasks_button.toolTip())
+        window.hide()
 
     def test_named_uuid_versions_use_one_deterministic_result(self):
         from fuzztoolbox.tools.uuid_generator.page import UUIDGeneratorPage

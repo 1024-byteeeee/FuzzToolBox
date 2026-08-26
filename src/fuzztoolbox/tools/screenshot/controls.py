@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QEasingCurve, QRect, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QAbstractButton,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
     QPushButton,
     QScrollBar,
     QSlider,
@@ -12,6 +16,119 @@ from PySide6.QtWidgets import (
     QStyleOptionButton,
     QStylePainter,
 )
+
+from fuzztoolbox.ui.animations import motion_enabled
+
+
+class ShadowCheckBox(QAbstractButton):
+    """Theme-stable animated checkbox for the capture output shadow."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAccessibleName("阴影")
+        self.setFixedSize(58, 22)
+        self._progress = 0.0
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(150)
+        self._animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self._animation.valueChanged.connect(self._set_progress)
+        self.toggled.connect(self._animate_toggle)
+
+    def _set_progress(self, value):
+        self._progress = float(value)
+        self.update()
+
+    def _animate_toggle(self, checked):
+        target = 1.0 if checked else 0.0
+        if not motion_enabled():
+            self._animation.stop()
+            self._set_progress(target)
+            return
+        self._animation.stop()
+        self._animation.setStartValue(self._progress)
+        self._animation.setEndValue(target)
+        self._animation.start()
+
+    @staticmethod
+    def _blend(start, end, progress):
+        return QColor(
+            round(start.red() + (end.red() - start.red()) * progress),
+            round(start.green() + (end.green() - start.green()) * progress),
+            round(start.blue() + (end.blue() - start.blue()) * progress),
+        )
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        indicator = QRectF(1, 3, 16, 16)
+        border = QColor("#79bdff") if self.underMouse() else QColor("#6b7d96")
+        painter.setPen(QPen(self._blend(border, QColor("#409eff"), self._progress), 1))
+        painter.setBrush(
+            self._blend(QColor("#172230"), QColor("#409eff"), self._progress)
+        )
+        painter.drawRoundedRect(indicator, 4, 4)
+
+        check_color = QColor("#ffffff")
+        check_color.setAlpha(round(255 * self._progress))
+        painter.setPen(QPen(check_color, 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawLine(5, 11, 8, 14)
+        painter.drawLine(8, 14, 14, 7)
+
+        painter.setPen(QColor("#edf2f7" if self.isChecked() else "#c4cedb"))
+        painter.drawText(QRectF(23, 0, 35, 22), Qt.AlignLeft | Qt.AlignVCenter, "阴影")
+
+
+class SelectionOptionsBar(QFrame):
+    """Compact selection metadata and output-shape controls."""
+
+    radius_changed = Signal(int)
+    shadow_toggled = Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("screenshotSelectionOptions")
+        self.setCursor(Qt.ArrowCursor)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 5, 12, 5)
+        layout.setSpacing(9)
+        self.resolution_label = QLabel("0 × 0")
+        self.resolution_label.setObjectName("screenshotSelectionResolution")
+        layout.addWidget(self.resolution_label)
+        corner_label = QLabel("圆角")
+        corner_label.setObjectName("screenshotSelectionLabel")
+        layout.addWidget(corner_label)
+        self.radius_slider = SmoothSlider(Qt.Horizontal)
+        self.radius_slider.setObjectName("screenshotCornerSlider")
+        self.radius_slider.setRange(0, 0)
+        self.radius_slider.setFixedWidth(132)
+        layout.addWidget(self.radius_slider)
+        self.radius_value = QLabel("0")
+        self.radius_value.setObjectName("screenshotSelectionValue")
+        self.radius_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.radius_value.setFixedWidth(34)
+        layout.addWidget(self.radius_value)
+        self.shadow_checkbox = ShadowCheckBox()
+        self.shadow_checkbox.setObjectName("screenshotShadowCheckbox")
+        self.shadow_checkbox.setCursor(Qt.PointingHandCursor)
+        layout.addWidget(self.shadow_checkbox)
+        self.radius_slider.valueChanged.connect(self._radius_value_changed)
+        self.shadow_checkbox.toggled.connect(self.shadow_toggled)
+        self.setFixedHeight(34)
+        self.setFixedWidth(self.sizeHint().width())
+
+    def set_selection(self, resolution, radius, shadow_enabled):
+        self.resolution_label.setText(
+            f"{resolution.width()} × {resolution.height()}"
+        )
+        self.radius_slider.setRange(0, 100)
+        self.radius_slider.setValue(min(max(0, radius), 100))
+        self.shadow_checkbox.setChecked(shadow_enabled)
+
+    def _radius_value_changed(self, value):
+        self.radius_value.setText(str(value))
+        self.radius_changed.emit(value)
 
 
 class ColorSwatchButton(QPushButton):

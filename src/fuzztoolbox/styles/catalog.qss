@@ -51,6 +51,22 @@ QLabel#settingsError { color: #d64545; min-height: 20px; }
 QScrollArea#settingsScroll, QFrame#settingsCardsHost { background: transparent; border: 0; }
 @endstyle */
 
+/* @style ui.task_manager_dialog:workspace
+QDialog { background: #f5f7fa; color: #303133; }
+QLabel#taskManagerTitle { color: #303133; font-size: 25px; font-weight: 700; }
+QLabel#taskManagerDescription { color: #909399; font-size: 13px; }
+QLabel#taskManagerSummary { color: #606266; background: #ffffff; border: 1px solid #e4e7ed; border-radius: 8px; padding: 5px 10px; }
+QScrollArea#taskManagerScroll, QWidget#taskManagerRows { background: transparent; border: 0; }
+QFrame#taskManagerItem { background: #ffffff; border: 1px solid #e4e7ed; border-radius: 12px; }
+QLabel#taskManagerItemName { color: #303133; font-size: 15px; font-weight: 700; }
+QLabel#taskManagerItemDetail { color: #909399; font-size: 12px; }
+QLabel#taskManagerState { border-radius: 8px; padding: 2px 7px; font-size: 11px; font-weight: 700; }
+QLabel#taskManagerState[styleState="loaded"] { color: #606266; background: #f0f2f5; }
+QLabel#taskManagerState[styleState="running"] { color: #1677d2; background: #ecf5ff; }
+QLabel#taskManagerState[styleState="stopping"] { color: #b7791f; background: #fdf6ec; }
+QLabel#taskManagerEmpty { color: #909399; font-size: 14px; }
+@endstyle */
+
 /* @style tools.screenshot.page:intro
 color: #606266; font-size: 14px;
 @endstyle */
@@ -90,6 +106,16 @@ QScrollBar#screenshotFontScrollBar::handle:vertical:hover { background: #6b7d96;
 QScrollBar#screenshotFontScrollBar::add-line:vertical, QScrollBar#screenshotFontScrollBar::sub-line:vertical { height: 0; border: 0; background: transparent; }
 QScrollBar#screenshotFontScrollBar::add-page:vertical, QScrollBar#screenshotFontScrollBar::sub-page:vertical { background: transparent; }
 QLineEdit#screenshotTextEditor { color: #172230; background: rgba(255, 255, 255, 242); border: 2px solid #409eff; border-radius: 5px; padding: 5px 8px; selection-background-color: #409eff; }
+QFrame#screenshotSelectionOptions { color: #edf2f7; background: rgba(32, 43, 58, 238); border: 1px solid #526176; border-radius: 8px; }
+QFrame#screenshotSelectionOptions QLabel { color: #edf2f7; background: transparent; border: 0; }
+QLabel#screenshotSelectionResolution { min-width: 90px; font-weight: 700; }
+QLabel#screenshotSelectionLabel { color: #c4cedb; font-weight: 600; }
+QLabel#screenshotSelectionValue { color: #79bdff; font-weight: 700; }
+QSlider#screenshotCornerSlider { min-height: 20px; background: transparent; }
+QSlider#screenshotCornerSlider::groove:horizontal { height: 5px; background: #4b5b70; border: 0; border-radius: 2px; }
+QSlider#screenshotCornerSlider::sub-page:horizontal { background: #409eff; border-radius: 2px; }
+QSlider#screenshotCornerSlider::add-page:horizontal { background: #4b5b70; border-radius: 2px; }
+QSlider#screenshotCornerSlider::handle:horizontal { width: 15px; margin: -5px 0; background: #ffffff; border: 2px solid #409eff; border-radius: 7px; }
 @endstyle */
 
 /* @style tools.screenshot.overlay.font_list
@@ -575,6 +601,13 @@ font-size: 14px; color: #909399;
 color: #909399; padding: 6px;
 @endstyle */
 
+/* @style ui.home_page:header_tooltip
+QLabel#headerActionTooltip {
+  background: #252a32; color: #f7f9fc; border: 1px solid #596273;
+  border-radius: 4px; padding: 5px 7px; font-size: 12px;
+}
+@endstyle */
+
 /* @style ui.main_window:83
 font-size: 18px; font-weight: 700; color: #303133;
 @endstyle */
@@ -660,4 +693,42 @@ QWidget#deviceInfoWorkspace QFrame#deviceInfoSection { background: white; border
 QWidget#deviceInfoWorkspace QLabel#deviceInfoSectionTitle { color: #303133; font-size: 15px; font-weight: 700; padding-bottom: 4px; }
 QWidget#deviceInfoWorkspace QLabel#deviceInfoKey { color: #909399; font-size: 12px; font-weight: 600; min-width: 96px; }
 QWidget#deviceInfoWorkspace QLabel#deviceInfoValue { color: #303133; font-size: 13px; font-weight: 600; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:intro
+color: #606266; font-size: 14px; font-weight: 600;
+@endstyle */
+
+/* @style tools.batch_renamer.page:panel
+QFrame#renameSourcePanel, QFrame#renameRulesPanel, QFrame#renamePreviewPanel { background: white; border: 1px solid #e4e7ed; border-radius: 12px; }
+QLabel#renameHeading { color: #303133; font-size: 15px; font-weight: 700; }
+QLabel#renameMuted { color: #7a8798; font-size: 12px; font-weight: 600; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:rule
+QFrame#renameRuleRow { background: #fbfcfe; border: 1px solid #dcdfe6; border-radius: 9px; }
+QFrame#renameRuleRow:focus-within { border-color: #409eff; }
+QPushButton#renameRuleAction { min-width: 28px; padding: 5px 8px; color: #1677d2; background: #ecf5ff; border: 1px solid #b3d8ff; border-radius: 6px; }
+QPushButton#renameRuleAction:hover { color: #1677d2; background: #d9ecff; border-color: #79bbff; }
+QPushButton#renameRuleAction:pressed { background: #c6e2ff; border-color: #409eff; }
+QPushButton#renameRuleAction[actionRole="delete"] { color: #c45656; background: #fef0f0; border-color: #fde2e2; }
+QPushButton#renameRuleAction[actionRole="delete"]:hover { color: #d64545; background: #fde2e2; border-color: #f56c6c; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:bulk-action
+QPushButton#renameBulkAction { padding: 5px 10px; color: #1677d2; background: #ecf5ff; border: 1px solid #b3d8ff; border-radius: 6px; }
+QPushButton#renameBulkAction:hover { background: #d9ecff; border-color: #79bbff; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:rules-scroll
+QScrollArea#renameRulesScroll { background: transparent; border: 0; border-radius: 9px; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:transparent-surface
+QWidget#renameRulesViewport, QWidget#renameRulesContent { background: transparent; border: 0; }
+@endstyle */
+
+/* @style tools.batch_renamer.page:splitter
+QSplitter::handle { width: 16px; background: transparent; }
+QSplitter::handle:hover { background: rgba(64, 158, 255, 36); border-radius: 4px; }
 @endstyle */

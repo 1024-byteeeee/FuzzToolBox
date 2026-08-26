@@ -23,6 +23,7 @@ from PySide6.QtGui import (
     QGuiApplication,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QShortcut,
@@ -42,6 +43,7 @@ from fuzztoolbox.tools.color_picker.eyedropper import _grab_screen, _raise_windo
 from fuzztoolbox.ui.style_loader import apply_style
 
 from .annotations import (
+    annotation_bounds,
     annotation_contains,
     append_brush_points,
     new_annotation,
@@ -53,12 +55,13 @@ from .capture_backend import (
     compose_desktop,
     virtual_geometry,
 )
-from .controls import ScreenshotScrollBar
+from .controls import ScreenshotScrollBar, SelectionOptionsBar
 from .renderer import AnnotationRenderer
 from .selection import (
     handle_points,
     hit_handle,
     macos_dock_regions,
+    move_selection,
     resize_selection,
     unique_regions,
 )
@@ -77,6 +80,10 @@ class ScreenshotOverlay(QWidget):
              ("画笔", "pen"), ("文字", "text"), ("马赛克", "mosaic"))
     COLORS = (QColor("#ff4d4f"), QColor("#409eff"), QColor("#19be6b"),
               QColor("#ffd43b"), QColor("#ffffff"), QColor("#202124"))
+    CORNER_RADIUS_MAXIMUM = 100
+    SHADOW_PADDING = 18
+    SHADOW_OFFSET_Y = 3
+    SHADOW_BLUR_RADIUS = 14
     def __init__(self, parent=None, *, include_app_window=False):
         super().__init__(parent)
         self._include_app_window = include_app_window
@@ -89,12 +96,20 @@ class ScreenshotOverlay(QWidget):
         self._virtual = QRect()
         self._desktop = QPixmap()
         self._dpr = 1.0
+        self._renderer = AnnotationRenderer(
+            self._desktop,
+            QRect(),
+            self._dpr,
+            self.font().family(),
+        )
         self.selection = QRect()
         self._drag_start = QPoint()
         self._drag_mode = ""
         self._handle = ""
         self._selection_start = QRect()
         self._annotations = []
+        self._annotation_layer = QPixmap()
+        self._annotation_layer_dirty = True
         self._current = None
         self._tool = ""
         self._color_index = 0
@@ -102,6 +117,8 @@ class ScreenshotOverlay(QWidget):
         self._width = 4
         self._font_size = 20
         self._font_family = self.font().family()
+        self._corner_radius = 0
+        self._shadow_enabled = False
         self._cursor_pos = QPoint()
         self._text_editor = None
         self._active_annotation = None
@@ -137,6 +154,10 @@ class ScreenshotOverlay(QWidget):
         self.toolbar.save_requested.connect(self._save)
         self.toolbar.finish_requested.connect(self._copy_and_finish)
         self.toolbar.cancel_requested.connect(self._cancel)
+        self.selection_options = SelectionOptionsBar(self)
+        self.selection_options.radius_changed.connect(self._set_corner_radius)
+        self.selection_options.shadow_toggled.connect(self._set_shadow_enabled)
+        self.selection_options.hide()
         self._escape_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), self)
         self._escape_shortcut.setContext(Qt.ApplicationShortcut)
         self._escape_shortcut.activated.connect(self._cancel)
@@ -154,6 +175,16 @@ class ScreenshotOverlay(QWidget):
         self._install_input_lock()
         self._shots = shots
         self._desktop, self._dpr = compose_desktop(shots, self._virtual)
+        self._corner_radius = 0
+        self._shadow_enabled = False
+        self.selection_options.hide()
+        self._invalidate_annotation_layer()
+        self._renderer.update_context(
+            self._desktop,
+            self.selection,
+            self._dpr,
+            self.font().family(),
+        )
         # The frozen desktop no longer depends on the live window server.  The
         # launcher may stop its macOS order-out watchdog at this exact point.
         self.capture_ready.emit()
@@ -192,30 +223,49 @@ class ScreenshotOverlay(QWidget):
         self.setFixedSize(geometry.size())
         self.move(geometry.topLeft())
 
-    def paintEvent(self, _event):
+    def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.drawPixmap(QRectF(self.rect()), self._desktop, QRectF(self._desktop.rect()))
+        painter.drawPixmap(QPoint(), self._desktop)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 112))
         if self.selection.isValid() and self.selection.width() > 1:
+            selection_path = self._selection_path()
+            if self._shadow_enabled:
+                self._paint_soft_shadow(
+                    painter,
+                    QRectF(self.selection),
+                    self._effective_corner_radius(QRectF(self.selection)),
+                )
+            painter.save()
+            painter.setClipPath(selection_path)
             painter.drawPixmap(QRectF(self.selection), self._desktop, QRectF(
                 self.selection.x() * self._dpr,
                 self.selection.y() * self._dpr,
                 self.selection.width() * self._dpr,
                 self.selection.height() * self._dpr,
             ))
-            painter.save()
-            painter.setClipRect(self.selection)
-            for annotation in self._annotations:
-                self._paint_annotation(painter, annotation)
-            if self._current:
-                self._paint_annotation(painter, self._current)
+            painter.drawPixmap(
+                self.selection.topLeft(),
+                self._committed_annotation_layer(),
+            )
+            if self._current and annotation_bounds(self._current).intersects(
+                event.rect()
+            ):
+                if self._current["kind"] == "mosaic":
+                    self._paint_annotation(
+                        painter,
+                        self._current,
+                        mosaic_source=self._committed_annotation_layer(),
+                        mosaic_source_rect=self.selection,
+                    )
+                else:
+                    self._paint_annotation(painter, self._current)
             painter.restore()
             painter.setPen(QPen(QColor("#55b6ff"), 1.5))
             painter.setBrush(Qt.NoBrush)
-            painter.drawRect(self.selection)
-            self._paint_handles(painter)
-            self._paint_size_badge(painter)
+            painter.drawPath(selection_path)
+            if not self._selection_is_locked():
+                self._paint_handles(painter)
         else:
             if self._hovered_window.isValid():
                 painter.drawPixmap(
@@ -233,16 +283,67 @@ class ScreenshotOverlay(QWidget):
                 painter.drawRect(self._hovered_window.adjusted(1, 1, -1, -1))
             self._paint_magnifier(painter)
 
-    def _paint_annotation(self, painter, annotation):
-        self._annotation_renderer().paint(painter, annotation)
+    def _paint_annotation(self, painter, annotation, **options):
+        self._annotation_renderer().paint(painter, annotation, **options)
+
+    def _committed_annotation_layer(self):
+        pixel_size = self._selection_pixel_size()
+        if (
+            not self._annotation_layer_dirty
+            and not self._annotation_layer.isNull()
+            and self._annotation_layer.size() == pixel_size
+        ):
+            return self._annotation_layer
+        layer = QPixmap(pixel_size)
+        layer.setDevicePixelRatio(self._dpr)
+        layer.fill(Qt.transparent)
+        painter = QPainter(layer)
+        painter.drawPixmap(
+            QRectF(QRect(QPoint(), self.selection.size())),
+            self._desktop,
+            QRectF(
+                self.selection.x() * self._dpr,
+                self.selection.y() * self._dpr,
+                self.selection.width() * self._dpr,
+                self.selection.height() * self._dpr,
+            ),
+        )
+        self._prepare_annotation_layer_painter(painter)
+        for annotation in self._annotations:
+            if annotation["kind"] == "mosaic":
+                painter.end()
+                source = layer.copy()
+                painter = QPainter(layer)
+                self._prepare_annotation_layer_painter(painter)
+                self._paint_annotation(
+                    painter,
+                    annotation,
+                    mosaic_source=source,
+                    mosaic_source_rect=self.selection,
+                )
+            else:
+                self._paint_annotation(painter, annotation)
+        painter.end()
+        self._annotation_layer = layer
+        self._annotation_layer_dirty = False
+        return self._annotation_layer
+
+    def _invalidate_annotation_layer(self):
+        self._annotation_layer_dirty = True
+
+    def _prepare_annotation_layer_painter(self, painter):
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(-self.selection.topLeft())
+        painter.setClipRect(self.selection)
 
     def _annotation_renderer(self):
-        return AnnotationRenderer(
+        self._renderer.update_context(
             self._desktop,
             self.selection,
             self._dpr,
             self.font().family(),
         )
+        return self._renderer
 
     def _paint_handles(self, painter):
         painter.setPen(QPen(Qt.white, 1))
@@ -250,21 +351,75 @@ class ScreenshotOverlay(QWidget):
         for point in handle_points(self.selection).values():
             painter.drawRect(QRect(point.x() - 4, point.y() - 4, 8, 8))
 
-    def _paint_size_badge(self, painter):
-        resolution = self._selection_pixel_size()
-        text = f"{resolution.width()} × {resolution.height()}"
-        badge_width = max(112, painter.fontMetrics().horizontalAdvance(text) + 20)
-        badge = QRect(
-            self.selection.left(),
-            max(4, self.selection.top() - 28),
-            badge_width,
-            23,
+    def _selection_path(self, *, local=False):
+        rect = (
+            QRectF(QRect(QPoint(), self.selection.size()))
+            if local
+            else QRectF(self.selection)
         )
+        path = QPainterPath()
+        radius = self._effective_corner_radius(rect)
+        if radius > 0:
+            path.addRoundedRect(rect, radius, radius)
+        else:
+            path.addRect(rect)
+        return path
+
+    def _set_corner_radius(self, value):
+        self._corner_radius = min(
+            max(0, int(value)),
+            self.CORNER_RADIUS_MAXIMUM,
+        )
+        if self.selection_options.radius_slider.value() != self._corner_radius:
+            self.selection_options.radius_slider.setValue(self._corner_radius)
+        self.update(self._selection_dirty_region(self.selection))
+
+    def _set_shadow_enabled(self, enabled):
+        self._shadow_enabled = bool(enabled)
+        if self.selection_options.shadow_checkbox.isChecked() != self._shadow_enabled:
+            self.selection_options.shadow_checkbox.setChecked(self._shadow_enabled)
+        self.update(self._selection_dirty_region(self.selection))
+
+    def _effective_corner_radius(self, rect):
+        return min(
+            float(self._corner_radius),
+            rect.width() / 2.0,
+            rect.height() / 2.0,
+        )
+
+    def _paint_soft_shadow(self, painter, rect, corner_radius):
+        """Paint a lightweight soft shadow without a temporary scene/effect."""
+        shadow_rect = QRectF(rect).translated(0, self.SHADOW_OFFSET_Y)
+        painter.save()
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(20, 26, 34, 220))
-        painter.drawRoundedRect(badge, 5, 5)
-        painter.setPen(Qt.white)
-        painter.drawText(badge, Qt.AlignCenter, text)
+        for spread in range(self.SHADOW_BLUR_RADIUS, 0, -1):
+            opacity = 4 + round(9 * (1.0 - spread / self.SHADOW_BLUR_RADIUS))
+            painter.setBrush(QColor(0, 0, 0, opacity))
+            expanded = shadow_rect.adjusted(-spread, -spread, spread, spread)
+            radius = corner_radius + spread
+            painter.drawRoundedRect(expanded, radius, radius)
+        painter.restore()
+
+    def _sync_selection_options(self):
+        if self.selection.width() < 8 or self.selection.height() < 8:
+            self.selection_options.hide()
+            return
+        self.selection_options.set_selection(
+            self._selection_pixel_size(),
+            self._corner_radius,
+            self._shadow_enabled,
+        )
+        bar = self.selection_options
+        x = min(
+            max(8, self.selection.left()),
+            max(8, self.width() - bar.width() - 8),
+        )
+        y = self.selection.top() - bar.height() - 7
+        if y < 8:
+            y = self.selection.top() + 7
+        bar.move(x, y)
+        bar.show()
+        bar.raise_()
 
     def _paint_magnifier(self, painter):
         pos = self._cursor_pos
@@ -322,11 +477,15 @@ class ScreenshotOverlay(QWidget):
                 self._drag_mode = "select"
                 self.selection = QRect(point, point)
             return
-        handle = hit_handle(self.selection, point)
+        locked = self._selection_is_locked()
+        handle = hit_handle(self.selection, point) if not locked else ""
         if handle:
             self._drag_mode = "resize"
             self._handle = handle
             self._selection_start = QRect(self.selection)
+            return
+        if self._tool and self._tool != "text" and self.selection.contains(point):
+            self._drag_mode = "draw_pending"
             return
         annotation = self._annotation_at(point)
         if annotation is not None:
@@ -352,11 +511,15 @@ class ScreenshotOverlay(QWidget):
                 self._width,
             )
             return
+        if locked:
+            return
         if self.selection.contains(point):
             self._drag_mode = "move"
             self._selection_start = QRect(self.selection)
         else:
             self._annotations.clear()
+            self._renderer.retain_annotations(self._annotations)
+            self._invalidate_annotation_layer()
             self.selection = QRect(point, point)
             self._drag_mode = "select"
             self.toolbar.hide()
@@ -364,6 +527,8 @@ class ScreenshotOverlay(QWidget):
     def mouseMoveEvent(self, event):
         point = event.position().toPoint()
         self._cursor_pos = point
+        old_annotation_region = self._active_draw_region()
+        old_selection_region = self._selection_dirty_region(self.selection)
         if not self.selection.isValid() and not self._drag_mode:
             self._hovered_window = self._window_at(point)
         if self._drag_mode == "window_pending":
@@ -373,14 +538,27 @@ class ScreenshotOverlay(QWidget):
                 self.selection = QRect(self._drag_start, point).normalized().intersected(
                     self.rect()
                 )
+        elif self._drag_mode == "draw_pending":
+            if (point - self._drag_start).manhattanLength() > 4:
+                self._active_annotation = None
+                self._drag_mode = "annotate"
+                self._current = new_annotation(
+                    self._tool,
+                    self._drag_start,
+                    point,
+                    self._color,
+                    self._width,
+                )
+                if self._current["kind"] in ("pen", "mosaic"):
+                    append_brush_points(self._current, point)
         elif self._drag_mode == "select":
             self.selection = QRect(self._drag_start, point).normalized().intersected(self.rect())
         elif self._drag_mode == "move":
-            moved = self._selection_start.translated(point - self._drag_start)
-            if self.rect().contains(moved):
-                delta = moved.topLeft() - self.selection.topLeft()
-                self.selection = moved
-                translate_annotations(self._annotations, delta)
+            self.selection = move_selection(
+                self._selection_start,
+                point - self._drag_start,
+                self.rect(),
+            )
         elif self._drag_mode == "resize":
             self.selection = resize_selection(
                 self._selection_start,
@@ -396,7 +574,36 @@ class ScreenshotOverlay(QWidget):
                 append_brush_points(self._current, point)
         elif not self._drag_mode:
             self._refresh_hover_cursor(point)
-        self.update()
+        if self._drag_mode in ("move", "resize", "select", "window_pending"):
+            self._sync_selection_options()
+            new_selection_region = self._selection_dirty_region(self.selection)
+            self.update(old_selection_region.united(new_selection_region))
+        elif self._drag_mode in ("annotate", "move_text"):
+            new_annotation_region = self._active_draw_region()
+            dirty = old_annotation_region.united(new_annotation_region)
+            if dirty.isValid():
+                self.update(dirty.intersected(self.rect()))
+            else:
+                self.update()
+        else:
+            self.update()
+
+    @staticmethod
+    def _selection_dirty_region(selection):
+        if not selection.isValid():
+            return QRect()
+        right_padding = max(24, 128 - selection.width())
+        return selection.adjusted(-24, -42, right_padding, 24)
+
+    def _active_draw_region(self):
+        if self._drag_mode == "annotate" and self._current is not None:
+            return annotation_bounds(self._current)
+        if self._drag_mode == "move_text" and self._moving_text is not None:
+            return annotation_bounds(self._moving_text)
+        return QRect()
+
+    def _selection_is_locked(self):
+        return bool(self._annotations) or self._text_editor is not None
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton:
@@ -405,15 +612,38 @@ class ScreenshotOverlay(QWidget):
             self.selection = QRect(self._pending_window)
             self._pending_window = QRect()
             self._hovered_window = QRect()
+        if self._drag_mode == "draw_pending":
+            annotation = self._annotation_at(event.position().toPoint())
+            if annotation is not None:
+                self._select_annotation(annotation)
+            else:
+                self._annotations.append(
+                    new_annotation(
+                        self._tool,
+                        self._drag_start,
+                        self._drag_start,
+                        self._color,
+                        self._width,
+                    )
+                )
+                self._renderer.retain_annotations(self._annotations)
+                self._invalidate_annotation_layer()
         if self._drag_mode == "annotate" and self._current:
             self._annotations.append(self._current)
             self._current = None
+            self._renderer.retain_annotations(self._annotations)
+            self._invalidate_annotation_layer()
+        if self._drag_mode == "move":
+            delta = self.selection.topLeft() - self._selection_start.topLeft()
+            translate_annotations(self._annotations, delta)
         if self.selection.width() >= 8 and self.selection.height() >= 8:
             self._position_toolbar()
             self.toolbar.show()
+            self._sync_selection_options()
         else:
             self.selection = QRect()
             self.toolbar.hide()
+            self.selection_options.hide()
         self._drag_mode = ""
         self._moving_text = None
         self._refresh_hover_cursor(event.position().toPoint())
@@ -434,13 +664,14 @@ class ScreenshotOverlay(QWidget):
             event.accept()
         elif event.key() == Qt.Key_Escape:
             self._cancel()
-        elif event.key() == Qt.Key_Space:
+        elif event.key() == Qt.Key_Space and not self._selection_is_locked():
             screen = self._screen_at(self._cursor_pos)
             if screen.isValid():
                 self.selection = screen
                 self._hovered_window = QRect()
                 self._position_toolbar()
                 self.toolbar.show()
+                self._sync_selection_options()
                 self.update()
         elif event.key() in (Qt.Key_Return, Qt.Key_Enter) and self.selection.isValid():
             self._copy_and_finish()
@@ -491,6 +722,7 @@ class ScreenshotOverlay(QWidget):
         self._color = QColor(color)
         if self._active_annotation is not None:
             self._active_annotation["color"] = QColor(self._color)
+            self._invalidate_annotation_layer()
             if self._text_editor is not None:
                 self._text_editor.setProperty("annotationColor", self._color)
             self.update()
@@ -551,6 +783,7 @@ class ScreenshotOverlay(QWidget):
         self._width = float(value)
         if self._active_annotation is not None:
             self._active_annotation["width"] = self._width
+            self._invalidate_annotation_layer()
             if self._text_editor is not None:
                 self._text_editor.setProperty("annotationWidth", self._width)
             self.update()
@@ -567,6 +800,7 @@ class ScreenshotOverlay(QWidget):
         ):
             self._active_annotation["font_size"] = self._font_size
             self._refresh_text_metrics(self._active_annotation)
+            self._invalidate_annotation_layer()
             self.update()
 
     def _set_font_family(self, family):
@@ -580,6 +814,7 @@ class ScreenshotOverlay(QWidget):
         ):
             self._active_annotation["font_family"] = self._font_family
             self._refresh_text_metrics(self._active_annotation)
+            self._invalidate_annotation_layer()
             self.update()
 
     def _refresh_cursor(self):
@@ -609,6 +844,7 @@ class ScreenshotOverlay(QWidget):
         if annotation is not None:
             self._editing_text_index = self._annotations.index(annotation)
             self._annotations.pop(self._editing_text_index)
+            self._invalidate_annotation_layer()
             self._active_annotation = annotation
             point = QPoint(annotation["start"])
             text = annotation["text"]
@@ -679,6 +915,7 @@ class ScreenshotOverlay(QWidget):
         desired.setY(min(max(desired.y(), self.selection.top()), max_y))
         annotation["start"] = desired
         annotation["end"] = QPoint(desired)
+        self._invalidate_annotation_layer()
 
     def _font_with_family(self, family):
         font = self.font()
@@ -730,6 +967,7 @@ class ScreenshotOverlay(QWidget):
             else:
                 self._annotations.append(annotation)
             self._active_annotation = annotation
+            self._invalidate_annotation_layer()
         else:
             self._active_annotation = None
         self._editing_text_index = -1
@@ -768,7 +1006,11 @@ class ScreenshotOverlay(QWidget):
     def _is_control_event_target(self, watched):
         if not isinstance(watched, QWidget):
             return False
-        return self.toolbar.is_control_event_target(watched)
+        return (
+            watched is self.selection_options
+            or self.selection_options.isAncestorOf(watched)
+            or self.toolbar.is_control_event_target(watched)
+        )
 
     def _install_input_lock(self):
         if self._input_lock_installed:
@@ -789,10 +1031,17 @@ class ScreenshotOverlay(QWidget):
     def _undo(self):
         if self._annotations:
             self._annotations.pop()
+            self._renderer.retain_annotations(self._annotations)
+            self._invalidate_annotation_layer()
             self.update()
 
     def _refresh_hover_cursor(self, point):
-        handle = hit_handle(self.selection, point) if self.selection.isValid() else ""
+        locked = self._selection_is_locked()
+        handle = (
+            hit_handle(self.selection, point)
+            if self.selection.isValid() and not locked
+            else ""
+        )
         cursor_map = {
             "tl": Qt.SizeFDiagCursor,
             "br": Qt.SizeFDiagCursor,
@@ -805,9 +1054,14 @@ class ScreenshotOverlay(QWidget):
         }
         if handle:
             self.setCursor(cursor_map[handle])
-        elif self._text_at(point) is not None or (
-            self.selection.contains(point) and not self._tool
-        ):
+        elif self._text_at(point) is not None:
+            self.setCursor(Qt.SizeAllCursor)
+        elif locked:
+            if self._tool:
+                self._refresh_cursor()
+            else:
+                self.setCursor(Qt.ArrowCursor)
+        elif self.selection.contains(point) and not self._tool:
             self.setCursor(Qt.SizeAllCursor)
         else:
             self._refresh_cursor()
@@ -833,18 +1087,43 @@ class ScreenshotOverlay(QWidget):
     def _render_selection(self):
         if not self.selection.isValid():
             return QPixmap()
-        result = QPixmap(self._selection_pixel_size())
+        capture = QPixmap(self._selection_pixel_size())
+        capture.setDevicePixelRatio(self._dpr)
+        capture.fill(Qt.transparent)
+        painter = QPainter(capture)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setClipPath(self._selection_path(local=True))
+        painter.drawPixmap(QRectF(QRect(QPoint(), self.selection.size())), self._desktop, QRectF(
+            self.selection.x() * self._dpr, self.selection.y() * self._dpr,
+            self.selection.width() * self._dpr, self.selection.height() * self._dpr))
+        painter.drawPixmap(QPoint(), self._committed_annotation_layer())
+        painter.end()
+
+        if not self._shadow_enabled:
+            return capture
+
+        padding = self.SHADOW_PADDING
+        logical_size = self.selection.size() + QSize(padding * 2, padding * 2)
+        result = QPixmap(
+            round(logical_size.width() * self._dpr),
+            round(logical_size.height() * self._dpr),
+        )
         result.setDevicePixelRatio(self._dpr)
         result.fill(Qt.transparent)
         painter = QPainter(result)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        painter.drawPixmap(QRectF(QRect(QPoint(), self.selection.size())), self._desktop, QRectF(
-            self.selection.x() * self._dpr, self.selection.y() * self._dpr,
-            self.selection.width() * self._dpr, self.selection.height() * self._dpr))
-        painter.translate(-self.selection.topLeft())
-        painter.setClipRect(self.selection)
-        for annotation in self._annotations:
-            self._paint_annotation(painter, annotation)
+        target = QRectF(
+            padding,
+            padding,
+            self.selection.width(),
+            self.selection.height(),
+        )
+        self._paint_soft_shadow(
+            painter,
+            target,
+            self._effective_corner_radius(target),
+        )
+        painter.drawPixmap(QPoint(padding, padding), capture)
         painter.end()
         return result
 
@@ -935,6 +1214,11 @@ class ScreenshotOverlay(QWidget):
             editor.deleteLater()
         self._current = None
         self._drag_mode = ""
+        self.selection_options.hide()
         self._remove_input_lock()
         self.hide()
         self.cancelled.emit()
+
+    def cancel(self) -> None:
+        """Cancel the active capture through the normal completion path."""
+        self._cancel()

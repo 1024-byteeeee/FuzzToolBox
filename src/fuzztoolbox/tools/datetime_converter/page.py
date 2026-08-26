@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.ui.style_loader import apply_style, clear_style
+from fuzztoolbox.ui.tool_runtime import ToolActivity
 
 from ...ui.components import configure_combo
 from .converter import convert_datetime, convert_timestamp, current_result
@@ -246,6 +247,15 @@ class DateTimeConverterPage(QWidget):
     def _manual_convert(self, *_args):
         self._stop_live_preview()
         self.convert()
+
+    def runtime_activity(self) -> ToolActivity:
+        if self.live_timer.isActive():
+            return ToolActivity.running("正在实时更新当前本地时间")
+        return ToolActivity()
+
+    def prepare_close(self, _on_ready) -> bool:
+        self.live_timer.stop()
+        return True
 
     def convert(self):
         self._stop_live_preview()

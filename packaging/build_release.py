@@ -32,6 +32,7 @@ LAZY_TOOL_MODULES = (
     "fuzztoolbox.tools.docker_compose_converter.page",
     "fuzztoolbox.tools.text_comparer.page",
     "fuzztoolbox.tools.text_statistics.page",
+    "fuzztoolbox.tools.batch_renamer.page",
     "fuzztoolbox.tools.lorem_ipsum.page",
     "fuzztoolbox.tools.ipv4_converter.page",
     "fuzztoolbox.tools.qr_generator.page",

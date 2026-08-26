@@ -73,12 +73,20 @@ class ScreenshotToolbar(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("screenshotToolbar")
+        self.setCursor(Qt.ArrowCursor)
         self._font_family = font.family()
         self._build_toolbar(tools, width, font_size)
         self._build_color_palette()
         self._build_width_panel(width)
         self._build_font_size_panel(font_size)
         self._build_font_panel(font)
+        for panel in (
+            self.color_palette,
+            self.width_panel,
+            self.font_size_panel,
+            self.font_panel,
+        ):
+            panel.setCursor(Qt.ArrowCursor)
         self.set_color(color)
         self.set_font_family(self._font_family, emit=False)
         self.resize(self.sizeHint().width(), self.HEIGHT)
