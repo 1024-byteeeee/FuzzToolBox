@@ -1,5 +1,6 @@
 import ctypes
 import math
+import sys
 import time
 import unittest
 from pathlib import Path
@@ -452,7 +453,14 @@ class ResultModelTests(unittest.TestCase):
         self.assertIn("background: transparent", combo.view().styleSheet())
         self.assertIn("border-radius: 8px", combo.view().styleSheet())
         self.assertIn("QListView::item:hover", combo.view().styleSheet())
-        self.assertIn("background: transparent", combo.view().viewport().styleSheet())
+        viewport_style = combo.view().viewport().styleSheet()
+        if sys.platform == "win32":
+            # On Windows the popup must be opaque; a translucent frameless
+            # popup renders transparent with only the item text visible.
+            self.assertNotIn("background: transparent", viewport_style)
+            self.assertIn("background:", viewport_style)
+        else:
+            self.assertIn("background: transparent", viewport_style)
         self.assertTrue(combo.view().window().property("fuzztoolboxPopupPrepared"))
         self.assertEqual(combo.view().window().objectName(), "comboPopupContainer")
         self.assertIn("QFrame#comboPopupContainer", combo.view().window().styleSheet())
