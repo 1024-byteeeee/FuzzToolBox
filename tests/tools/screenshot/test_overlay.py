@@ -1943,6 +1943,46 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         self.assertEqual(fast, regular)
 
+    def test_fast_pen_drag_keeps_the_stroke_continuous_on_retina_dpr(self):
+        self.overlay._dpr = 2.0
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        self.overlay._color = QColor("#ff0000")
+        self.overlay._width = 4
+        self.overlay._select_tool("pen")
+        press = Mock()
+        press.button.return_value = Qt.LeftButton
+        press.position.return_value = QPointF(40, 60)
+        self.overlay.mousePressEvent(press)
+        for x, y in [(260, 90), (500, 140), (760, 240), (760, 480)]:
+            move = Mock()
+            move.position.return_value = QPointF(x, y)
+            self.overlay.mouseMoveEvent(move)
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(760, 480)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay.toolbar.hide()
+        self.overlay.selection_options.hide()
+
+        points = self.overlay._annotations[-1]["points"]
+        self.assertGreater(len(points), 64)
+        image = self.overlay._committed_annotation_layer().toImage()
+        gaps = 0
+        for index in range(1, len(points)):
+            a, b = points[index - 1], points[index]
+            midpoint = QPoint((a.x() + b.x()) // 2, (a.y() + b.y()) // 2)
+            physical_x = round(midpoint.x() * self.overlay._dpr)
+            physical_y = round(midpoint.y() * self.overlay._dpr)
+            if (
+                0 <= physical_x < image.width()
+                and 0 <= physical_y < image.height()
+                and image.pixelColor(physical_x, physical_y).alpha() < 128
+            ):
+                gaps += 1
+        self.assertEqual(gaps, 0)
+
     def test_clicking_a_detected_window_selects_its_region(self):
         candidate = QRect(120, 80, 500, 360)
         self.overlay._window_candidates = [candidate]

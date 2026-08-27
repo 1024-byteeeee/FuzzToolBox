@@ -92,7 +92,9 @@ def append_brush_points(annotation: dict, point: QPoint) -> None:
     """Interpolate a brush movement so fast pointer motion has no gaps."""
     previous = annotation["points"][-1]
     distance = math.hypot(point.x() - previous.x(), point.y() - previous.y())
-    spacing = max(1.0, annotation["width"] * 0.7)
+    # Keep interpolated points denser than the stroke width so fast motion
+    # never leaves segments that renderers can bridge imperfectly.
+    spacing = max(1.0, annotation["width"] * 0.5)
     steps = max(1, math.ceil(distance / spacing))
     point_bounds = _brush_point_bounds(annotation)
     segment_chunks = _brush_segment_chunks(annotation)

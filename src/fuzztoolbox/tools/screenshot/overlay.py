@@ -766,9 +766,12 @@ class ScreenshotOverlay(QWidget):
             return QRect()
         padding = max(2, math.ceil(self._current["width"] / 2)) + 2
         dirty = dirty.adjusted(-padding, -padding, padding, padding)
+        # Start the painted path a couple of points before the newly added
+        # segments so neighbouring tiles share drawn pixels at their seam.
+        path_start = max(0, start - 2)
         path = QPainterPath()
-        path.moveTo(points[start - 1])
-        for index in range(start, len(points)):
+        path.moveTo(points[path_start])
+        for index in range(path_start + 1, len(points)):
             path.lineTo(points[index])
         pen = QPen(
             self._current["color"],
