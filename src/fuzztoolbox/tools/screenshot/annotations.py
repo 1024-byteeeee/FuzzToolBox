@@ -6,7 +6,60 @@ import math
 from collections.abc import Iterable
 
 from PySide6.QtCore import QPoint, QRect, QSize
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPolygon, QTransform
+
+_SEGMENT_CHUNK_SIZE = 128
+
+
+def _store_segment_chunks(annotation: dict, chunks: list[QRect]) -> None:
+    points = annotation.get("points", [])
+    annotation["_segment_chunk_bounds"] = chunks
+    annotation["_segment_chunk_count"] = len(points)
+    annotation["_segment_chunk_revision"] = annotation.get(
+        "_geometry_revision", 0
+    )
+    annotation["_segment_chunk_first"] = (
+        QPoint(points[0]) if points else QPoint()
+    )
+    annotation["_segment_chunk_last"] = (
+        QPoint(points[-1]) if points else QPoint()
+    )
+
+
+def _cached_segment_chunks(annotation: dict):
+    points = annotation.get("points", [])
+    chunks = annotation.get("_segment_chunk_bounds")
+    if not isinstance(chunks, list):
+        return None
+    if annotation.get("_segment_chunk_count") != len(points):
+        return None
+    if annotation.get("_segment_chunk_revision") != annotation.get(
+        "_geometry_revision", 0
+    ):
+        return None
+    first = QPoint(points[0]) if points else QPoint()
+    last = QPoint(points[-1]) if points else QPoint()
+    if annotation.get("_segment_chunk_first") != first:
+        return None
+    if annotation.get("_segment_chunk_last") != last:
+        return None
+    return chunks
+
+
+def _brush_segment_chunks(annotation: dict) -> list[QRect]:
+    points = annotation.get("points", [])
+    cached = _cached_segment_chunks(annotation)
+    if cached is not None:
+        return cached
+    chunks = []
+    for start in range(1, len(points), _SEGMENT_CHUNK_SIZE):
+        end = min(len(points), start + _SEGMENT_CHUNK_SIZE)
+        bounds = QRect(points[start - 1], points[start - 1])
+        for index in range(start, end):
+            bounds = bounds.united(QRect(points[index], points[index]))
+        chunks.append(bounds)
+    _store_segment_chunks(annotation, chunks)
+    return chunks
 
 
 def new_annotation(
@@ -30,6 +83,7 @@ def new_annotation(
         annotation["_geometry_revision"] = 0
         annotation["_point_bounds"] = QRect(start, start)
         annotation["_point_bounds_count"] = 1
+        _store_segment_chunks(annotation, [])
     annotation.update(extra)
     return annotation
 
@@ -41,6 +95,8 @@ def append_brush_points(annotation: dict, point: QPoint) -> None:
     spacing = max(1.0, annotation["width"] * 0.7)
     steps = max(1, math.ceil(distance / spacing))
     point_bounds = _brush_point_bounds(annotation)
+    segment_chunks = _brush_segment_chunks(annotation)
+    last_segment_point = previous
     for index in range(1, steps + 1):
         ratio = index / steps
         interpolated = QPoint(
@@ -49,9 +105,20 @@ def append_brush_points(annotation: dict, point: QPoint) -> None:
         )
         annotation["points"].append(interpolated)
         point_bounds = point_bounds.united(QRect(interpolated, interpolated))
+        segment_index = len(annotation["points"]) - 1
+        chunk_index = (segment_index - 1) // _SEGMENT_CHUNK_SIZE
+        segment_bounds = QRect(last_segment_point, interpolated).normalized()
+        if chunk_index == len(segment_chunks):
+            segment_chunks.append(segment_bounds)
+        else:
+            segment_chunks[chunk_index] = segment_chunks[chunk_index].united(
+                segment_bounds
+            )
+        last_segment_point = interpolated
     annotation["_geometry_revision"] = annotation.get("_geometry_revision", 0) + 1
     annotation["_point_bounds"] = point_bounds
     annotation["_point_bounds_count"] = len(annotation["points"])
+    _store_segment_chunks(annotation, segment_chunks)
 
 
 def _brush_point_bounds(annotation: dict) -> QRect:
@@ -65,7 +132,8 @@ def _brush_point_bounds(annotation: dict) -> QRect:
     ):
         return QRect(cached)
     bounds = QRect(points[0], points[0])
-    for point in points[1:]:
+    for index in range(1, len(points)):
+        point = points[index]
         bounds = bounds.united(QRect(point, point))
     annotation["_point_bounds"] = bounds
     annotation["_point_bounds_count"] = len(points)
@@ -82,6 +150,8 @@ def annotation_bounds(annotation: dict) -> QRect:
     kind = annotation["kind"]
     if kind == "text":
         bounds = text_rect(annotation)
+    elif kind == "fragment":
+        return QRect(annotation["start"], annotation["end"]).normalized()
     elif kind in ("pen", "mosaic", "eraser"):
         bounds = _brush_point_bounds(annotation)
     else:
@@ -134,11 +204,12 @@ def resize_annotation(annotation: dict, source: QRect, target: QRect) -> None:
     if not source.isValid() or not target.isValid():
         return
 
+    source_width = max(1, source.width() - 1)
+    source_height = max(1, source.height() - 1)
+    target_width = max(0, target.width() - 1)
+    target_height = max(0, target.height() - 1)
+
     def mapped(point: QPoint) -> QPoint:
-        source_width = max(1, source.width() - 1)
-        source_height = max(1, source.height() - 1)
-        target_width = max(0, target.width() - 1)
-        target_height = max(0, target.height() - 1)
         return QPoint(
             target.left()
             + round((point.x() - source.left()) * target_width / source_width),
@@ -146,13 +217,47 @@ def resize_annotation(annotation: dict, source: QRect, target: QRect) -> None:
             + round((point.y() - source.top()) * target_height / source_height),
         )
 
+    transform = QTransform(
+        target_width / source_width,
+        0.0,
+        0.0,
+        target_height / source_height,
+        target.left() - source.left() * target_width / source_width,
+        target.top() - source.top() * target_height / source_height,
+    )
     annotation["start"] = mapped(annotation["start"])
     annotation["end"] = mapped(annotation["end"])
     if "points" in annotation:
-        annotation["points"] = [mapped(point) for point in annotation["points"]]
-        annotation.pop("_point_bounds", None)
-        annotation["_point_bounds_count"] = 0
+        points = annotation["points"]
+        segment_chunks = _cached_segment_chunks(annotation)
+        if len(points) >= 128:
+            # QPolygon mapping runs in Qt's C++ implementation and avoids
+            # allocating one Python QPoint wrapper per stroke sample.
+            annotation["points"] = transform.map(QPolygon(points))
+            old_bounds = annotation.get("_point_bounds")
+            if isinstance(old_bounds, QRect) and old_bounds.isValid():
+                annotation["_point_bounds"] = QRect(
+                    transform.map(old_bounds.topLeft()),
+                    transform.map(old_bounds.bottomRight()),
+                ).normalized()
+            else:
+                annotation.pop("_point_bounds", None)
+            annotation["_point_bounds_count"] = len(annotation["points"])
+        else:
+            annotation["points"] = [mapped(point) for point in points]
+            annotation.pop("_point_bounds", None)
+            annotation["_point_bounds_count"] = 0
+        if annotation["points"]:
+            annotation["start"] = QPoint(annotation["points"][0])
+            annotation["end"] = QPoint(annotation["points"][-1])
         annotation["_geometry_revision"] = annotation.get("_geometry_revision", 0) + 1
+        if segment_chunks is None:
+            annotation.pop("_segment_chunk_bounds", None)
+        else:
+            mapped_chunks = [
+                transform.mapRect(bounds) for bounds in segment_chunks
+            ]
+            _store_segment_chunks(annotation, mapped_chunks)
     if annotation["kind"] == "text":
         annotation["size"] = QSize(target.width(), target.height())
         scale = min(target.width() / source.width(), target.height() / source.height())
@@ -165,6 +270,28 @@ def annotation_contains(annotation: dict, point: QPoint) -> bool:
     tolerance = max(6.0, float(annotation.get("width", 1)) + 3.0)
     if kind == "text":
         return text_rect(annotation).contains(point)
+    if kind == "fragment":
+        bounds = QRect(annotation["start"], annotation["end"]).normalized()
+        image = annotation["image"]
+        if not bounds.contains(point) or image.isNull():
+            return False
+        offset_x = point.x() - bounds.left()
+        offset_y = point.y() - bounds.top()
+        left = max(0, math.floor(offset_x * image.width() / bounds.width()))
+        right = min(
+            image.width() - 1,
+            math.ceil((offset_x + 1) * image.width() / bounds.width()) - 1,
+        )
+        top = max(0, math.floor(offset_y * image.height() / bounds.height()))
+        bottom = min(
+            image.height() - 1,
+            math.ceil((offset_y + 1) * image.height() / bounds.height()) - 1,
+        )
+        return any(
+            image.pixelColor(x, y).alpha() > 16
+            for y in range(top, bottom + 1)
+            for x in range(left, right + 1)
+        )
     if kind == "arrow":
         return (
             distance_to_segment(point, annotation["start"], annotation["end"])
@@ -212,10 +339,35 @@ def annotation_contains(annotation: dict, point: QPoint) -> bool:
                 math.hypot(point.x() - points[0].x(), point.y() - points[0].y())
                 <= tolerance
             )
-        return any(
-            distance_to_segment(point, start, end) <= tolerance
-            for start, end in zip(points, points[1:])
-        )
+        rounded_tolerance = math.ceil(tolerance)
+        if not _brush_point_bounds(annotation).adjusted(
+            -rounded_tolerance,
+            -rounded_tolerance,
+            rounded_tolerance,
+            rounded_tolerance,
+        ).contains(point):
+            return False
+        chunks = _brush_segment_chunks(annotation)
+        for chunk_index in range(len(chunks) - 1, -1, -1):
+            if not chunks[chunk_index].adjusted(
+                -rounded_tolerance,
+                -rounded_tolerance,
+                rounded_tolerance,
+                rounded_tolerance,
+            ).contains(point):
+                continue
+            first = chunk_index * _SEGMENT_CHUNK_SIZE + 1
+            last = min(
+                len(points) - 1,
+                (chunk_index + 1) * _SEGMENT_CHUNK_SIZE,
+            )
+            if any(
+                distance_to_segment(point, points[index - 1], points[index])
+                <= tolerance
+                for index in range(last, first - 1, -1)
+            ):
+                return True
+        return False
     return False
 
 
@@ -227,7 +379,14 @@ def translate_annotations(annotations: Iterable[dict], delta: QPoint) -> None:
         annotation["start"] += delta
         annotation["end"] += delta
         if "points" in annotation:
-            annotation["points"] = [point + delta for point in annotation["points"]]
+            points = annotation["points"]
+            segment_chunks = _cached_segment_chunks(annotation)
+            if len(points) >= 128:
+                annotation["points"] = QTransform(
+                    1.0, 0.0, 0.0, 1.0, delta.x(), delta.y()
+                ).map(QPolygon(points))
+            else:
+                annotation["points"] = [point + delta for point in points]
             cached = annotation.get("_point_bounds")
             if isinstance(cached, QRect):
                 annotation["_point_bounds"] = cached.translated(delta)
@@ -235,3 +394,10 @@ def translate_annotations(annotations: Iterable[dict], delta: QPoint) -> None:
             annotation["_geometry_revision"] = (
                 annotation.get("_geometry_revision", 0) + 1
             )
+            if segment_chunks is None:
+                annotation.pop("_segment_chunk_bounds", None)
+            else:
+                translated_chunks = [
+                    bounds.translated(delta) for bounds in segment_chunks
+                ]
+                _store_segment_chunks(annotation, translated_chunks)

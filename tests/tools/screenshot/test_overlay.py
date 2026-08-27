@@ -1,9 +1,20 @@
+import copy
+import math
 import platform
 import unittest
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QPainter, QPixmap, QWheelEvent
+from PySide6.QtGui import (
+    QColor,
+    QImage,
+    QKeyEvent,
+    QPainter,
+    QPen,
+    QPixmap,
+    QRegion,
+    QWheelEvent,
+)
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -14,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.tools.screenshot.annotations import (
+    annotation_bounds,
+    annotation_contains,
     append_brush_points,
     new_annotation,
 )
@@ -196,17 +209,857 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertGreater(len(annotation["points"]), 2)
         self.assertEqual(annotation["points"][-1], QPoint(120, 20))
 
+    def test_eraser_splits_a_pen_into_independent_fragments(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 6
+        )
+        append_brush_points(pen, QPoint(700, 160))
+        eraser = new_annotation(
+            "eraser", QPoint(360, 160), QPoint(360, 160), QColor(Qt.white), 6
+        )
+        append_brush_points(eraser, QPoint(440, 160))
+        self.overlay._annotations.append(pen)
+        self.overlay._current = eraser
+        self.overlay._drag_mode = "annotate"
+
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(440, 160)
+        self.overlay.mouseReleaseEvent(release)
+
+        fragments = self.overlay._annotations
+        self.assertEqual(len(fragments), 2)
+        self.assertTrue(all(item["kind"] == "fragment" for item in fragments))
+        self.assertTrue(annotation_contains(fragments[0], QPoint(100, 160)))
+        self.assertTrue(annotation_contains(fragments[1], QPoint(650, 160)))
+        self.assertFalse(any(annotation_contains(item, QPoint(400, 160)) for item in fragments))
+        self.assertEqual(
+            self.overlay._committed_annotation_layer().toImage().pixelColor(400, 160).alpha(),
+            0,
+        )
+        self.assertIsNone(self.overlay._annotation_at(QPoint(400, 160)))
+
+    def test_eraser_that_misses_visible_pixels_keeps_original_vector(self):
+        self.overlay.selection = QRect(0, 0, 160, 120)
+        rectangle = new_annotation(
+            "rect", QPoint(20, 20), QPoint(120, 90), QColor("#ff4d4f"), 4
+        )
+        eraser = new_annotation(
+            "eraser", QPoint(70, 55), QPoint(70, 55), QColor(Qt.transparent), 4
+        )
+
+        result = self.overlay._erase_annotation(rectangle, eraser)
+
+        self.assertEqual(result, [rectangle])
+        self.assertIs(result[0], rectangle)
+
+    def test_erased_mosaic_keeps_earlier_annotations_in_untouched_pixels(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#0055ff"))
+        pen = new_annotation(
+            "pen", QPoint(20, 45), QPoint(20, 45), QColor("#ff0000"), 20
+        )
+        append_brush_points(pen, QPoint(100, 45))
+        mosaic = new_annotation(
+            "mosaic", QPoint(20, 45), QPoint(20, 45), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(100, 45))
+        eraser = new_annotation(
+            "eraser", QPoint(85, 45), QPoint(85, 45), QColor(Qt.transparent), 4
+        )
+        self.overlay._annotations.extend((pen, mosaic))
+
+        fragments = self.overlay._erase_annotation(mosaic, eraser)
+        self.overlay._annotations = [pen, *fragments]
+        self.overlay._invalidate_annotation_layer()
+        result = self.overlay._render_selection().toImage()
+
+        self.assertGreater(result.pixelColor(30, 45).red(), 200)
+        self.assertLess(result.pixelColor(30, 45).blue(), 80)
+
+    def test_moving_an_erased_fragment_clears_its_original_pixels(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 6
+        )
+        append_brush_points(pen, QPoint(700, 160))
+        eraser = new_annotation(
+            "eraser", QPoint(360, 160), QPoint(360, 160), QColor(Qt.white), 6
+        )
+        append_brush_points(eraser, QPoint(440, 160))
+        self.overlay._annotations.append(pen)
+        self.overlay._erase_annotations(eraser)
+        fragment = min(self.overlay._annotations, key=lambda item: item["start"].x())
+        self.overlay._active_annotation = fragment
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(100, 160)
+        self.overlay._begin_element_move(fragment)
+
+        self.overlay._move_active_annotation(QPoint(100, 220))
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(100, 220)
+        with patch.object(self.overlay, "repaint") as repaint:
+            self.overlay.mouseReleaseEvent(release)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(100, 160).alpha(), 0)
+        self.assertGreater(layer.pixelColor(100, 220).alpha(), 0)
+        self.assertTrue(repaint.called)
+
+    def test_cached_move_preserves_original_annotation_z_order(self):
+        self.overlay.selection = QRect(0, 0, 300, 200)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        lower = new_annotation(
+            "pen", QPoint(40, 80), QPoint(40, 80), QColor("#ff0000"), 20
+        )
+        append_brush_points(lower, QPoint(100, 80))
+        upper = new_annotation(
+            "pen", QPoint(80, 80), QPoint(80, 80), QColor("#0000ff"), 20
+        )
+        append_brush_points(upper, QPoint(180, 80))
+        self.overlay._annotations.extend((lower, upper))
+        self.overlay._active_annotation = lower
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(60, 80)
+        self.overlay._begin_element_move(lower)
+        self.overlay._move_active_annotation(QPoint(100, 80))
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(100, 80)
+
+        self.overlay.mouseReleaseEvent(release)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(50, 80).alpha(), 0)
+        self.assertEqual(layer.pixelColor(110, 80), QColor("#0000ff"))
+
+    def test_live_cached_move_preserves_original_annotation_z_order(self):
+        self.overlay.selection = QRect(0, 0, 300, 200)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        lower = new_annotation(
+            "pen", QPoint(40, 80), QPoint(40, 80), QColor("#ff0000"), 20
+        )
+        append_brush_points(lower, QPoint(100, 80))
+        upper = new_annotation(
+            "pen", QPoint(80, 80), QPoint(80, 80), QColor("#0000ff"), 20
+        )
+        append_brush_points(upper, QPoint(180, 80))
+        self.overlay._annotations.extend((lower, upper))
+        self.overlay._active_annotation = lower
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(60, 80)
+        self.overlay._begin_element_move(lower)
+        self.overlay._move_active_annotation(QPoint(100, 80))
+
+        frame = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        frame.fill(Qt.transparent)
+        self.overlay.render(frame)
+
+        self.assertEqual(frame.pixelColor(110, 80), QColor("#0000ff"))
+
+    def test_live_cached_move_uses_active_annotation_identity_for_z_order(self):
+        self.overlay.selection = QRect(0, 0, 300, 200)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        lower = new_annotation(
+            "pen", QPoint(40, 80), QPoint(40, 80), QColor("#ff0000"), 20
+        )
+        append_brush_points(lower, QPoint(100, 80))
+        middle = new_annotation(
+            "pen", QPoint(40, 80), QPoint(40, 80), QColor("#0000ff"), 20
+        )
+        append_brush_points(middle, QPoint(100, 80))
+        active = copy.deepcopy(lower)
+        self.overlay._annotations.extend((lower, middle, active))
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(60, 80)
+        self.overlay._begin_element_move(active)
+        self.overlay._move_active_annotation(QPoint(100, 80))
+
+        frame = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        frame.fill(Qt.transparent)
+        self.overlay.render(frame)
+
+        self.assertEqual(frame.pixelColor(60, 80), QColor("#0000ff"))
+
+    def test_live_cached_move_feeds_upper_mosaic_from_the_moved_item(self):
+        self.overlay.resize(120, 90)
+        self.overlay.selection = QRect(0, 0, 120, 90)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#0055ff"))
+        lower = new_annotation(
+            "pen", QPoint(20, 20), QPoint(20, 20), QColor("#ff0000"), 20
+        )
+        append_brush_points(lower, QPoint(100, 20))
+        mosaic = new_annotation(
+            "mosaic", QPoint(20, 45), QPoint(20, 45), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(100, 45))
+        self.overlay._annotations.extend((lower, mosaic))
+        self.overlay._active_annotation = lower
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(60, 20)
+        self.overlay._begin_element_move(lower)
+        self.overlay._move_active_annotation(QPoint(60, 45))
+
+        frame = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        frame.fill(Qt.transparent)
+        self.overlay.render(frame)
+
+        center = frame.pixelColor(60, 45)
+        self.assertGreater(center.red(), center.blue())
+
+    def test_live_cached_move_keeps_disjoint_suffix_with_a_mosaic(self):
+        self.overlay.resize(180, 180)
+        self.overlay.selection = QRect(0, 0, 180, 180)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        active = new_annotation(
+            "pen", QPoint(20, 20), QPoint(20, 20), QColor("#ff0000"), 10
+        )
+        append_brush_points(active, QPoint(80, 20))
+        mosaic = new_annotation(
+            "mosaic", QPoint(20, 100), QPoint(20, 100), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(80, 100))
+        upper = new_annotation(
+            "pen", QPoint(20, 150), QPoint(20, 150), QColor("#00ff00"), 10
+        )
+        append_brush_points(upper, QPoint(80, 150))
+        self.overlay._annotations.extend((active, mosaic, upper))
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(40, 20)
+        self.overlay._begin_element_move(active)
+        self.overlay._move_active_annotation(QPoint(60, 20))
+
+        frame = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        frame.fill(Qt.transparent)
+        self.overlay.render(frame)
+
+        self.assertTrue(self.overlay._dynamic_drag_scene().isNull())
+        self.assertEqual(frame.pixelColor(50, 150), QColor("#00ff00"))
+
+    def test_mosaic_suffix_does_not_rerasterize_the_cached_active_pen(self):
+        self.overlay.resize(800, 500)
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        active = new_annotation(
+            "pen", QPoint(20, 40), QPoint(20, 40), QColor("#ff0000"), 4
+        )
+        active["points"] = [QPoint(index, 40) for index in range(20, 780)]
+        active["start"] = QPoint(active["points"][0])
+        active["end"] = QPoint(active["points"][-1])
+        mosaic = new_annotation(
+            "mosaic", QPoint(20, 100), QPoint(20, 100), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(100, 100))
+        self.overlay._annotations.extend((active, mosaic))
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(200, 40)
+
+        with patch.object(
+            self.overlay,
+            "_paint_annotation",
+            wraps=self.overlay._paint_annotation,
+        ) as paint_annotation:
+            self.overlay._begin_element_move(active)
+
+        active_calls = [
+            call
+            for call in paint_annotation.call_args_list
+            if len(call.args) >= 2 and call.args[1] is active
+        ]
+        self.assertEqual(len(active_calls), 1)
+
+    def test_mosaic_suffix_damage_is_included_in_pointer_update(self):
+        self.overlay.resize(320, 220)
+        self.overlay.selection = QRect(0, 0, 320, 220)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#0055ff"))
+        active = new_annotation(
+            "rect", QPoint(50, 50), QPoint(250, 150), QColor("#ff0000"), 4
+        )
+        mosaic = new_annotation(
+            "mosaic", QPoint(40, 50), QPoint(40, 50), QColor(Qt.black), 12
+        )
+        append_brush_points(mosaic, QPoint(280, 50))
+        self.overlay._annotations.extend((active, mosaic))
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(150, 50)
+        self.overlay._begin_element_move(active)
+        before = QImage(
+            self.overlay.size(), QImage.Format_ARGB32_Premultiplied
+        )
+        before.fill(Qt.transparent)
+        self.overlay.render(before)
+        move = Mock()
+        move.position.return_value = QPointF(150, 80)
+
+        with patch.object(self.overlay, "update") as update:
+            self.overlay.mouseMoveEvent(move)
+
+        dirty = QRegion(update.call_args.args[0])
+        after = QImage(
+            self.overlay.size(), QImage.Format_ARGB32_Premultiplied
+        )
+        after.fill(Qt.transparent)
+        self.overlay.render(after)
+        missed = []
+        for y in range(self.overlay.height()):
+            for x in range(self.overlay.width()):
+                if before.pixel(x, y) != after.pixel(x, y) and not dirty.contains(
+                    QPoint(x, y)
+                ):
+                    missed.append(QPoint(x, y))
+                    break
+            if missed:
+                break
+        self.assertEqual(missed, [])
+
+    def test_cached_move_restores_pen_pixels_that_started_outside_selection(self):
+        self.overlay.selection = QRect(0, 0, 300, 200)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(20, 0), QPoint(20, 0), QColor("#ff4d4f"), 20
+        )
+        append_brush_points(pen, QPoint(140, 0))
+        self.overlay._annotations.append(pen)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(80, 0)
+        self.overlay._begin_element_move(pen)
+        self.overlay._move_active_annotation(QPoint(80, 30))
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(80, 30)
+
+        self.overlay.mouseReleaseEvent(release)
+
+        committed = self.overlay._committed_annotation_layer().toImage()
+        self.overlay._invalidate_annotation_layer()
+        canonical = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(committed, canonical)
+        self.assertEqual(committed.pixelColor(80, 0).alpha(), 0)
+        self.assertGreater(committed.pixelColor(80, 22).alpha(), 0)
+
+    def test_fractional_dpr_cached_move_matches_canonical_render(self):
+        ratio = 1.25
+        self.overlay.resize(400, 300)
+        self.overlay.selection = QRect(17, 13, 300, 200)
+        self.overlay._dpr = ratio
+        self.overlay._desktop = QPixmap(
+            round(self.overlay.width() * ratio),
+            round(self.overlay.height() * ratio),
+        )
+        self.overlay._desktop.setDevicePixelRatio(ratio)
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(25, 40), QPoint(25, 40), QColor("#ff4d4f"), 7
+        )
+        append_brush_points(pen, QPoint(305, 190))
+        self.overlay._annotations.append(pen)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(100, 100)
+        self.overlay._begin_element_move(pen)
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        self.overlay._move_active_annotation(QPoint(101, 100))
+        release.position.return_value = QPointF(101, 100)
+
+        self.overlay.mouseReleaseEvent(release)
+
+        committed = self.overlay._committed_annotation_layer().toImage()
+        self.overlay._invalidate_annotation_layer()
+        canonical = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(committed, canonical)
+
+    def test_moving_mosaic_recomposes_old_and_new_pixels(self):
+        self.overlay.selection = QRect(0, 0, 300, 200)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#409eff"))
+        mosaic = new_annotation(
+            "mosaic", QPoint(80, 80), QPoint(80, 80), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(120, 80))
+        self.overlay._annotations.append(mosaic)
+        self.overlay._committed_annotation_layer()
+        self.overlay._active_annotation = mosaic
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(100, 80)
+        self.overlay._begin_element_move(mosaic)
+        move = Mock()
+        move.position.return_value = QPointF(100, 140)
+
+        self.overlay.mouseMoveEvent(move)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(100, 80).alpha(), 0)
+        self.assertGreater(layer.pixelColor(100, 140).alpha(), 0)
+
+    def test_overlapping_component_bounds_do_not_duplicate_fragment_pixels(self):
+        ratio = 2.0
+        self.overlay._dpr = ratio
+        image = QImage(200, 200, QImage.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(ratio)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setPen(QPen(QColor("#ff4d4f"), 3))
+        painter.drawLine(QPoint(10, 10), QPoint(10, 90))
+        painter.drawLine(QPoint(10, 90), QPoint(90, 90))
+        painter.drawLine(QPoint(90, 90), QPoint(90, 10))
+        painter.drawPoint(QPoint(50, 50))
+        painter.end()
+        components = self.overlay._image_components(image)
+        self.assertEqual(len(components), 2)
+        source = {"color": QColor("#ff4d4f"), "width": 3}
+        fragments = [
+            self.overlay._fragment_from_component(
+                image, QRect(0, 0, 100, 100), component, source
+            )
+            for component in components
+        ]
+
+        owners = []
+        for fragment in fragments:
+            local = QPoint(50, 50) - fragment["start"]
+            pixel = QPoint(round(local.x() * ratio), round(local.y() * ratio))
+            if (
+                fragment["image"].rect().contains(pixel)
+                and fragment["image"].pixelColor(pixel).alpha() > 0
+            ):
+                owners.append(fragment)
+
+        self.assertEqual(len(owners), 1)
+
+        self.overlay.selection = QRect(0, 0, 100, 100)
+        self.overlay._desktop = QPixmap(
+            round(self.overlay.width() * ratio),
+            round(self.overlay.height() * ratio),
+        )
+        self.overlay._desktop.setDevicePixelRatio(ratio)
+        self.overlay._desktop.fill(QColor("#202124"))
+        self.overlay._annotations = fragments
+        self.overlay._active_annotation = owners[0]
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(50, 50)
+        self.overlay._begin_element_move(owners[0])
+        self.overlay._move_active_annotation(QPoint(50, 70))
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(50, 70)
+        self.overlay.mouseReleaseEvent(release)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(100, 100).alpha(), 0)
+        self.assertGreater(layer.pixelColor(100, 140).alpha(), 0)
+
+    def test_drag_preview_dirty_region_covers_every_changed_pixel(self):
+        ratio = 2.0
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._dpr = ratio
+        self.overlay._desktop = QPixmap(
+            round(self.overlay.width() * ratio),
+            round(self.overlay.height() * ratio),
+        )
+        self.overlay._desktop.setDevicePixelRatio(ratio)
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 200), QPoint(40, 200), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 200))
+        self.overlay._annotations.append(pen)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(200, 200)
+        self.overlay._begin_element_move(pen)
+
+        before = QImage(
+            round(self.overlay.width() * ratio),
+            round(self.overlay.height() * ratio),
+            QImage.Format_ARGB32_Premultiplied,
+        )
+        before.setDevicePixelRatio(ratio)
+        before.fill(Qt.transparent)
+        self.overlay.render(before)
+        old_region = self.overlay._active_preview_region()
+
+        self.overlay._move_active_annotation(QPoint(237, 229))
+        after = QImage(
+            round(self.overlay.width() * ratio),
+            round(self.overlay.height() * ratio),
+            QImage.Format_ARGB32_Premultiplied,
+        )
+        after.setDevicePixelRatio(ratio)
+        after.fill(Qt.transparent)
+        self.overlay.render(after)
+        dirty = old_region.united(self.overlay._active_preview_region())
+
+        missed = []
+        for y in range(before.height()):
+            for x in range(before.width()):
+                if before.pixel(x, y) != after.pixel(x, y) and not dirty.contains(
+                    QPoint(math.floor(x / ratio), math.floor(y / ratio))
+                ):
+                    missed.append(QPoint(x, y))
+                    if len(missed) == 5:
+                        break
+            if len(missed) == 5:
+                break
+
+        self.assertEqual(missed, [])
+
+    def test_starting_a_new_selection_repaints_the_old_frame_immediately(self):
+        self.overlay.selection = QRect(100, 100, 300, 200)
+        press = Mock()
+        press.button.return_value = Qt.LeftButton
+        press.position.return_value = QPointF(700, 450)
+
+        with patch.object(self.overlay, "repaint") as repaint:
+            self.overlay.mousePressEvent(press)
+
+        self.assertEqual(self.overlay._drag_mode, "select")
+        self.assertEqual(self.overlay.selection.topLeft(), QPoint(700, 450))
+        self.assertTrue(
+            any(call.args and call.args[0] == self.overlay.rect() for call in repaint.call_args_list)
+        )
+
+    def test_dragging_outside_an_annotated_selection_starts_a_clean_selection(self):
+        self.overlay.selection = QRect(100, 100, 300, 200)
+        annotation = new_annotation(
+            "rect", QPoint(140, 140), QPoint(260, 220), QColor("#ff4d4f"), 4
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._active_annotation = annotation
+        press = Mock()
+        press.button.return_value = Qt.LeftButton
+        press.position.return_value = QPointF(700, 450)
+
+        self.overlay.mousePressEvent(press)
+
+        self.assertEqual(self.overlay._drag_mode, "select")
+        self.assertEqual(self.overlay._annotations, [])
+        self.assertIsNone(self.overlay._active_annotation)
+        self.assertEqual(self.overlay.selection, QRect(QPoint(700, 450), QPoint(700, 450)))
+
+    def test_first_selection_drag_clears_the_previous_magnifier_pixels(self):
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        self.overlay._cursor_pos = QPoint(650, 450)
+        magnifier = self.overlay._magnifier_rect(self.overlay._cursor_pos).adjusted(
+            -3, -3, 3, 3
+        )
+        before = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        before.fill(Qt.transparent)
+        self.overlay.render(before)
+        press = Mock()
+        press.button.return_value = Qt.LeftButton
+        press.position.return_value = QPointF(650, 450)
+        self.overlay.mousePressEvent(press)
+        move = Mock()
+        move.position.return_value = QPointF(300, 200)
+
+        with patch.object(self.overlay, "update") as update:
+            self.overlay.mouseMoveEvent(move)
+
+        after = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        after.fill(Qt.transparent)
+        self.overlay.render(after)
+        dirty = QRegion(update.call_args.args[0])
+        missed = []
+        for y in range(magnifier.top(), magnifier.bottom() + 1):
+            for x in range(magnifier.left(), magnifier.right() + 1):
+                if before.pixel(x, y) != after.pixel(x, y) and not dirty.contains(
+                    QPoint(x, y)
+                ):
+                    missed.append(QPoint(x, y))
+                    if len(missed) == 5:
+                        break
+            if len(missed) == 5:
+                break
+
+        self.assertEqual(missed, [])
+
+    def test_active_pen_extends_its_cached_layer_only_for_new_segments(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(600, 160))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        cached_count = self.overlay._current_stroke_point_count
+
+        append_brush_points(pen, QPoint(700, 160))
+        dirty = self.overlay._extend_current_stroke_cache()
+
+        self.assertTrue(self.overlay._current_stroke_tiles)
+        self.assertEqual(self.overlay._current_stroke_point_count, len(pen["points"]))
+        self.assertGreater(self.overlay._current_stroke_point_count, cached_count)
+        self.assertLess(dirty.width(), annotation_bounds(pen).width())
+
+    def test_finished_pen_reuses_incremental_tiles_for_first_drag(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 300))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(700, 300)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 220)
+
+        with patch.object(
+            self.overlay,
+            "_render_drag_preview_layer",
+            wraps=self.overlay._render_drag_preview_layer,
+        ) as render_preview:
+            self.overlay._begin_element_move(pen)
+
+        self.assertFalse(render_preview.called)
+        self.assertTrue(self.overlay._drag_preview_tiles)
+
+    def test_selecting_cached_pen_keeps_cache_when_toolbar_width_differs(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 300))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(700, 300)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay._active_annotation = None
+        self.overlay.toolbar.set_width(10)
+
+        self.overlay._select_annotation(pen)
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 220)
+        with patch.object(
+            self.overlay,
+            "_render_drag_preview_layer",
+            wraps=self.overlay._render_drag_preview_layer,
+        ) as render_preview:
+            self.overlay._begin_element_move(pen)
+
+        self.assertFalse(render_preview.called)
+
+    def test_large_pen_preview_does_not_scan_its_full_alpha_mask(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        pen["points"] = [
+            QPoint(40 + index % 700, 100 + (index * 37) % 300)
+            for index in range(20_000)
+        ]
+        pen["start"] = QPoint(pen["points"][0])
+        pen["end"] = QPoint(pen["points"][-1])
+        self.overlay._annotations.append(pen)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 220)
+
+        with patch.object(self.overlay, "_raster_tile_rects") as alpha_scan:
+            self.overlay._begin_element_move(pen)
+
+        alpha_scan.assert_not_called()
+        self.assertTrue(self.overlay._drag_preview_tiles)
+
+    def test_moved_pen_keeps_its_raster_preview_at_the_new_geometry(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 160))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(700, 160)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 160)
+        self.overlay._begin_element_move(pen)
+        self.overlay._drag_preview_offset = QPoint(0, 80)
+        release.position.return_value = QPointF(300, 240)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 240)
+
+        with patch.object(
+            self.overlay,
+            "_render_drag_preview_layer",
+            wraps=self.overlay._render_drag_preview_layer,
+        ) as render_preview:
+            self.overlay._begin_element_move(pen)
+
+        self.assertFalse(render_preview.called)
+        self.assertEqual(self.overlay._drag_preview_bounds.center().y(), 240)
+
+    def test_resizing_finished_pen_keeps_its_configured_stroke_width(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(80, 140), QPoint(80, 140), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(680, 140))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(680, 140)
+        self.overlay.mouseReleaseEvent(release)
+
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "resize_element"
+        self.overlay._handle = "bottom_right"
+        self.overlay._drag_start = self.overlay._editable_annotation_bounds().bottomRight()
+        self.overlay._begin_element_resize(pen)
+        source = QRect(self.overlay._element_bounds_start)
+        target = source.adjusted(-20, -30, 80, 30)
+        self.overlay._resize_preview_bounds = target
+        release.position.return_value = QPointF(target.bottomRight())
+
+        self.overlay.mouseReleaseEvent(release)
+
+        image = self.overlay._committed_annotation_layer().toImage()
+        rows = [
+            y
+            for y in range(image.height())
+            if any(image.pixelColor(x, y).alpha() for x in range(image.width()))
+        ]
+        self.assertLessEqual(max(rows) - min(rows) + 1, pen["width"] + 3)
+
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = target.center()
+        with patch.object(
+            self.overlay,
+            "_render_drag_preview_layer",
+            wraps=self.overlay._render_drag_preview_layer,
+        ) as render_preview:
+            self.overlay._begin_element_move(pen)
+        self.assertFalse(render_preview.called)
+
+    def test_resized_pen_cache_does_not_capture_other_annotations_in_its_tiles(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        stable = new_annotation(
+            "rect", QPoint(100, 100), QPoint(150, 150), QColor("#409eff"), 4
+        )
+        self.overlay._annotations.append(stable)
+        pen = new_annotation(
+            "pen", QPoint(40, 200), QPoint(40, 200), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 200))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(700, 200)
+        self.overlay.mouseReleaseEvent(release)
+
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "resize_element"
+        self.overlay._handle = "r"
+        self.overlay._drag_start = self.overlay._editable_annotation_bounds().center()
+        self.overlay._begin_element_resize(pen)
+        self.overlay._resize_preview_bounds.adjust(0, 0, -80, 0)
+        self.overlay.mouseReleaseEvent(release)
+
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 200)
+        self.overlay._begin_element_move(pen)
+        self.overlay._drag_preview_offset = QPoint(0, 100)
+        self.overlay.mouseReleaseEvent(release)
+
+        layer = self.overlay._committed_annotation_layer().toImage()
+        self.assertEqual(layer.pixelColor(100, 125), QColor("#409eff"))
+        self.assertEqual(layer.pixelColor(100, 225).alpha(), 0)
+
+    def test_long_pen_resize_commits_geometry_only_on_release(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 4
+        )
+        append_brush_points(pen, QPoint(700, 300))
+        self.overlay._annotations.append(pen)
+        self.overlay._active_annotation = pen
+        original_points = pen["points"]
+        original_revision = pen["_geometry_revision"]
+        handle = self.overlay._editable_annotation_bounds().bottomRight()
+
+        QTest.mousePress(self.overlay, Qt.LeftButton, pos=handle)
+        QTest.mouseMove(self.overlay, handle + QPoint(-100, 80))
+
+        self.assertEqual(self.overlay._drag_mode, "resize_element")
+        self.assertIs(pen["points"], original_points)
+        self.assertEqual(pen["_geometry_revision"], original_revision)
+
+        QTest.mouseRelease(
+            self.overlay, Qt.LeftButton, pos=handle + QPoint(-100, 80)
+        )
+        self.assertEqual(pen["_geometry_revision"], original_revision + 1)
+
     def test_mosaic_uses_a_hollow_brush_cursor(self):
         self.overlay._select_tool("mosaic")
 
         self.assertFalse(self.overlay.cursor().pixmap().isNull())
 
     def test_width_slider_and_number_input_stay_synchronized(self):
-        self.overlay.toolbar.width_slider.setValue(170)
+        self.overlay.toolbar.width_slider.setValue(150)
 
-        self.assertEqual(self.overlay.toolbar.width_spin.value(), 17)
-        self.assertEqual(self.overlay._width, 17)
-        self.assertEqual(self.overlay.toolbar.width_button.text(), "粗细 17")
+        self.assertEqual(self.overlay.toolbar.width_spin.value(), 15)
+        self.assertEqual(self.overlay._width, 15)
+        self.assertEqual(self.overlay.toolbar.width_button.text(), "粗细 15")
+        self.assertEqual(self.overlay.toolbar.width_spin.maximum(), 15)
 
     def test_font_size_has_an_independent_slider_and_number_input(self):
         self.overlay.toolbar.font_size_slider.setValue(365)
@@ -770,6 +1623,98 @@ class ScreenshotOverlayTests(unittest.TestCase):
             handle_rect = QRect(point.x() - 4, point.y() - 4, 8, 8)
             self.assertTrue(dirty.contains(handle_rect))
 
+    def test_resized_preview_dirty_region_covers_every_changed_pixel(self):
+        self.overlay.selection = QRect(20, 20, 800, 540)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        annotation = new_annotation(
+            "rect", QPoint(100, 100), QPoint(200, 200), QColor("#ff4d4f"), 4
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._active_annotation = annotation
+        self.overlay._drag_mode = "resize_element"
+        self.overlay._handle = "br"
+        self.overlay._begin_element_resize(annotation)
+        before = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        before.fill(Qt.transparent)
+        self.overlay.render(before)
+        old_region = self.overlay._active_preview_region()
+
+        self.overlay._resize_preview_bounds = QRect(100, 100, 401, 401)
+        after = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        after.fill(Qt.transparent)
+        self.overlay.render(after)
+        dirty = old_region.united(self.overlay._active_preview_region())
+
+        missed = []
+        for y in range(before.height()):
+            for x in range(before.width()):
+                if before.pixel(x, y) != after.pixel(x, y) and not dirty.contains(
+                    QPoint(x, y)
+                ):
+                    missed.append(QPoint(x, y))
+                    if len(missed) == 5:
+                        break
+            if len(missed) == 5:
+                break
+        self.assertEqual(missed, [])
+
+    def test_large_rectangle_preview_repaints_only_its_outline(self):
+        self.overlay.resize(1920, 1080)
+        self.overlay.selection = QRect(0, 0, 1920, 1080)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        rectangle = new_annotation(
+            "rect", QPoint(10, 10), QPoint(1900, 1060), QColor("#ff4d4f"), 4
+        )
+        self.overlay._annotations.append(rectangle)
+        self.overlay._active_annotation = rectangle
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(10, 10)
+
+        self.overlay._begin_element_move(rectangle)
+
+        region = self.overlay._active_preview_region()
+        dirty_area = sum(rect.width() * rect.height() for rect in region)
+        self.assertLess(dirty_area, self.overlay.width() * self.overlay.height() // 4)
+
+    def test_flat_ellipse_resize_dirty_region_covers_every_changed_pixel(self):
+        self.overlay.resize(900, 600)
+        self.overlay.selection = QRect(0, 0, 900, 600)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        ellipse = new_annotation(
+            "ellipse", QPoint(50, 250), QPoint(850, 270), QColor("#ff4d4f"), 4
+        )
+        self.overlay._annotations.append(ellipse)
+        self.overlay._active_annotation = ellipse
+        self.overlay._drag_mode = "resize_element"
+        self.overlay._handle = "b"
+        self.overlay._begin_element_resize(ellipse)
+        before = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        before.fill(Qt.transparent)
+        self.overlay.render(before)
+        old_region = self.overlay._active_preview_region()
+
+        self.overlay._resize_preview_bounds = QRect(50, 240, 801, 61)
+        after = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        after.fill(Qt.transparent)
+        self.overlay.render(after)
+        dirty = old_region.united(self.overlay._active_preview_region())
+
+        missed = []
+        for y in range(before.height()):
+            for x in range(before.width()):
+                if before.pixel(x, y) != after.pixel(x, y) and not dirty.contains(
+                    QPoint(x, y)
+                ):
+                    missed.append(QPoint(x, y))
+                    if len(missed) == 5:
+                        break
+            if len(missed) == 5:
+                break
+        self.assertEqual(missed, [])
+
     def test_element_edit_recomposes_only_the_affected_annotation_region(self):
         self.overlay.resize(900, 600)
         self.overlay.selection = QRect(20, 20, 840, 540)
@@ -813,6 +1758,89 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertEqual(layer.pixelColor(115, 500).alpha(), 0)
         self.assertGreater(layer.pixelColor(215, 500).alpha(), 0)
         self.assertLess(paint_annotation.call_count, 20)
+
+    def test_vector_drag_previews_without_rebuilding_a_long_pen(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        annotation = new_annotation(
+            "pen", QPoint(40, 80), QPoint(40, 80), QColor("#ff4d4f"), 4
+        )
+        annotation["points"] = [QPoint(40 + index, 80) for index in range(600)]
+        annotation["start"] = QPoint(annotation["points"][0])
+        annotation["end"] = QPoint(annotation["points"][-1])
+        annotation["_point_bounds"] = QRect(
+            annotation["points"][0], annotation["points"][-1]
+        ).normalized()
+        annotation["_point_bounds_count"] = len(annotation["points"])
+        self.overlay._annotations.append(annotation)
+        self.overlay._committed_annotation_layer()
+        self.overlay._active_annotation = annotation
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(180, 80)
+        self.overlay._begin_element_move(annotation)
+        original_points = annotation["points"]
+        original_revision = annotation["_geometry_revision"]
+
+        self.overlay._move_active_annotation(QPoint(220, 100))
+
+        self.assertIs(annotation["points"], original_points)
+        self.assertEqual(annotation["_geometry_revision"], original_revision)
+        self.assertEqual(self.overlay._drag_preview_offset, QPoint(40, 20))
+        self.assertFalse(self.overlay._drag_base_layer.isNull())
+        self.assertTrue(self.overlay._drag_preview_tiles)
+        self.assertFalse(self.overlay._active_preview_region().isEmpty())
+
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(220, 100)
+        self.overlay.mouseReleaseEvent(release)
+
+        self.assertEqual(annotation["start"], QPoint(80, 100))
+        self.assertEqual(annotation["_geometry_revision"], original_revision + 1)
+        self.assertIsNone(self.overlay._drag_preview_annotation)
+        self.assertTrue(self.overlay._drag_preview_layer.isNull())
+        self.assertEqual(self.overlay._drag_preview_tiles, [])
+        self.assertTrue(self.overlay._drag_base_layer.isNull())
+
+        with patch.object(self.overlay, "_paint_annotation") as paint_annotation:
+            self.overlay._committed_annotation_layer()
+        self.assertFalse(paint_annotation.called)
+
+    def test_fast_drag_scene_matches_the_regular_composition_pixel_for_pixel(self):
+        self.overlay.selection = QRect(40, 40, 760, 480)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(80, 180), QPoint(80, 180), QColor("#ff4d4f"), 6
+        )
+        append_brush_points(pen, QPoint(700, 300))
+        self.overlay._current = pen
+        self.overlay._drag_mode = "annotate"
+        self.overlay._begin_current_stroke_cache()
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(700, 300)
+        self.overlay.mouseReleaseEvent(release)
+        self.overlay.toolbar.hide()
+        self.overlay.selection_options.hide()
+        self.overlay._active_annotation = pen
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(300, 220)
+        self.overlay._begin_element_move(pen)
+        self.overlay._drag_preview_offset = QPoint(30, 20)
+
+        fast = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        fast.fill(Qt.transparent)
+        self.overlay.render(fast)
+        scene = QPixmap(self.overlay._drag_scene_layer)
+        self.overlay._drag_scene_layer = QPixmap()
+        regular = QImage(self.overlay.size(), QImage.Format_ARGB32_Premultiplied)
+        regular.fill(Qt.transparent)
+        self.overlay.render(regular)
+        self.overlay._drag_scene_layer = scene
+
+        self.assertEqual(fast, regular)
 
     def test_clicking_a_detected_window_selects_its_region(self):
         candidate = QRect(120, 80, 500, 360)

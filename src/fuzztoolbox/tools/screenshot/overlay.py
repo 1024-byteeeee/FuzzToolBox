@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import platform
 from datetime import datetime
 from pathlib import Path
@@ -18,16 +19,20 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QBitmap,
     QColor,
     QCursor,
     QFontMetrics,
     QGuiApplication,
+    QImage,
     QKeySequence,
     QPainter,
     QPainterPath,
     QPen,
     QPixmap,
+    QRegion,
     QShortcut,
+    QTransform,
 )
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -89,6 +94,7 @@ class ScreenshotOverlay(QWidget):
     SHADOW_PADDING = 18
     SHADOW_OFFSET_Y = 3
     SHADOW_BLUR_RADIUS = 14
+    RASTER_TILE_SIZE = 256
     def __init__(self, parent=None, *, include_app_window=False):
         super().__init__(parent)
         self._include_app_window = include_app_window
@@ -118,6 +124,10 @@ class ScreenshotOverlay(QWidget):
         self._annotation_layer_dirty = True
         self._annotation_composite_cache = QPixmap()
         self._annotation_composite_key = None
+        self._current_stroke_tiles = None
+        self._current_stroke_point_count = 0
+        self._current_stroke_dirty = QRect()
+        self._pen_preview_cache = None
         self._current = None
         self._tool = ""
         self._color_index = 0
@@ -132,6 +142,19 @@ class ScreenshotOverlay(QWidget):
         self._active_annotation = None
         self._element_start = None
         self._element_bounds_start = QRect()
+        self._drag_preview_annotation = None
+        self._drag_preview_offset = QPoint()
+        self._drag_preview_region = None
+        self._drag_preview_bounds = QRect()
+        self._resize_preview_bounds = QRect()
+        self._drag_preview_layer = QPixmap()
+        self._drag_preview_tiles = []
+        self._drag_base_layer = QPixmap()
+        self._drag_scene_layer = QPixmap()
+        self._drag_foreground_layer = QPixmap()
+        self._drag_suffix_annotations = []
+        self._drag_dynamic_scene_layer = QPixmap()
+        self._drag_dynamic_scene_key = None
         self._editing_text_index = -1
         self._moving_text = None
         self._moving_text_start = QPoint()
@@ -188,6 +211,7 @@ class ScreenshotOverlay(QWidget):
         self._corner_radius = 0
         self._shadow_enabled = False
         self.selection_options.hide()
+        self._discard_pen_preview_cache()
         self._invalidate_annotation_layer()
         self._renderer.update_context(
             self._desktop,
@@ -236,8 +260,23 @@ class ScreenshotOverlay(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
+        fast_drag_scene = (
+            self.selection.isValid()
+            and self.selection.width() > 1
+            and self._has_drag_preview()
+            and not self._drag_scene_layer.isNull()
+            and self._corner_radius == 0
+            and not self._shadow_enabled
+        )
+        painter.save()
+        if fast_drag_scene:
+            painter.setClipRegion(
+                event.region().subtracted(QRegion(self.selection)),
+                Qt.IntersectClip,
+            )
         painter.drawPixmap(QPoint(), self._desktop)
         painter.fillRect(self.rect(), QColor(0, 0, 0, 112))
+        painter.restore()
         if self.selection.isValid() and self.selection.width() > 1:
             selection_path = self._selection_path()
             if self._shadow_enabled:
@@ -247,21 +286,44 @@ class ScreenshotOverlay(QWidget):
                     self._effective_corner_radius(QRectF(self.selection)),
                 )
             painter.save()
-            painter.setClipPath(selection_path)
-            painter.drawPixmap(QRectF(self.selection), self._desktop, QRectF(
-                self.selection.x() * self._dpr,
-                self.selection.y() * self._dpr,
-                self.selection.width() * self._dpr,
-                self.selection.height() * self._dpr,
-            ))
-            painter.drawPixmap(
-                self.selection.topLeft(),
-                self._committed_annotation_layer(),
-            )
-            if self._current and annotation_bounds(self._current).intersects(
-                event.rect()
+            # Re-apply the paint-event region explicitly before the selection
+            # path. QPainter's path clipping otherwise expands a fragmented
+            # QRegion to its bounding rectangle on the widget paint device.
+            painter.setClipRegion(event.region(), Qt.IntersectClip)
+            painter.setClipPath(selection_path, Qt.IntersectClip)
+            if self._has_drag_preview():
+                if not fast_drag_scene:
+                    self._paint_selection_desktop(painter)
+                dynamic_scene = self._dynamic_drag_scene()
+                scene = (
+                    dynamic_scene
+                    if not dynamic_scene.isNull()
+                    else (
+                        self._drag_scene_layer
+                        if not self._drag_scene_layer.isNull()
+                        else self._drag_base_layer
+                    )
+                )
+                painter.drawPixmap(self.selection.topLeft(), scene)
+                if dynamic_scene.isNull():
+                    self._paint_drag_preview(painter, event.region())
+                    if not self._drag_foreground_layer.isNull():
+                        painter.drawPixmap(
+                            self.selection.topLeft(), self._drag_foreground_layer
+                        )
+            else:
+                self._paint_selection_desktop(painter)
+                painter.drawPixmap(
+                    self.selection.topLeft(), self._committed_annotation_layer()
+                )
+            if (
+                not self._has_drag_preview()
+                and self._current
+                and annotation_bounds(self._current).intersects(event.rect())
             ):
-                if self._current["kind"] == "mosaic":
+                if self._has_current_stroke_cache():
+                    self._paint_current_stroke(painter, event.region())
+                elif self._current["kind"] == "mosaic":
                     self._paint_annotation(
                         painter,
                         self._current,
@@ -309,8 +371,204 @@ class ScreenshotOverlay(QWidget):
                 painter.drawRect(self._hovered_window.adjusted(1, 1, -1, -1))
             self._paint_magnifier(painter)
 
+    def _paint_selection_desktop(self, painter):
+        painter.drawPixmap(
+            QRectF(self.selection),
+            self._desktop,
+            QRectF(
+                self.selection.x() * self._dpr,
+                self.selection.y() * self._dpr,
+                self.selection.width() * self._dpr,
+                self.selection.height() * self._dpr,
+            ),
+        )
+
     def _paint_annotation(self, painter, annotation, **options):
         self._annotation_renderer().paint(painter, annotation, **options)
+
+    def _paint_drag_preview(self, painter, exposed):
+        """Blit cached tiles without rebuilding the element's vector path."""
+        if self._drag_mode == "resize_element" and self._resize_preview_bounds.isValid():
+            transform = self._resize_preview_transform()
+            if transform is None:
+                return
+            painter.save()
+            painter.setTransform(transform, True)
+            for bounds, tile in self._drag_preview_tiles:
+                painter.drawPixmap(bounds.topLeft(), tile)
+            painter.restore()
+            return
+        for bounds, tile in self._drag_preview_tiles:
+            target = bounds.translated(self._drag_preview_offset)
+            if exposed.intersects(target):
+                painter.drawPixmap(target.topLeft(), tile)
+
+    def _paint_current_stroke(self, painter, exposed):
+        """Blit only exposed tiles of the pen stroke in progress."""
+        for bounds, tile in (self._current_stroke_tiles or {}).values():
+            if exposed.intersects(bounds):
+                painter.drawPixmap(bounds.topLeft(), tile)
+
+    def _dynamic_drag_scene(self):
+        """Compose a suffix containing mosaic against the moving cached item."""
+        if (
+            not self._drag_suffix_annotations
+            or self._drag_scene_layer.isNull()
+            or not self._drag_intersects_suffix_mosaic()
+        ):
+            return QPixmap()
+        target = self._resize_preview_bounds
+        key = (
+            self._drag_mode,
+            self._drag_preview_offset.x(),
+            self._drag_preview_offset.y(),
+            target.x(),
+            target.y(),
+            target.width(),
+            target.height(),
+        )
+        if (
+            self._drag_dynamic_scene_key == key
+            and not self._drag_dynamic_scene_layer.isNull()
+        ):
+            return self._drag_dynamic_scene_layer
+        layer = QPixmap(self._drag_scene_layer)
+        painter = QPainter(layer)
+        self._prepare_annotation_layer_painter(painter)
+        self._paint_drag_preview(painter, QRegion(self.selection))
+        painter.end()
+        for annotation in self._drag_suffix_annotations:
+            source = None
+            source_rect = None
+            if annotation["kind"] == "mosaic":
+                source, source_rect = self._mosaic_source_crop(
+                    QPixmap(layer), annotation
+                )
+            painter = QPainter(layer)
+            self._prepare_annotation_layer_painter(painter)
+            if annotation["kind"] == "mosaic":
+                self._paint_annotation(
+                    painter,
+                    annotation,
+                    mosaic_source=source,
+                    mosaic_source_rect=source_rect,
+                )
+            else:
+                self._paint_annotation(painter, annotation)
+            painter.end()
+        self._drag_dynamic_scene_layer = layer
+        self._drag_dynamic_scene_key = key
+        return self._drag_dynamic_scene_layer
+
+    def _drag_intersects_suffix_mosaic(self):
+        return not self._drag_dependent_suffix_region().isEmpty()
+
+    def _drag_source_change_region(self):
+        """Return source pixels changed by the cached active annotation."""
+        if not self._has_drag_preview() or self._drag_preview_region is None:
+            return QRegion()
+        affected = QRegion(self._drag_preview_region)
+        if self._drag_mode == "resize_element":
+            transform = self._resize_preview_transform()
+            if transform is not None:
+                for preview_bounds in self._drag_preview_region:
+                    affected = affected.united(
+                        QRegion(
+                            transform.mapRect(QRectF(preview_bounds))
+                            .toAlignedRect()
+                            .adjusted(-2, -2, 2, 2)
+                        )
+                    )
+        else:
+            affected = affected.united(
+                self._drag_preview_region.translated(self._drag_preview_offset)
+            )
+        return affected.intersected(QRegion(self.selection))
+
+    def _mosaic_dependency_blocks(self, region):
+        """Expand changed source pixels to every sampled mosaic block."""
+        block = AnnotationRenderer.MOSAIC_BLOCK_SIZE
+        expanded = QRegion()
+        for bounds in region:
+            # Smooth downsampling can sample across the immediate block edge.
+            # One neighbouring block is a conservative, still-local margin.
+            bounds = bounds.adjusted(-block, -block, block, block)
+            left = self.selection.left() + math.floor(
+                (bounds.left() - self.selection.left()) / block
+            ) * block
+            top = self.selection.top() + math.floor(
+                (bounds.top() - self.selection.top()) / block
+            ) * block
+            right = self.selection.left() + math.ceil(
+                (bounds.right() + 1 - self.selection.left()) / block
+            ) * block
+            bottom = self.selection.top() + math.ceil(
+                (bounds.bottom() + 1 - self.selection.top()) / block
+            ) * block
+            expanded = expanded.united(
+                QRegion(QRect(left, top, right - left, bottom - top))
+            )
+        return expanded.intersected(QRegion(self.selection))
+
+    def _drag_dependent_suffix_region(self):
+        """Propagate active-item damage through later mosaic annotations."""
+        if not self._drag_suffix_annotations:
+            return QRegion()
+        changed = self._drag_source_change_region()
+        damage = QRegion()
+        for annotation in self._drag_suffix_annotations:
+            if annotation["kind"] != "mosaic":
+                continue
+            dependent = self._mosaic_dependency_blocks(changed).intersected(
+                QRegion(annotation_bounds(annotation))
+            )
+            if dependent.isEmpty():
+                continue
+            damage = damage.united(dependent)
+            # A changed mosaic becomes part of the source sampled by every
+            # later mosaic, so dependency propagation must continue in order.
+            changed = changed.united(dependent)
+        return damage.intersected(QRegion(self.rect()))
+
+    def _mosaic_source_crop(self, source, annotation):
+        bounds = annotation_bounds(annotation).intersected(self.selection)
+        if source.isNull() or not bounds.isValid():
+            return source, QRect(self.selection)
+        block = AnnotationRenderer.MOSAIC_BLOCK_SIZE
+        left = self.selection.left() + (
+            (bounds.left() - self.selection.left()) // block
+        ) * block
+        top = self.selection.top() + (
+            (bounds.top() - self.selection.top()) // block
+        ) * block
+        right = self.selection.left() + math.ceil(
+            (bounds.right() + 1 - self.selection.left()) / block
+        ) * block
+        bottom = self.selection.top() + math.ceil(
+            (bounds.bottom() + 1 - self.selection.top()) / block
+        ) * block
+        crop = QRect(
+            QPoint(max(self.selection.left(), left), max(self.selection.top(), top)),
+            QPoint(
+                min(self.selection.right(), right - 1),
+                min(self.selection.bottom(), bottom - 1),
+            ),
+        )
+        local = crop.translated(-self.selection.topLeft())
+        pixel_left = round(local.left() * self._dpr)
+        pixel_top = round(local.top() * self._dpr)
+        pixel_right = round((local.left() + local.width()) * self._dpr)
+        pixel_bottom = round((local.top() + local.height()) * self._dpr)
+        cropped = source.copy(
+            QRect(
+                pixel_left,
+                pixel_top,
+                max(1, pixel_right - pixel_left),
+                max(1, pixel_bottom - pixel_top),
+            ).intersected(source.rect())
+        )
+        cropped.setDevicePixelRatio(self._dpr)
+        return cropped, crop
 
     def _committed_annotation_layer(self):
         pixel_size = self._selection_pixel_size()
@@ -345,6 +603,557 @@ class ScreenshotOverlay(QWidget):
         self._annotation_layer_selection = QRect(self.selection)
         self._annotation_layer_dirty = False
         return self._annotation_layer
+
+    def _render_annotation_layer(self, annotations):
+        """Rasterize a stable annotation set into one selection-sized layer."""
+        layer = QPixmap(self._selection_pixel_size())
+        layer.setDevicePixelRatio(self._dpr)
+        layer.fill(Qt.transparent)
+        painter = QPainter(layer)
+        self._prepare_annotation_layer_painter(painter)
+        for annotation in annotations:
+            if annotation["kind"] == "mosaic":
+                painter.end()
+                source = self._annotation_composite(layer)
+                painter = QPainter(layer)
+                self._prepare_annotation_layer_painter(painter)
+                self._paint_annotation(
+                    painter,
+                    annotation,
+                    mosaic_source=source,
+                    mosaic_source_rect=self.selection,
+                )
+            else:
+                self._paint_annotation(painter, annotation)
+        painter.end()
+        return layer
+
+    def _paint_annotation_on_layer(
+        self,
+        layer,
+        annotation,
+        *,
+        mosaic_source=None,
+        mosaic_source_rect=None,
+    ):
+        painter = QPainter(layer)
+        self._prepare_annotation_layer_painter(painter)
+        if annotation["kind"] == "mosaic":
+            self._paint_annotation(
+                painter,
+                annotation,
+                mosaic_source=mosaic_source,
+                mosaic_source_rect=mosaic_source_rect,
+            )
+        else:
+            self._paint_annotation(painter, annotation)
+        painter.end()
+
+    def _render_drag_foreground(self, suffix):
+        """Render the stable suffix with canonical mosaic source ordering."""
+        base = QPixmap(self._drag_base_layer)
+        painter = QPainter(base)
+        self._prepare_annotation_layer_painter(painter)
+        for bounds, tile in self._drag_preview_tiles:
+            painter.drawPixmap(bounds.topLeft(), tile)
+        painter.end()
+        foreground = QPixmap(self._selection_pixel_size())
+        foreground.setDevicePixelRatio(self._dpr)
+        foreground.fill(Qt.transparent)
+        for annotation in suffix:
+            source = None
+            source_rect = None
+            if annotation["kind"] == "mosaic":
+                source, source_rect = self._mosaic_source_crop(
+                    self._annotation_composite(base), annotation
+                )
+            self._paint_annotation_on_layer(
+                foreground,
+                annotation,
+                mosaic_source=source,
+                mosaic_source_rect=source_rect,
+            )
+            self._paint_annotation_on_layer(
+                base,
+                annotation,
+                mosaic_source=source,
+                mosaic_source_rect=source_rect,
+            )
+        return foreground
+
+    def _render_drag_preview_layer(self, annotation):
+        """Rasterize one vector element once, in its smallest safe bounds."""
+        bounds = self._aligned_preview_bounds(annotation_bounds(annotation))
+        if not bounds.isValid():
+            return QPixmap(), QRect()
+        pixel_size = QSize(
+            round(bounds.width() * self._dpr),
+            round(bounds.height() * self._dpr),
+        )
+        layer = QPixmap(pixel_size)
+        layer.setDevicePixelRatio(self._dpr)
+        layer.fill(Qt.transparent)
+        painter = QPainter(layer)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(-bounds.topLeft())
+        painter.setClipRect(bounds)
+        self._paint_annotation(painter, annotation)
+        painter.end()
+        return layer, bounds
+
+    def _aligned_preview_bounds(self, bounds):
+        """Expand bounds so cached pixels share the committed layer's DPR phase."""
+        if not bounds.isValid():
+            return QRect()
+        ratio = max(0.01, self._dpr)
+
+        def aligned(value, origin):
+            phase = (value - origin) * ratio
+            return abs(phase - round(phase)) < 1e-6
+
+        left = bounds.left()
+        top = bounds.top()
+        right = bounds.left() + bounds.width()
+        bottom = bounds.top() + bounds.height()
+        for _index in range(64):
+            if aligned(left, self.selection.left()):
+                break
+            left -= 1
+        for _index in range(64):
+            if aligned(top, self.selection.top()):
+                break
+            top -= 1
+        for _index in range(64):
+            if aligned(right, self.selection.left()):
+                break
+            right += 1
+        for _index in range(64):
+            if aligned(bottom, self.selection.top()):
+                break
+            bottom += 1
+        return QRect(left, top, max(1, right - left), max(1, bottom - top))
+
+    def _begin_current_stroke_cache(self):
+        """Prepare an incremental paint layer for a pen stroke in progress."""
+        if self._current is None or self._current["kind"] != "pen":
+            return
+        self._current_stroke_tiles = {}
+        self._current_stroke_point_count = 0
+        self._current_stroke_dirty = self._extend_current_stroke_cache()
+
+    def _has_current_stroke_cache(self):
+        return (
+            self._current is not None
+            and self._current["kind"] == "pen"
+            and self._current_stroke_tiles is not None
+        )
+
+    def _extend_current_stroke_cache(self):
+        """Paint only the segments added since the previous mouse event."""
+        if not self._has_current_stroke_cache():
+            return QRect()
+        points = self._current["points"]
+        if len(points) <= self._current_stroke_point_count:
+            return QRect()
+        dirty = QRect()
+        start = max(1, self._current_stroke_point_count)
+        for index in range(start, len(points)):
+            dirty = dirty.united(QRect(points[index - 1], points[index]).normalized())
+        self._current_stroke_point_count = len(points)
+        if not dirty.isValid():
+            return QRect()
+        padding = max(2, math.ceil(self._current["width"] / 2)) + 2
+        dirty = dirty.adjusted(-padding, -padding, padding, padding)
+        path = QPainterPath()
+        path.moveTo(points[start - 1])
+        for index in range(start, len(points)):
+            path.lineTo(points[index])
+        pen = QPen(
+            self._current["color"],
+            self._current["width"],
+            Qt.SolidLine,
+            Qt.RoundCap,
+            Qt.RoundJoin,
+        )
+        for tile_bounds in self._tile_rects_covering(dirty):
+            key = (tile_bounds.x(), tile_bounds.y())
+            cached = self._current_stroke_tiles.get(key)
+            if cached is None:
+                tile = QPixmap(
+                    round(tile_bounds.width() * self._dpr),
+                    round(tile_bounds.height() * self._dpr),
+                )
+                tile.setDevicePixelRatio(self._dpr)
+                tile.fill(Qt.transparent)
+                cached = (tile_bounds, tile)
+                self._current_stroke_tiles[key] = cached
+            tile_bounds, tile = cached
+            painter = QPainter(tile)
+            painter.setRenderHint(QPainter.Antialiasing, True)
+            painter.translate(-tile_bounds.topLeft())
+            painter.setPen(pen)
+            painter.drawPath(path)
+            painter.end()
+        return dirty
+
+    def _commit_current_stroke_cache(self):
+        if not self._has_current_stroke_cache():
+            return False
+        layer = QPixmap(self._committed_annotation_layer())
+        painter = QPainter(layer)
+        for bounds, tile in self._current_stroke_tiles.values():
+            painter.drawPixmap(bounds.topLeft() - self.selection.topLeft(), tile)
+        painter.end()
+        self._annotation_layer = layer
+        self._annotation_layer_selection = QRect(self.selection)
+        self._annotation_layer_dirty = False
+        self._annotation_composite_cache = QPixmap()
+        self._annotation_composite_key = None
+        return True
+
+    def _clear_current_stroke_cache(self):
+        self._current_stroke_tiles = None
+        self._current_stroke_point_count = 0
+        self._current_stroke_dirty = QRect()
+
+    def _pen_preview_key(self, annotation):
+        color = QColor(annotation["color"])
+        return (
+            annotation.get("_geometry_revision", 0),
+            color.rgba(),
+            float(annotation["width"]),
+            self.selection.x(),
+            self.selection.y(),
+            self.selection.width(),
+            self.selection.height(),
+            round(self._dpr * 1000),
+        )
+
+    def _remember_pen_preview(self, annotation, tiles, bounds, region):
+        """Keep the most recent pen raster so editing never redraws its path."""
+        if annotation["kind"] != "pen" or not tiles:
+            return
+        self._pen_preview_cache = {
+            "annotation": annotation,
+            "key": self._pen_preview_key(annotation),
+            "tiles": [(QRect(tile_bounds), QPixmap(tile)) for tile_bounds, tile in tiles],
+            "bounds": QRect(bounds),
+            "region": QRegion(region),
+        }
+
+    def _cached_pen_preview(self, annotation):
+        cached = self._pen_preview_cache
+        if (
+            cached is None
+            or cached["annotation"] is not annotation
+            or cached["key"] != self._pen_preview_key(annotation)
+            or not cached["bounds"].contains(annotation_bounds(annotation))
+        ):
+            return None
+        return cached
+
+    def _pen_preview_for_annotation(self, annotation):
+        cached = self._pen_preview_cache
+        if cached is not None and cached["annotation"] is annotation:
+            return cached
+        return None
+
+    def _discard_pen_preview_cache(self, annotation=None):
+        cached = self._pen_preview_cache
+        if cached is None:
+            return
+        if annotation is None or cached["annotation"] is annotation:
+            self._pen_preview_cache = None
+
+    def _remember_current_pen_preview(self, annotation):
+        if not self._current_stroke_tiles:
+            return
+        bounds = annotation_bounds(annotation)
+        if not self.selection.contains(bounds):
+            return
+        tiles = list(self._current_stroke_tiles.values())
+        self._remember_pen_preview(
+            annotation,
+            tiles,
+            bounds,
+            self._annotation_renderer().preview_region(annotation),
+        )
+
+    def _commit_resized_pen_preview(self, annotation):
+        """Rebuild a resized pen cache with fixed stroke width, then commit it."""
+        layer, bounds = self._render_drag_preview_layer(annotation)
+        if layer.isNull() or not bounds.isValid() or self._drag_base_layer.isNull():
+            return False
+        ordered_rects = self._preview_tile_rects(annotation, bounds)
+        self._drag_preview_tiles = self._split_preview_tiles(
+            layer, bounds, ordered_rects
+        )
+        self._drag_preview_bounds = QRect(bounds)
+        self._drag_preview_region = self._annotation_renderer().preview_region(
+            annotation
+        ).intersected(QRegion(bounds))
+        self._drag_preview_offset = QPoint()
+        if not self._commit_drag_preview_layer():
+            return False
+        self._remember_pen_preview(
+            annotation,
+            self._drag_preview_tiles,
+            self._drag_preview_bounds,
+            self._drag_preview_region,
+        )
+        return True
+
+    def _tile_rects_covering(self, bounds, *, clip_to_selection=True):
+        bounds = (
+            bounds.intersected(self.selection)
+            if clip_to_selection
+            else QRect(bounds)
+        )
+        if not bounds.isValid():
+            return []
+        size = self.RASTER_TILE_SIZE
+        left = (bounds.left() - self.selection.left()) // size
+        right = (bounds.right() - self.selection.left()) // size
+        top = (bounds.top() - self.selection.top()) // size
+        bottom = (bounds.bottom() - self.selection.top()) // size
+        tiles = []
+        for row in range(top, bottom + 1):
+            for column in range(left, right + 1):
+                tile = QRect(
+                    self.selection.left() + column * size,
+                    self.selection.top() + row * size,
+                    size,
+                    size,
+                )
+                if clip_to_selection:
+                    tile = tile.intersected(self.selection)
+                if tile.isValid():
+                    tiles.append(tile)
+        return tiles
+
+    def _preview_tile_rects(self, annotation, bounds):
+        """Choose bounded raster tiles without scanning a large alpha mask."""
+        preview_region = self._annotation_renderer().preview_region(annotation)
+        preview_region = preview_region.intersected(QRegion(bounds))
+        tiles = {}
+        for region_bounds in preview_region:
+            for tile in self._tile_rects_covering(
+                region_bounds, clip_to_selection=False
+            ):
+                clipped = tile.intersected(bounds)
+                if clipped.isValid():
+                    tiles[(tile.x(), tile.y())] = clipped
+        if not tiles:
+            for tile in self._tile_rects_covering(
+                bounds, clip_to_selection=False
+            ):
+                clipped = tile.intersected(bounds)
+                if clipped.isValid():
+                    tiles[(tile.x(), tile.y())] = clipped
+        return [tiles[key] for key in sorted(tiles)]
+
+    def _raster_tile_rects(self, layer, bounds):
+        alpha = QRegion(QBitmap.fromImage(layer.toImage().createAlphaMask()))
+        tiles = {}
+        ratio = max(0.01, self._dpr)
+        for pixel_rect in alpha:
+            logical = QRect(
+                bounds.left() + math.floor(pixel_rect.left() / ratio),
+                bounds.top() + math.floor(pixel_rect.top() / ratio),
+                max(1, math.ceil(pixel_rect.width() / ratio)),
+                max(1, math.ceil(pixel_rect.height() / ratio)),
+            )
+            for tile in self._tile_rects_covering(logical):
+                tiles[(tile.x(), tile.y())] = tile.intersected(bounds)
+        return [tiles[key] for key in sorted(tiles)]
+
+    def _split_preview_tiles(self, layer, bounds, tile_rects):
+        tiles = []
+        for tile_bounds in tile_rects:
+            local = tile_bounds.translated(-bounds.topLeft())
+            left = round(local.left() * self._dpr)
+            top = round(local.top() * self._dpr)
+            right = round((local.left() + local.width()) * self._dpr)
+            bottom = round((local.top() + local.height()) * self._dpr)
+            pixel_rect = QRect(
+                left,
+                top,
+                max(1, right - left),
+                max(1, bottom - top),
+            ).intersected(layer.rect())
+            tile = layer.copy(pixel_rect)
+            tile.setDevicePixelRatio(self._dpr)
+            tiles.append((tile_bounds, tile))
+        return tiles
+
+    def _erase_annotations(self, eraser):
+        """Commit an eraser stroke by replacing touched items with fragments."""
+        erased_bounds = annotation_bounds(eraser)
+        annotations = []
+        for annotation in self._annotations:
+            if (
+                annotation["kind"] == "eraser"
+                or not annotation_bounds(annotation).intersects(erased_bounds)
+            ):
+                annotations.append(annotation)
+                continue
+            annotations.extend(self._erase_annotation(annotation, eraser))
+        self._annotations = annotations
+        self._active_annotation = None
+        cached = self._pen_preview_cache
+        if cached is not None and not any(
+            item is cached["annotation"] for item in self._annotations
+        ):
+            self._discard_pen_preview_cache()
+        self._renderer.retain_annotations(self._annotations)
+        self._invalidate_annotation_layer()
+
+    def _erase_annotation(self, annotation, eraser):
+        """Return the visible connected pieces of one erased annotation."""
+        image, bounds = self._rasterize_annotation(annotation)
+        if image.isNull():
+            return []
+        original_alpha = image.createAlphaMask()
+        original_components = self._image_components(image)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(-bounds.topLeft())
+        self._paint_annotation(painter, eraser)
+        painter.end()
+        if image.createAlphaMask() == original_alpha:
+            return [annotation]
+        components = self._image_components(image)
+        if not components:
+            return []
+        # Text and pre-existing multi-island artwork should stay one editable
+        # item. A connected vector item, however, gets one anchor per newly
+        # disconnected visible piece.
+        if len(original_components) != 1:
+            components = [self._components_region(components)]
+        return [
+            self._fragment_from_component(image, bounds, component, annotation)
+            for component in components
+        ]
+
+    def _rasterize_annotation(self, annotation):
+        bounds = annotation_bounds(annotation).intersected(self.selection)
+        if not bounds.isValid():
+            return QImage(), QRect()
+        image = QImage(
+            round(bounds.width() * self._dpr),
+            round(bounds.height() * self._dpr),
+            QImage.Format_ARGB32_Premultiplied,
+        )
+        image.setDevicePixelRatio(self._dpr)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(-bounds.topLeft())
+        if annotation["kind"] == "mosaic":
+            source = self._desktop
+            source_rect = QRect(
+                0,
+                0,
+                round(self._desktop.width() / self._dpr),
+                round(self._desktop.height() / self._dpr),
+            )
+            if annotation in self._annotations:
+                index = self._annotations.index(annotation)
+                prefix = self._render_annotation_layer(self._annotations[:index])
+                source = self._annotation_composite(prefix)
+                source_rect = QRect(self.selection)
+            self._paint_annotation(
+                painter,
+                annotation,
+                mosaic_source=source,
+                mosaic_source_rect=source_rect,
+            )
+        else:
+            self._paint_annotation(painter, annotation)
+        painter.end()
+        return image, bounds
+
+    @staticmethod
+    def _image_components(image):
+        region = QRegion(QBitmap.fromImage(image.createAlphaMask()))
+        rects = [QRect(rect) for rect in region]
+        if not rects:
+            return []
+        parents = list(range(len(rects)))
+
+        def root(index):
+            while parents[index] != index:
+                parents[index] = parents[parents[index]]
+                index = parents[index]
+            return index
+
+        def join(first, second):
+            first = root(first)
+            second = root(second)
+            if first != second:
+                parents[second] = first
+
+        active = []
+        for index, rect in sorted(
+            enumerate(rects), key=lambda item: item[1].top()
+        ):
+            active = [
+                other for other in active if rects[other].bottom() + 1 >= rect.top()
+            ]
+            expanded = rect.adjusted(-1, -1, 1, 1)
+            for other in active:
+                if expanded.intersects(rects[other]):
+                    join(index, other)
+            active.append(index)
+        groups = {}
+        for index, rect in enumerate(rects):
+            group = root(index)
+            groups[group] = groups.get(group, QRegion()).united(QRegion(rect))
+        return list(groups.values())
+
+    @staticmethod
+    def _components_region(components):
+        region = QRegion()
+        for component in components:
+            region = region.united(component)
+        return region
+
+    def _fragment_from_component(self, image, bounds, component, source):
+        ratio = max(0.01, self._dpr)
+        component_bounds = component.boundingRect()
+        left = math.floor(component_bounds.left() / ratio)
+        top = math.floor(component_bounds.top() / ratio)
+        right = math.ceil((component_bounds.right() + 1) / ratio)
+        bottom = math.ceil((component_bounds.bottom() + 1) / ratio)
+        pixel_rect = QRect(
+            round(left * ratio),
+            round(top * ratio),
+            max(1, round((right - left) * ratio)),
+            max(1, round((bottom - top) * ratio)),
+        ).intersected(image.rect())
+        source_fragment = image.copy(pixel_rect)
+        source_fragment.setDevicePixelRatio(1.0)
+        fragment = QImage(source_fragment.size(), source_fragment.format())
+        fragment.fill(Qt.transparent)
+        painter = QPainter(fragment)
+        painter.setClipRegion(
+            component.intersected(QRegion(pixel_rect)).translated(
+                -pixel_rect.topLeft()
+            )
+        )
+        painter.drawImage(QPoint(), source_fragment)
+        painter.end()
+        fragment.setDevicePixelRatio(self._dpr)
+        start = bounds.topLeft() + QPoint(left, top)
+        end = start + QPoint(right - left - 1, bottom - top - 1)
+        return {
+            "kind": "fragment",
+            "start": start,
+            "end": end,
+            "color": QColor(source["color"]),
+            "width": source["width"],
+            "image": fragment,
+        }
 
     def _annotation_composite(self, annotation_layer):
         """Combine the frozen desktop and annotations for mosaic sampling."""
@@ -579,7 +1388,7 @@ class ScreenshotOverlay(QWidget):
         point = event.position().toPoint()
         self._hide_popups()
         self._drag_start = point
-        if not self.selection.isValid():
+        if not (self.selection.isValid() and self.selection.width() > 1):
             window_rect = self._window_at(point)
             if window_rect.isValid():
                 self._drag_mode = "window_pending"
@@ -594,8 +1403,7 @@ class ScreenshotOverlay(QWidget):
             if handle:
                 self._drag_mode = "resize_element"
                 self._handle = handle
-                self._element_start = copy.deepcopy(self._active_annotation)
-                self._element_bounds_start = self._editable_annotation_bounds()
+                self._begin_element_resize(self._active_annotation)
                 return
         handle = hit_handle(self.selection, point) if not locked else ""
         if handle:
@@ -606,6 +1414,9 @@ class ScreenshotOverlay(QWidget):
         if self._tool and self._tool != "text" and self.selection.contains(point):
             self._drag_mode = "draw_pending"
             return
+        if not self.selection.contains(point):
+            self._start_new_selection(point)
+            return
         annotation = self._annotation_at(point)
         if annotation is not None:
             self._select_annotation(annotation)
@@ -615,8 +1426,7 @@ class ScreenshotOverlay(QWidget):
                 self._moving_text_start = QPoint(annotation["start"])
             else:
                 self._drag_mode = "move_element"
-                self._element_start = copy.deepcopy(annotation)
-                self._element_bounds_start = self._editable_annotation_bounds()
+                self._begin_element_move(annotation)
             return
         self._active_annotation = None
         if self._tool and self.selection.contains(point):
@@ -634,21 +1444,60 @@ class ScreenshotOverlay(QWidget):
             return
         if locked:
             return
-        if self.selection.contains(point):
-            self._drag_mode = "move"
-            self._selection_start = QRect(self.selection)
-        else:
-            self._annotations.clear()
-            self._renderer.retain_annotations(self._annotations)
-            self._invalidate_annotation_layer()
-            self.selection = QRect(point, point)
-            self._drag_mode = "select"
-            self.toolbar.hide()
+        self._drag_mode = "move"
+        self._selection_start = QRect(self.selection)
+
+    def _start_new_selection(self, point):
+        """Discard the old annotated capture before starting a new region."""
+        old_selection_dirty = self.rect()
+        editor = self._text_editor
+        if editor is not None:
+            self._text_editor = None
+            self._editing_text_index = -1
+            editor.removeEventFilter(self)
+            editor.hide()
+            editor.deleteLater()
+        self._annotations.clear()
+        self._active_annotation = None
+        self._current = None
+        self._element_start = None
+        self._element_bounds_start = QRect()
+        self._selection_start = QRect()
+        self._handle = ""
+        self._moving_text = None
+        self._pending_window = QRect()
+        self._hovered_window = QRect()
+        self._clear_current_stroke_cache()
+        self._discard_pen_preview_cache()
+        self._clear_drag_preview()
+        self._renderer.retain_annotations(self._annotations)
+        self._annotation_layer = QPixmap()
+        self._annotation_layer_selection = QRect()
+        self._invalidate_annotation_layer()
+        self.selection = QRect(point, point)
+        self._cursor_pos = QPoint(point)
+        self._drag_mode = "select"
+        self.toolbar.hide()
+        self.selection_options.hide()
+        # Flush the old frame synchronously. On macOS, queued partial updates
+        # can leave stale backing-store tiles while replacement drag starts.
+        self.repaint(old_selection_dirty)
 
     def mouseMoveEvent(self, event):
         point = event.position().toPoint()
+        preselection_damage = QRegion()
+        if not (self.selection.isValid() and self.selection.width() > 1):
+            preselection_damage = QRegion(
+                self._magnifier_rect(self._cursor_pos).adjusted(-3, -3, 3, 3)
+            )
+            if self._hovered_window.isValid():
+                preselection_damage = preselection_damage.united(
+                    QRegion(self._hovered_window.adjusted(-3, -3, 3, 3))
+                )
         self._cursor_pos = point
         old_annotation_region = self._active_draw_region()
+        old_preview_region = self._active_preview_region()
+        old_suffix_region = self._drag_dependent_suffix_region()
         old_selection_region = self._selection_dirty_region(self.selection)
         if not self.selection.isValid() and not self._drag_mode:
             self._hovered_window = self._window_at(point)
@@ -656,6 +1505,7 @@ class ScreenshotOverlay(QWidget):
             if (point - self._drag_start).manhattanLength() > 4:
                 self._drag_mode = "select"
                 self._pending_window = QRect()
+                self._hovered_window = QRect()
                 self.selection = QRect(self._drag_start, point).normalized().intersected(
                     self.rect()
                 )
@@ -672,6 +1522,7 @@ class ScreenshotOverlay(QWidget):
                 )
                 if self._current["kind"] in ("pen", "mosaic", "eraser"):
                     append_brush_points(self._current, point)
+                self._begin_current_stroke_cache()
         elif self._drag_mode == "select":
             self.selection = QRect(self._drag_start, point).normalized().intersected(self.rect())
         elif self._drag_mode == "move":
@@ -698,30 +1549,54 @@ class ScreenshotOverlay(QWidget):
                 point,
                 self.selection,
             )
-            self._restore_active_annotation()
-            resize_annotation(
-                self._active_annotation,
-                self._element_bounds_start,
-                target,
-            )
+            if self._has_drag_preview():
+                self._resize_preview_bounds = target
+            else:
+                self._restore_active_annotation()
+                resize_annotation(
+                    self._active_annotation,
+                    self._element_bounds_start,
+                    target,
+                )
         elif self._drag_mode == "annotate" and self._current:
             self._current["end"] = point
             if self._current["kind"] in ("pen", "mosaic", "eraser"):
                 append_brush_points(self._current, point)
+            self._current_stroke_dirty = self._extend_current_stroke_cache()
         elif not self._drag_mode:
             self._refresh_hover_cursor(point)
         if self._drag_mode in ("move", "resize", "select", "window_pending"):
             self._sync_selection_options()
             new_selection_region = self._selection_dirty_region(self.selection)
-            self.update(old_selection_region.united(new_selection_region))
+            dirty = (
+                QRegion(old_selection_region)
+                .united(QRegion(new_selection_region))
+                .united(preselection_damage)
+            )
+            self.update(dirty)
         elif self._drag_mode in (
             "annotate", "move_text", "move_element", "resize_element"
         ):
+            if self._has_current_stroke_cache() and self._current_stroke_dirty.isValid():
+                self.update(self._current_stroke_dirty.intersected(self.rect()))
+                return
             new_annotation_region = self._active_draw_region()
             dirty = old_annotation_region.united(new_annotation_region)
-            if self._drag_mode in ("move_text", "move_element", "resize_element"):
+            if self._drag_mode == "move_text" or (
+                self._drag_mode in ("move_element", "resize_element")
+                and not self._has_drag_preview()
+            ):
                 self._refresh_annotation_layer_region(dirty)
-            if dirty.isValid():
+            if self._has_drag_preview():
+                preview_dirty = (
+                    old_preview_region
+                    .united(self._active_preview_region())
+                    .united(old_suffix_region)
+                    .united(self._drag_dependent_suffix_region())
+                )
+                if not preview_dirty.isEmpty():
+                    self.update(preview_dirty)
+            elif dirty.isValid():
                 self.update(dirty.intersected(self.rect()))
             else:
                 self.update()
@@ -745,9 +1620,74 @@ class ScreenshotOverlay(QWidget):
             and self._active_annotation is not None
         ):
             bounds = annotation_bounds(self._active_annotation)
+            if self._has_drag_preview():
+                if self._drag_mode == "resize_element":
+                    bounds = QRect(self._resize_preview_bounds)
+                else:
+                    bounds.translate(self._drag_preview_offset)
             handles = self._editable_annotation_bounds().adjusted(-5, -5, 5, 5)
             return bounds.united(handles)
         return QRect()
+
+    def _active_preview_region(self):
+        if not self._has_drag_preview():
+            return QRegion()
+        if self._drag_mode == "resize_element":
+            bounds = self._resize_preview_bounds
+            if not bounds.isValid():
+                return QRegion()
+            transform = self._resize_preview_transform()
+            region = QRegion()
+            if transform is not None:
+                for preview_bounds in self._drag_preview_region:
+                    region = region.united(
+                        QRegion(
+                            transform.mapRect(QRectF(preview_bounds))
+                            .toAlignedRect()
+                            .adjusted(-2, -2, 2, 2)
+                        )
+                    )
+            region = region.united(self._outline_region(bounds))
+            for point in handle_points(bounds).values():
+                region = region.united(
+                    QRegion(QRect(point.x() - 5, point.y() - 5, 11, 11))
+                )
+            return region.intersected(QRegion(self.rect()))
+        offset = self._drag_preview_offset
+        region = self._drag_preview_region.translated(offset)
+        bounds = self._element_bounds_start.translated(offset)
+        if bounds.isValid():
+            region = region.united(self._outline_region(bounds))
+            for point in handle_points(bounds).values():
+                region = region.united(
+                    QRegion(QRect(point.x() - 5, point.y() - 5, 11, 11))
+                )
+        return region.intersected(QRegion(self.rect()))
+
+    def _resize_preview_transform(self):
+        source = self._element_bounds_start
+        target = self._resize_preview_bounds
+        if not source.isValid() or not target.isValid():
+            return None
+        scale_x = target.width() / max(1, source.width())
+        scale_y = target.height() / max(1, source.height())
+        return QTransform(
+            scale_x,
+            0.0,
+            0.0,
+            scale_y,
+            target.left() - source.left() * scale_x,
+            target.top() - source.top() * scale_y,
+        )
+
+    @staticmethod
+    def _outline_region(bounds):
+        if not bounds.isValid():
+            return QRegion()
+        padding = 3
+        outer = QRegion(bounds.adjusted(-padding, -padding, padding, padding))
+        inner = bounds.adjusted(padding, padding, -padding, -padding)
+        return outer.subtracted(QRegion(inner)) if inner.isValid() else outer
 
     def _selection_is_locked(self):
         return bool(self._annotations) or self._text_editor is not None
@@ -776,13 +1716,58 @@ class ScreenshotOverlay(QWidget):
                 self._renderer.retain_annotations(self._annotations)
                 self._invalidate_annotation_layer()
         if self._drag_mode == "annotate" and self._current:
-            self._annotations.append(self._current)
+            if self._current["kind"] == "eraser":
+                self._erase_annotations(self._current)
+            else:
+                cached_stroke = self._commit_current_stroke_cache()
+                if cached_stroke:
+                    self._remember_current_pen_preview(self._current)
+                self._annotations.append(self._current)
+                self._renderer.retain_annotations(self._annotations)
+                if not cached_stroke:
+                    self._invalidate_annotation_layer()
+            self._clear_current_stroke_cache()
             self._current = None
-            self._renderer.retain_annotations(self._annotations)
-            self._invalidate_annotation_layer()
         if self._drag_mode == "move":
             delta = self.selection.topLeft() - self._selection_start.topLeft()
             translate_annotations(self._annotations, delta)
+        force_repaint = False
+        if self._drag_mode == "move_element" and self._has_drag_preview():
+            annotation = self._active_annotation
+            offset = QPoint(self._drag_preview_offset)
+            translate_annotations([annotation], offset)
+            if not self._translation_preserves_dpr_phase(offset):
+                self._rebuild_drag_preview_tiles(annotation)
+                offset = QPoint()
+            if not self._commit_drag_preview_layer():
+                self._invalidate_annotation_layer()
+            self._remember_pen_preview(
+                annotation,
+                [
+                    (bounds.translated(offset), tile)
+                    for bounds, tile in self._drag_preview_tiles
+                ],
+                self._drag_preview_bounds.translated(offset),
+                self._drag_preview_region.translated(offset),
+            )
+            self._clear_drag_preview()
+            force_repaint = True
+        if self._drag_mode == "resize_element" and self._has_drag_preview():
+            annotation = self._active_annotation
+            source_bounds = QRect(self._element_bounds_start)
+            target_bounds = QRect(self._resize_preview_bounds)
+            resize_annotation(
+                annotation,
+                source_bounds,
+                target_bounds,
+            )
+            if annotation["kind"] != "pen" or not self._commit_resized_pen_preview(
+                annotation
+            ):
+                self._discard_pen_preview_cache(annotation)
+                self._invalidate_annotation_layer()
+            self._clear_drag_preview()
+            force_repaint = True
         if self.selection.width() >= 8 and self.selection.height() >= 8:
             self._position_toolbar()
             self.toolbar.show()
@@ -794,7 +1779,12 @@ class ScreenshotOverlay(QWidget):
         self._drag_mode = ""
         self._moving_text = None
         self._refresh_hover_cursor(event.position().toPoint())
-        self.update()
+        if force_repaint:
+            # A completed cached gesture replaces pixels rather than merely
+            # adding them, so force the native backing store to be reconciled.
+            self.repaint()
+        else:
+            self.update()
 
     def mouseDoubleClickEvent(self, event):
         point = event.position().toPoint()
@@ -838,8 +1828,9 @@ class ScreenshotOverlay(QWidget):
             return
         self._select_annotation(annotation)
         menu = QMenu(self)
+        menu.setObjectName("screenshotContextMenu")
         apply_style(menu, "tools.screenshot.overlay:workspace")
-        delete_action = menu.addAction("删除元素")
+        delete_action = menu.addAction("删除")
         delete_action.triggered.connect(self._delete_active_annotation)
         menu.exec(event.globalPos())
 
@@ -886,11 +1877,13 @@ class ScreenshotOverlay(QWidget):
     def _choose_color(self, color):
         self._color = QColor(color)
         if self._active_annotation is not None:
-            self._active_annotation["color"] = QColor(self._color)
-            self._invalidate_annotation_layer()
+            current = QColor(self._active_annotation["color"])
+            if current != self._color:
+                self._active_annotation["color"] = QColor(self._color)
+                self._invalidate_annotation_layer()
+                self.update()
             if self._text_editor is not None:
                 self._text_editor.setProperty("annotationColor", self._color)
-            self.update()
         self.toolbar.set_color(self._color)
 
     def _choose_custom_color(self):
@@ -947,11 +1940,13 @@ class ScreenshotOverlay(QWidget):
     def _set_width(self, value):
         self._width = float(value)
         if self._active_annotation is not None:
-            self._active_annotation["width"] = self._width
-            self._invalidate_annotation_layer()
+            current = float(self._active_annotation["width"])
+            if current != self._width:
+                self._active_annotation["width"] = self._width
+                self._invalidate_annotation_layer()
+                self.update()
             if self._text_editor is not None:
                 self._text_editor.setProperty("annotationWidth", self._width)
-            self.update()
         self._refresh_cursor()
 
     def _set_font_size(self, value):
@@ -1081,6 +2076,149 @@ class ScreenshotOverlay(QWidget):
         annotation["start"] = desired
         annotation["end"] = QPoint(desired)
 
+    def _begin_element_move(self, annotation):
+        self._element_bounds_start = self._editable_annotation_bounds()
+        if annotation["kind"] not in (
+            "arrow", "ellipse", "fragment", "pen", "rect"
+        ):
+            self._element_start = copy.deepcopy(annotation)
+            return
+        self._element_start = annotation
+        self._begin_element_preview(annotation)
+
+    def _begin_element_resize(self, annotation):
+        self._element_bounds_start = self._editable_annotation_bounds()
+        self._resize_preview_bounds = QRect(self._element_bounds_start)
+        if annotation["kind"] not in (
+            "arrow", "ellipse", "fragment", "pen", "rect"
+        ):
+            self._element_start = copy.deepcopy(annotation)
+            return
+        self._element_start = annotation
+        self._begin_element_preview(annotation)
+
+    def _begin_element_preview(self, annotation):
+        """Rasterize an editable vector once for move/resize interaction."""
+        self._drag_preview_annotation = annotation
+        self._drag_preview_offset = QPoint()
+        cached = self._cached_pen_preview(annotation)
+        if cached is not None:
+            self._drag_preview_layer = QPixmap()
+            self._drag_preview_bounds = QRect(cached["bounds"])
+            self._drag_preview_tiles = list(cached["tiles"])
+            self._drag_preview_region = QRegion(cached["region"])
+        else:
+            self._rebuild_drag_preview_tiles(annotation)
+            self._remember_pen_preview(
+                annotation,
+                self._drag_preview_tiles,
+                self._drag_preview_bounds,
+                self._drag_preview_region,
+            )
+            self._drag_preview_layer = QPixmap()
+        index = next(
+            index
+            for index, item in enumerate(self._annotations)
+            if item is annotation
+        )
+        self._drag_base_layer = self._render_annotation_layer(
+            self._annotations[:index]
+        )
+        self._drag_scene_layer = self._annotation_composite(self._drag_base_layer)
+        suffix = self._annotations[index + 1 :]
+        has_suffix_mosaic = any(item["kind"] == "mosaic" for item in suffix)
+        if has_suffix_mosaic:
+            self._drag_foreground_layer = self._render_drag_foreground(suffix)
+            self._drag_suffix_annotations = suffix
+        else:
+            self._drag_foreground_layer = (
+                self._render_annotation_layer(suffix) if suffix else QPixmap()
+            )
+            self._drag_suffix_annotations = []
+
+    def _rebuild_drag_preview_tiles(self, annotation):
+        layer, bounds = self._render_drag_preview_layer(annotation)
+        self._drag_preview_bounds = QRect(bounds)
+        tile_rects = self._preview_tile_rects(annotation, bounds)
+        self._drag_preview_tiles = self._split_preview_tiles(
+            layer,
+            bounds,
+            tile_rects,
+        )
+        self._drag_preview_region = self._annotation_renderer().preview_region(
+            annotation
+        ).intersected(QRegion(bounds))
+        self._drag_preview_offset = QPoint()
+        self._drag_preview_layer = QPixmap()
+        return bool(self._drag_preview_tiles)
+
+    def _translation_preserves_dpr_phase(self, offset):
+        ratio = max(0.01, self._dpr)
+        return all(
+            abs(value * ratio - round(value * ratio)) < 1e-6
+            for value in (offset.x(), offset.y())
+        )
+
+    def _has_drag_preview(self):
+        return (
+            self._drag_preview_annotation is not None
+            and self._drag_preview_annotation is self._active_annotation
+        )
+
+    def _clear_drag_preview(self):
+        self._drag_preview_annotation = None
+        self._drag_preview_offset = QPoint()
+        self._drag_preview_region = None
+        self._drag_preview_bounds = QRect()
+        self._resize_preview_bounds = QRect()
+        self._drag_preview_layer = QPixmap()
+        self._drag_preview_tiles = []
+        self._drag_base_layer = QPixmap()
+        self._drag_scene_layer = QPixmap()
+        self._drag_foreground_layer = QPixmap()
+        self._drag_suffix_annotations = []
+        self._drag_dynamic_scene_layer = QPixmap()
+        self._drag_dynamic_scene_key = None
+
+    def _commit_drag_preview_layer(self):
+        """Commit cached pixels in canonical annotation z-order on release."""
+        active = self._drag_preview_annotation
+        if active not in self._annotations or not self._drag_preview_tiles:
+            return False
+        layer = QPixmap(self._selection_pixel_size())
+        layer.setDevicePixelRatio(self._dpr)
+        layer.fill(Qt.transparent)
+        painter = QPainter(layer)
+        self._prepare_annotation_layer_painter(painter)
+        for annotation in self._annotations:
+            if annotation is active:
+                for bounds, tile in self._drag_preview_tiles:
+                    painter.drawPixmap(
+                        bounds.topLeft() + self._drag_preview_offset,
+                        tile,
+                    )
+                continue
+            if annotation["kind"] == "mosaic":
+                painter.end()
+                source = self._annotation_composite(layer)
+                painter = QPainter(layer)
+                self._prepare_annotation_layer_painter(painter)
+                self._paint_annotation(
+                    painter,
+                    annotation,
+                    mosaic_source=source,
+                    mosaic_source_rect=self.selection,
+                )
+            else:
+                self._paint_annotation(painter, annotation)
+        painter.end()
+        self._annotation_layer = layer
+        self._annotation_layer_selection = QRect(self.selection)
+        self._annotation_layer_dirty = False
+        self._annotation_composite_cache = QPixmap()
+        self._annotation_composite_key = None
+        return True
+
     def _editable_annotation_bounds(self):
         annotation = self._active_annotation
         if annotation is None:
@@ -1092,6 +2230,11 @@ class ScreenshotOverlay(QWidget):
             bounds.adjust(-8, 0, 8, 0)
         if bounds.height() < 16:
             bounds.adjust(0, -8, 0, 8)
+        if self._has_drag_preview():
+            if self._drag_mode == "resize_element":
+                bounds = QRect(self._resize_preview_bounds)
+            else:
+                bounds.translate(self._drag_preview_offset)
         return bounds
 
     def _restore_active_annotation(self):
@@ -1114,6 +2257,9 @@ class ScreenshotOverlay(QWidget):
             desired.setY(desired.y() + self.selection.top() - moved.top())
         if moved.bottom() > self.selection.bottom():
             desired.setY(desired.y() + self.selection.bottom() - moved.bottom())
+        if self._has_drag_preview():
+            self._drag_preview_offset = desired
+            return
         self._restore_active_annotation()
         translate_annotations([self._active_annotation], desired)
 
@@ -1122,6 +2268,7 @@ class ScreenshotOverlay(QWidget):
         if annotation not in self._annotations:
             return
         self._annotations.remove(annotation)
+        self._discard_pen_preview_cache(annotation)
         self._active_annotation = None
         self._renderer.retain_annotations(self._annotations)
         self._invalidate_annotation_layer()
@@ -1241,6 +2388,7 @@ class ScreenshotOverlay(QWidget):
     def _undo(self):
         if self._annotations:
             removed = self._annotations.pop()
+            self._discard_pen_preview_cache(removed)
             if self._active_annotation is removed:
                 self._active_annotation = None
             self._renderer.retain_annotations(self._annotations)

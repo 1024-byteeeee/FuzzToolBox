@@ -1,8 +1,8 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QPoint, QRect, Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from fuzztoolbox.tools.screenshot.annotations import (
@@ -119,6 +119,26 @@ class AnnotationStateTests(unittest.TestCase):
             20,
         )
 
+    def test_long_pen_hit_test_only_checks_the_matching_segment_chunk(self):
+        annotation = new_annotation(
+            "pen", QPoint(0, 20), QPoint(0, 20), QColor(Qt.red), 4
+        )
+        annotation["points"] = [QPoint(index, 20) for index in range(20_000)]
+        annotation["end"] = QPoint(annotation["points"][-1])
+        annotation["_point_bounds"] = QRect(
+            annotation["points"][0], annotation["points"][-1]
+        )
+        annotation["_point_bounds_count"] = len(annotation["points"])
+
+        with patch(
+            "fuzztoolbox.tools.screenshot.annotations.distance_to_segment",
+            wraps=distance_to_segment,
+        ) as distance:
+            contains = annotation_contains(annotation, QPoint(19_990, 22))
+
+        self.assertTrue(contains)
+        self.assertLessEqual(distance.call_count, 128)
+
     def test_translate_moves_endpoints_and_brush_points_together(self):
         annotation = new_annotation(
             "mosaic", QPoint(10, 20), QPoint(10, 20), QColor(Qt.black), 8
@@ -130,6 +150,32 @@ class AnnotationStateTests(unittest.TestCase):
         self.assertEqual(annotation["start"], QPoint(17, 16))
         self.assertEqual(annotation["end"], QPoint(17, 16))
         self.assertEqual(annotation["points"], [QPoint(17, 16), QPoint(27, 26)])
+
+    def test_long_brush_resize_keeps_endpoints_aligned_with_points(self):
+        annotation = new_annotation(
+            "pen", QPoint(1, 1), QPoint(1, 1), QColor(Qt.red), 4
+        )
+        annotation["points"] = [QPoint(1, 1) for _ in range(128)]
+
+        resize_annotation(annotation, QRect(0, 0, 3, 3), QRect(0, 0, 6, 6))
+
+        self.assertEqual(annotation["start"], annotation["points"][0])
+        self.assertEqual(annotation["end"], annotation["points"][-1])
+
+    def test_fragment_hit_test_checks_the_full_logical_pixel_cell(self):
+        image = QImage(2, 2, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        image.setPixelColor(1, 1, QColor("#ff4d4f"))
+        fragment = {
+            "kind": "fragment",
+            "start": QPoint(10, 10),
+            "end": QPoint(10, 10),
+            "color": QColor("#ff4d4f"),
+            "width": 4,
+            "image": image,
+        }
+
+        self.assertTrue(annotation_contains(fragment, QPoint(10, 10)))
 
 
 class CaptureAndRendererTests(unittest.TestCase):
@@ -278,6 +324,23 @@ class CaptureAndRendererTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertIs(second, third)
         self.assertEqual(third.elementCount(), len(annotation["points"]))
+
+    def test_long_pen_rasterizes_as_bounded_connected_polylines(self):
+        renderer = AnnotationRenderer(QPixmap(), QRect(), 1.0, "Arial")
+        annotation = new_annotation(
+            "pen", QPoint(10, 40), QPoint(10, 40), QColor(Qt.black), 4
+        )
+        annotation["points"] = [QPoint(10 + index, 40) for index in range(600)]
+        painter = Mock()
+
+        renderer._paint_pen(painter, annotation)
+
+        polylines = [call.args[0] for call in painter.drawPolyline.call_args_list]
+        self.assertGreater(len(polylines), 1)
+        self.assertTrue(all(len(polyline) <= 65 for polyline in polylines))
+        for previous, following in zip(polylines, polylines[1:]):
+            self.assertEqual(previous[-1], following[0])
+        painter.drawPath.assert_not_called()
 
     def test_capture_coordinator_converts_native_failure_to_signal(self):
         coordinator = ScreenCaptureCoordinator(
