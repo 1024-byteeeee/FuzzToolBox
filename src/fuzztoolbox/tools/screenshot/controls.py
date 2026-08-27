@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QRect, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
     QFrame,
@@ -109,7 +109,11 @@ class SelectionOptionsBar(QFrame):
         self.radius_spinbox.setObjectName("screenshotCornerRadius")
         self.radius_spinbox.setRange(0, 0)
         self.radius_spinbox.setSuffix(" px")
-        self.radius_spinbox.setFixedWidth(64)
+        # Fit the widest possible value ("100 px") exactly, following the
+        # widget font and the 14px up/down arrow buttons from the stylesheet.
+        font_metrics = QFontMetrics(self.radius_spinbox.font())
+        text_width = font_metrics.horizontalAdvance("100 px")
+        self.radius_spinbox.setFixedWidth(text_width + 2 * 14 + 8)
         self.radius_spinbox.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.radius_spinbox.setCursor(Qt.IBeamCursor)
         self.radius_spinbox.setToolTip("圆角像素值，可直接输入")
