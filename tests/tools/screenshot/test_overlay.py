@@ -1968,6 +1968,10 @@ class ScreenshotOverlayTests(unittest.TestCase):
 
         points = self.overlay._annotations[-1]["points"]
         self.assertGreater(len(points), 64)
+        # The committed layer must be rebuilt from the full vector stroke
+        # (not the incremental tile composite) so the line is complete right
+        # after release — no later click should be needed to repair it.
+        self.assertTrue(self.overlay._annotation_layer_dirty)
         image = self.overlay._committed_annotation_layer().toImage()
         gaps = 0
         for index in range(1, len(points)):

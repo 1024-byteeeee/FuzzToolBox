@@ -1744,8 +1744,11 @@ class ScreenshotOverlay(QWidget):
                     }
                 )
                 self._renderer.retain_annotations(self._annotations)
-                if not cached_stroke:
-                    self._invalidate_annotation_layer()
+                # Always rebuild the committed layer from the full vector
+                # stroke. Relying on the incremental tile composite alone can
+                # leave seam gaps that only appear once a later full repaint
+                # re-rasterizes the annotation.
+                self._invalidate_annotation_layer()
             self._clear_current_stroke_cache()
             self._current = None
         if self._drag_mode == "move":
