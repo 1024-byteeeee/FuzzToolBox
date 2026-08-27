@@ -357,7 +357,14 @@ class IPLookupPage(QWidget):
         self.public_ip_timeout.start()
         self.public_ip_worker = PublicIPWorker()
         self.public_ip_worker.completed.connect(self._set_public_ip)
+        self.public_ip_worker.finished.connect(self._public_ip_finished)
+        self.public_ip_worker.finished.connect(
+            lambda worker=self.public_ip_worker: worker.deleteLater()
+        )
         self.public_ip_worker.start()
+
+    def _public_ip_finished(self):
+        self.public_ip_worker = None
 
     def _set_public_ip(self, ipv4: str, ipv6: str):
         if not self._public_ip_pending:
@@ -408,9 +415,13 @@ class IPLookupPage(QWidget):
         self.worker.completed.connect(self._show_report)
         self.worker.failed.connect(self._show_error)
         self.worker.finished.connect(self._lookup_finished)
+        self.worker.finished.connect(
+            lambda worker=self.worker: worker.deleteLater()
+        )
         self.worker.start()
 
     def _lookup_finished(self):
+        self.worker = None
         self.ip_input.setEnabled(True)
         self.query_button.setEnabled(True)
         self.my_ip_button.setEnabled(True)

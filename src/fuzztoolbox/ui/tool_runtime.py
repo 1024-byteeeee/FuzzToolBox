@@ -7,10 +7,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, Signal
 from PySide6.QtWidgets import QWidget
+from shiboken6 import isValid
 
 from .tool_registry import ToolDefinition
+
+# When a page's prepare_close() defers (e.g. a background worker is still
+# finishing), the page stays in the closing set. A watchdog guarantees the page
+# is still disposed after this grace period even if the worker never signals
+# completion, so closing a tool always releases its memory.
+_CLOSE_GRACE_MS = 10_000
 
 
 class ToolRuntimeState(Enum):
@@ -62,6 +69,8 @@ class ToolRuntimeManager(QObject):
         self._disposer = disposer
         self._pages: dict[str, QWidget] = {}
         self._closing: set[str] = set()
+        self._close_watchdogs: dict[str, QTimer] = {}
+        self._orphaned_threads: list[QThread] = []
         self._close_all_callbacks: list[Callable[[], None]] = []
         self._batch_closing = False
 
@@ -144,7 +153,48 @@ class ToolRuntimeManager(QObject):
                 )
             )
             if not ready:
+                self._arm_close_watchdog(tool_id, page)
                 return
+        self._finalize_close(tool_id, page)
+
+    def _arm_close_watchdog(self, tool_id: str, page: QWidget) -> None:
+        if tool_id in self._close_watchdogs:
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(_CLOSE_GRACE_MS)
+        timer.timeout.connect(lambda: self._force_finish_close(tool_id, page))
+        timer.start()
+        self._close_watchdogs[tool_id] = timer
+
+    def _force_finish_close(self, tool_id: str, page: QWidget) -> None:
+        if self._pages.get(tool_id) is not page or tool_id not in self._closing:
+            return
+        # A worker may still be running (the page deferred its close). Detach
+        # any running QThread children so deleting the page cannot destroy a
+        # live thread; they finish on their own and are released on completion.
+        for thread in page.findChildren(QThread):
+            if thread.isRunning():
+                thread.setParent(None)
+                self._orphaned_threads.append(thread)
+                thread.finished.connect(
+                    lambda worker=thread: self._release_orphan(worker)
+                )
+        self._finalize_close(tool_id, page)
+
+    def _release_orphan(self, thread: QThread) -> None:
+        if thread in self._orphaned_threads:
+            self._orphaned_threads.remove(thread)
+        if isValid(thread):
+            thread.deleteLater()
+
+    def _finalize_close(self, tool_id: str, page: QWidget) -> None:
+        if self._pages.get(tool_id) is not page or tool_id not in self._closing:
+            return
+        watchdog = self._close_watchdogs.pop(tool_id, None)
+        if watchdog is not None:
+            watchdog.stop()
+            watchdog.deleteLater()
         self._pages.pop(tool_id, None)
         self._closing.discard(tool_id)
         self._disposer(tool_id, page)

@@ -88,6 +88,15 @@ class StyleArchitectureTests(unittest.TestCase):
         self.assertNotIn("-dark.svg", stylesheet)
         self.assertEqual(theme_color("text"), "#303133")
 
+    def test_base_qss_styles_all_menus_with_hover_highlight(self):
+        """Every context menu (not just the tray menu) shares the themed look
+        and a hover highlight for entries."""
+        set_theme("light")
+        stylesheet = load_qss("base.qss")
+        self.assertIn("QMenu::item:selected", stylesheet)
+        self.assertIn("#ecf5ff", stylesheet)
+        self.assertIn("QMenu#trayMenu", stylesheet)
+
 
 if __name__ == "__main__":
     unittest.main()

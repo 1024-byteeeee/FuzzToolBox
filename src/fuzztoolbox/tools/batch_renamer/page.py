@@ -130,6 +130,14 @@ class CenteredCheckDelegate(QStyledItemDelegate):
             return False
         return False
 
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # QStyledItemDelegate.paint() re-runs initStyleOption() internally on a
+        # fresh copy, so clearing the indicator flag here (rather than only in
+        # paint()) is the reliable way to stop Qt from drawing its own checkbox
+        # underneath our centred one.
+        option.features &= ~QStyleOptionViewItem.HasCheckIndicator
+
     def paint(self, painter, option, index):
         styled = QStyleOptionViewItem(option)
         self.initStyleOption(styled, index)
@@ -138,7 +146,6 @@ class CenteredCheckDelegate(QStyledItemDelegate):
             super().paint(painter, styled, index)
             return
         checked = Qt.CheckState(int(check_state)) == Qt.CheckState.Checked
-        styled.features &= ~QStyleOptionViewItem.HasCheckIndicator
         if styled.state & QStyle.State_Selected:
             painter.fillRect(option.rect, QColor(theme_color("primary_soft")))
         super().paint(painter, styled, index)

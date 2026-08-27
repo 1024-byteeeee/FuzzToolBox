@@ -11,6 +11,17 @@ QMenu#trayMenu::item {
 }
 QMenu#trayMenu::item:selected { background: #ecf5ff; color: #1677d2; }
 QMenu#trayMenu::item:pressed { background: #d9ecff; color: #1677d2; }
+QMenu {
+  background: #ffffff; color: #303133; border: 1px solid #dcdfe6;
+  border-radius: 8px; padding: 6px;
+}
+QMenu::item {
+  background: transparent; min-width: 96px; padding: 7px 22px;
+  border: 0; border-radius: 5px;
+}
+QMenu::item:selected { background: #ecf5ff; color: #1677d2; }
+QMenu::item:pressed { background: #d9ecff; color: #1677d2; }
+QMenu::separator { height: 1px; background: #e4e7ed; margin: 5px 8px; }
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QDateTimeEdit {
   background: white; border: 1px solid #dcdfe6; border-radius: 6px; padding: 7px 10px;
 }

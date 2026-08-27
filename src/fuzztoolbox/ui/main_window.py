@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import gc
 import sys
 from pathlib import Path
 
@@ -687,6 +688,10 @@ class MainWindow(QMainWindow):
         self.pages.removeWidget(page)
         page.close()
         page.deleteLater()
+        # Run a collection pass so Python wrapper cycles for the page tree are
+        # released as soon as possible (the C++ deleteLater() is handled by the
+        # regular event loop, where it is safe).
+        gc.collect()
         if was_current and not self._application_quitting:
             self.show_home()
 

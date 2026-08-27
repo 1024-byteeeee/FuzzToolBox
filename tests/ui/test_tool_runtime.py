@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
+import fuzztoolbox.ui.tool_runtime as tr_module
 from fuzztoolbox.ui.tool_registry import ToolDefinition
 from fuzztoolbox.ui.tool_runtime import (
     ToolActivity,
@@ -130,6 +132,26 @@ class ToolRuntimeManagerTests(unittest.TestCase):
             self.runtime.register("alpha", RuntimePage())
         with self.assertRaises(KeyError):
             self.runtime.register("missing", RuntimePage())
+
+    def test_watchdog_force_disposes_a_stuck_page(self) -> None:
+        """A page whose prepare_close() never signals ready must still be
+        disposed after the grace period instead of lingering forever."""
+        page = RuntimePage(active=True, asynchronous=True)
+        self.runtime.register("alpha", page)
+        old_grace = tr_module._CLOSE_GRACE_MS
+        tr_module._CLOSE_GRACE_MS = 60
+        try:
+            self.assertTrue(self.runtime.request_close("alpha"))
+            self.assertEqual(self.disposed, [])
+            self.assertIn("alpha", self.runtime._close_watchdogs)
+            loop = QEventLoop()
+            QTimer.singleShot(400, loop.quit)
+            loop.exec()
+        finally:
+            tr_module._CLOSE_GRACE_MS = old_grace
+        self.assertIsNone(self.runtime.page("alpha"))
+        self.assertEqual(self.disposed, [("alpha", page)])
+        self.assertEqual(self.runtime._close_watchdogs, {})
 
 
 if __name__ == "__main__":
