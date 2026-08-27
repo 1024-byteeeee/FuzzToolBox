@@ -406,10 +406,15 @@ class ScreenshotOverlay(QWidget):
                 painter.drawPixmap(target.topLeft(), tile)
 
     def _paint_current_stroke(self, painter, exposed):
-        """Blit only exposed tiles of the pen stroke in progress."""
-        for bounds, tile in (self._current_stroke_tiles or {}).values():
-            if exposed.intersects(bounds):
-                painter.drawPixmap(bounds.topLeft(), tile)
+        """Draw the in-progress pen stroke from its full vector path.
+
+        The incremental tile blit used to leave seam gaps on screen that only
+        a later full repaint repaired; drawing the same vector path the
+        committed layer uses keeps the live preview identical and complete.
+        """
+        if not self._current or self._current["kind"] != "pen":
+            return
+        self._paint_annotation(painter, self._current)
 
     def _dynamic_drag_scene(self):
         """Compose a suffix containing mosaic against the moving cached item."""

@@ -1987,6 +1987,49 @@ class ScreenshotOverlayTests(unittest.TestCase):
                 gaps += 1
         self.assertEqual(gaps, 0)
 
+    def test_in_progress_pen_stroke_is_continuous_while_drawing(self):
+        """The live (pre-release) pen display must be complete from its
+        vector path — previously the tile blit left seams that were only
+        repaired after mouse release."""
+        self.overlay._dpr = 2.0
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        self.overlay._color = QColor("#ff0000")
+        self.overlay._width = 4
+        self.overlay._select_tool("pen")
+        press = Mock()
+        press.button.return_value = Qt.LeftButton
+        press.position.return_value = QPointF(40, 60)
+        self.overlay.mousePressEvent(press)
+        checks = 0
+        for x, y in [(260, 90), (500, 140), (760, 240), (760, 480)]:
+            move = Mock()
+            move.position.return_value = QPointF(x, y)
+            self.overlay.mouseMoveEvent(move)
+            rendered = QImage(
+                self.overlay.size(), QImage.Format_ARGB32_Premultiplied
+            )
+            rendered.fill(Qt.transparent)
+            self.overlay.render(rendered)
+            points = self.overlay._current["points"]
+            for index in range(1, len(points)):
+                a, b = points[index - 1], points[index]
+                for t in (0.25, 0.5, 0.75):
+                    sx = round(a.x() + (b.x() - a.x()) * t)
+                    sy = round(a.y() + (b.y() - a.y()) * t)
+                    if (
+                        0 <= sx < rendered.width()
+                        and 0 <= sy < rendered.height()
+                        and rendered.pixelColor(sx, sy).alpha() < 128
+                    ):
+                        self.fail(
+                            f"live stroke gap at point {index} "
+                            f"while drawing (x={sx}, y={sy})"
+                        )
+            checks += 1
+        self.assertGreater(checks, 0)
+
     def test_clicking_a_detected_window_selects_its_region(self):
         candidate = QRect(120, 80, 500, 360)
         self.overlay._window_candidates = [candidate]
