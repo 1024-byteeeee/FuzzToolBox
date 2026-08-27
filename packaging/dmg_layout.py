@@ -122,12 +122,23 @@ def create_styled_dmg(app_path: Path, output_path: Path, volume_name: str) -> No
             item for item in attachment["system-entities"] if item.get("mount-point")
         )
         device = entity["dev-entry"]
+        # Use the *actual* mounted volume name (mount-point basename) rather than
+        # the requested volume name.  If another volume named `volume_name` is
+        # already mounted, hdiutil appends " 1", " 2", … and Finder's
+        # `first disk whose name is volume_name` would style the wrong (stale)
+        # volume, leaving the freshly built DMG without its .DS_Store layout.
+        mounted_name = Path(entity["mount-point"]).name
+        if mounted_name != volume_name:
+            print(
+                f"Warning: volume mounted as {mounted_name!r} "
+                f"(requested {volume_name!r}); using the actual mount name."
+            )
         try:
             subprocess.run(
                 [
                     "/usr/bin/osascript",
                     str(SCRIPT_DIR / "configure_dmg.applescript"),
-                    volume_name,
+                    mounted_name,
                     app_path.name,
                     str(120 + WINDOW_WIDTH),
                     str(120 + WINDOW_HEIGHT),
@@ -147,7 +158,7 @@ def create_styled_dmg(app_path: Path, output_path: Path, volume_name: str) -> No
                 [
                     "/usr/bin/osascript",
                     str(SCRIPT_DIR / "close_dmg_window.applescript"),
-                    volume_name,
+                    mounted_name,
                 ],
                 check=False,
             )
