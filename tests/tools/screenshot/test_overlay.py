@@ -504,6 +504,49 @@ class ScreenshotOverlayTests(unittest.TestCase):
         ]
         self.assertEqual(len(active_calls), 1)
 
+    def test_dynamic_mosaic_blits_stable_long_suffix_instead_of_repainting_it(self):
+        self.overlay.resize(800, 500)
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        active = new_annotation(
+            "rect", QPoint(40, 40), QPoint(300, 180), QColor("#ff0000"), 4
+        )
+        stable = new_annotation(
+            "pen", QPoint(20, 240), QPoint(20, 240), QColor("#00ff00"), 4
+        )
+        stable["points"] = [
+            QPoint(20 + index % 760, 240 + index % 80)
+            for index in range(20_000)
+        ]
+        stable["start"] = QPoint(stable["points"][0])
+        stable["end"] = QPoint(stable["points"][-1])
+        mosaic = new_annotation(
+            "mosaic", QPoint(40, 40), QPoint(40, 40), QColor(Qt.black), 8
+        )
+        append_brush_points(mosaic, QPoint(300, 40))
+        self.overlay._annotations.extend((active, stable, mosaic))
+        self.overlay._active_annotation = active
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(100, 40)
+        self.overlay._begin_element_move(active)
+        self.overlay._move_active_annotation(QPoint(100, 60))
+
+        with patch.object(
+            self.overlay,
+            "_paint_annotation",
+            wraps=self.overlay._paint_annotation,
+        ) as paint_annotation:
+            scene = self.overlay._dynamic_drag_scene()
+
+        self.assertFalse(scene.isNull())
+        self.assertFalse(
+            any(
+                len(call.args) >= 2 and call.args[1] is stable
+                for call in paint_annotation.call_args_list
+            )
+        )
+
     def test_mosaic_suffix_damage_is_included_in_pointer_update(self):
         self.overlay.resize(320, 220)
         self.overlay.selection = QRect(0, 0, 320, 220)

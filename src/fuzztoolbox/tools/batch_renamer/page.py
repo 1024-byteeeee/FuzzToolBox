@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDragEnterEvent,
@@ -103,6 +103,15 @@ class DownwardCombo(QComboBox):
 class CenteredCheckDelegate(QStyledItemDelegate):
     """Draw the preview selection checkbox centred within its cell."""
 
+    INDICATOR_SIZE = 18.0
+
+    @classmethod
+    def indicator_rect(cls, cell_rect):
+        """Return an indicator rect centred without losing half pixels."""
+        rect = QRectF(0, 0, cls.INDICATOR_SIZE, cls.INDICATOR_SIZE)
+        rect.moveCenter(QRectF(cell_rect).center())
+        return rect
+
     def editorEvent(self, event, model, option, index):
         if index.column() != 0:
             return super().editorEvent(event, model, option, index)
@@ -110,14 +119,7 @@ class CenteredCheckDelegate(QStyledItemDelegate):
             event.type() == QEvent.MouseButtonRelease
             and event.button() == Qt.LeftButton
         ):
-            size = 18
-            rect = QRect(
-                option.rect.center().x() - size // 2,
-                option.rect.center().y() - size // 2,
-                size,
-                size,
-            )
-            if rect.contains(event.position().toPoint()):
+            if self.indicator_rect(option.rect).contains(event.position()):
                 state = index.data(Qt.CheckStateRole)
                 if state is None:
                     return False
@@ -149,13 +151,7 @@ class CenteredCheckDelegate(QStyledItemDelegate):
         if styled.state & QStyle.State_Selected:
             painter.fillRect(option.rect, QColor(theme_color("primary_soft")))
         super().paint(painter, styled, index)
-        size = 18
-        rect = QRect(
-            option.rect.center().x() - size // 2,
-            option.rect.center().y() - size // 2,
-            size,
-            size,
-        )
+        rect = self.indicator_rect(option.rect)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing, True)
         radius = 4

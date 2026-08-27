@@ -155,6 +155,7 @@ class ScreenshotOverlay(QWidget):
         self._drag_scene_layer = QPixmap()
         self._drag_foreground_layer = QPixmap()
         self._drag_suffix_annotations = []
+        self._drag_suffix_render_steps = []
         self._drag_dynamic_scene_layer = QPixmap()
         self._drag_dynamic_scene_key = None
         self._editing_text_index = -1
@@ -444,24 +445,21 @@ class ScreenshotOverlay(QWidget):
         self._prepare_annotation_layer_painter(painter)
         self._paint_drag_preview(painter, QRegion(self.selection))
         painter.end()
-        for annotation in self._drag_suffix_annotations:
-            source = None
-            source_rect = None
-            if annotation["kind"] == "mosaic":
-                source, source_rect = self._mosaic_source_crop(
-                    QPixmap(layer), annotation
-                )
+        for step_kind, payload in self._drag_suffix_render_steps:
             painter = QPainter(layer)
             self._prepare_annotation_layer_painter(painter)
-            if annotation["kind"] == "mosaic":
+            if step_kind == "mosaic":
+                source, source_rect = self._mosaic_source_crop(
+                    QPixmap(layer), payload
+                )
                 self._paint_annotation(
                     painter,
-                    annotation,
+                    payload,
                     mosaic_source=source,
                     mosaic_source_rect=source_rect,
                 )
             else:
-                self._paint_annotation(painter, annotation)
+                painter.drawPixmap(self.selection.topLeft(), payload)
             painter.end()
         self._drag_dynamic_scene_layer = layer
         self._drag_dynamic_scene_key = key
@@ -656,7 +654,23 @@ class ScreenshotOverlay(QWidget):
             self._paint_annotation(painter, annotation)
         painter.end()
 
-    def _render_drag_foreground(self, suffix):
+    def _build_drag_suffix_render_steps(self, suffix):
+        """Pre-rasterize stable suffix vectors between dynamic mosaics."""
+        steps = []
+        stable = []
+        for annotation in suffix:
+            if annotation["kind"] != "mosaic":
+                stable.append(annotation)
+                continue
+            if stable:
+                steps.append(("layer", self._render_annotation_layer(stable)))
+                stable = []
+            steps.append(("mosaic", annotation))
+        if stable:
+            steps.append(("layer", self._render_annotation_layer(stable)))
+        return steps
+
+    def _render_drag_foreground(self):
         """Render the stable suffix with canonical mosaic source ordering."""
         base = QPixmap(self._drag_base_layer)
         painter = QPainter(base)
@@ -667,25 +681,24 @@ class ScreenshotOverlay(QWidget):
         foreground = QPixmap(self._selection_pixel_size())
         foreground.setDevicePixelRatio(self._dpr)
         foreground.fill(Qt.transparent)
-        for annotation in suffix:
-            source = None
-            source_rect = None
-            if annotation["kind"] == "mosaic":
+        for step_kind, payload in self._drag_suffix_render_steps:
+            if step_kind == "mosaic":
                 source, source_rect = self._mosaic_source_crop(
-                    self._annotation_composite(base), annotation
+                    self._annotation_composite(base), payload
                 )
-            self._paint_annotation_on_layer(
-                foreground,
-                annotation,
-                mosaic_source=source,
-                mosaic_source_rect=source_rect,
-            )
-            self._paint_annotation_on_layer(
-                base,
-                annotation,
-                mosaic_source=source,
-                mosaic_source_rect=source_rect,
-            )
+                for layer in (foreground, base):
+                    self._paint_annotation_on_layer(
+                        layer,
+                        payload,
+                        mosaic_source=source,
+                        mosaic_source_rect=source_rect,
+                    )
+                continue
+            for layer in (foreground, base):
+                painter = QPainter(layer)
+                self._prepare_annotation_layer_painter(painter)
+                painter.drawPixmap(self.selection.topLeft(), payload)
+                painter.end()
         return foreground
 
     def _render_drag_preview_layer(self, annotation):
@@ -2215,13 +2228,17 @@ class ScreenshotOverlay(QWidget):
         suffix = self._annotations[index + 1 :]
         has_suffix_mosaic = any(item["kind"] == "mosaic" for item in suffix)
         if has_suffix_mosaic:
-            self._drag_foreground_layer = self._render_drag_foreground(suffix)
+            self._drag_suffix_render_steps = (
+                self._build_drag_suffix_render_steps(suffix)
+            )
+            self._drag_foreground_layer = self._render_drag_foreground()
             self._drag_suffix_annotations = suffix
         else:
             self._drag_foreground_layer = (
                 self._render_annotation_layer(suffix) if suffix else QPixmap()
             )
             self._drag_suffix_annotations = []
+            self._drag_suffix_render_steps = []
 
     def _rebuild_drag_preview_tiles(self, annotation):
         layer, bounds = self._render_drag_preview_layer(annotation)
@@ -2264,6 +2281,7 @@ class ScreenshotOverlay(QWidget):
         self._drag_scene_layer = QPixmap()
         self._drag_foreground_layer = QPixmap()
         self._drag_suffix_annotations = []
+        self._drag_suffix_render_steps = []
         self._drag_dynamic_scene_layer = QPixmap()
         self._drag_dynamic_scene_key = None
 

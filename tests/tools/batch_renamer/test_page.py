@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -170,6 +170,9 @@ class BatchRenamerPageTests(unittest.TestCase):
     def test_preview_checkboxes_are_centred_and_toggle_on_click(self):
         delegate = self.page.preview.itemDelegateForColumn(0)
         self.assertIsInstance(delegate, CenteredCheckDelegate)
+
+        indicator = delegate.indicator_rect(QRect(7, 5, 61, 31))
+        self.assertEqual(indicator.center(), QPointF(37.5, 20.5))
 
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "draft.txt"
