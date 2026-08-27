@@ -1436,6 +1436,107 @@ class ScreenshotOverlayTests(unittest.TestCase):
         QTest.mouseRelease(self.overlay, Qt.LeftButton, pos=QPoint(360, 290))
         self.assertEqual(self.overlay.selection.topLeft(), QPoint(160, 140))
 
+    def test_undo_after_element_move_restores_position_instead_of_deleting(self):
+        self.overlay.selection = QRect(100, 100, 400, 300)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        annotation = new_annotation(
+            "rect",
+            QPoint(150, 150),
+            QPoint(240, 220),
+            self.overlay._color,
+            self.overlay._width,
+        )
+
+        # Commit a drawn annotation so an "add" undo step is recorded.
+        self.overlay._current = annotation
+        self.overlay._drag_mode = "annotate"
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(240, 220)
+        self.overlay.mouseReleaseEvent(release)
+        self.assertIn(annotation, self.overlay._annotations)
+
+        # Move the element by (80, 80).
+        self.overlay._active_annotation = annotation
+        self.overlay._drag_mode = "move_element"
+        self.overlay._drag_start = QPoint(180, 180)
+        self.overlay._begin_element_move(annotation)
+        self.overlay._move_active_annotation(QPoint(260, 260))
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(260, 260)
+        self.overlay.mouseReleaseEvent(release)
+        self.assertEqual(annotation["start"], QPoint(230, 230))
+
+        # Undo must revert the move, not delete the annotation.
+        self.overlay._undo()
+        self.assertIn(annotation, self.overlay._annotations)
+        self.assertEqual(annotation["start"], QPoint(150, 150))
+
+        # A second undo removes the drawn annotation.
+        self.overlay._undo()
+        self.assertNotIn(annotation, self.overlay._annotations)
+
+    def test_undo_after_element_resize_restores_original_geometry(self):
+        self.overlay.selection = QRect(100, 100, 400, 300)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        annotation = new_annotation(
+            "rect",
+            QPoint(150, 150),
+            QPoint(240, 220),
+            self.overlay._color,
+            self.overlay._width,
+        )
+        self.overlay._annotations.append(annotation)
+        self.overlay._active_annotation = annotation
+        self.overlay._drag_mode = "resize_element"
+        self.overlay._handle = "bottom_right"
+        self.overlay._drag_start = QPoint(240, 220)
+        self.overlay._begin_element_resize(annotation)
+        source = QRect(self.overlay._element_bounds_start)
+        target = source.adjusted(0, 0, 60, 40)
+        self.overlay._resize_preview_bounds = target
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(target.bottomRight())
+        self.overlay.mouseReleaseEvent(release)
+        self.assertEqual(annotation["end"], QPoint(300, 260))
+
+        self.overlay._undo()
+        self.assertIn(annotation, self.overlay._annotations)
+        self.assertEqual(annotation["start"], QPoint(150, 150))
+        self.assertEqual(annotation["end"], QPoint(240, 220))
+
+    def test_undo_after_erase_restores_original_annotations(self):
+        self.overlay.selection = QRect(0, 0, 800, 500)
+        self.overlay._desktop = QPixmap(self.overlay.size())
+        self.overlay._desktop.fill(QColor("#202124"))
+        pen = new_annotation(
+            "pen", QPoint(40, 160), QPoint(40, 160), QColor("#ff4d4f"), 6
+        )
+        append_brush_points(pen, QPoint(700, 160))
+        self.overlay._annotations.append(pen)
+        self.overlay._current = new_annotation(
+            "eraser",
+            QPoint(360, 160),
+            QPoint(360, 160),
+            QColor(Qt.white),
+            6,
+        )
+        append_brush_points(self.overlay._current, QPoint(440, 160))
+        self.overlay._drag_mode = "annotate"
+        release = Mock()
+        release.button.return_value = Qt.LeftButton
+        release.position.return_value = QPointF(440, 160)
+        self.overlay.mouseReleaseEvent(release)
+        self.assertEqual(len(self.overlay._annotations), 2)
+
+        self.overlay._undo()
+        self.assertEqual(len(self.overlay._annotations), 1)
+        self.assertIs(self.overlay._annotations[0], pen)
+
     def test_selection_handles_are_not_painted_after_annotation_is_added(self):
         self.overlay.selection = QRect(100, 100, 400, 300)
         self.overlay._desktop = QPixmap(self.overlay.size())

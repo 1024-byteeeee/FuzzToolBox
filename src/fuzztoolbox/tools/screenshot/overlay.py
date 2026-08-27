@@ -119,6 +119,8 @@ class ScreenshotOverlay(QWidget):
         self._handle = ""
         self._selection_start = QRect()
         self._annotations = []
+        self._undo_stack = []
+        self._gesture_geometry_before = QRect()
         self._annotation_layer = QPixmap()
         self._annotation_layer_selection = QRect()
         self._annotation_layer_dirty = True
@@ -988,6 +990,7 @@ class ScreenshotOverlay(QWidget):
 
     def _erase_annotations(self, eraser):
         """Commit an eraser stroke by replacing touched items with fragments."""
+        self._record_undo({"type": "erase", "before": list(self._annotations)})
         erased_bounds = annotation_bounds(eraser)
         annotations = []
         for annotation in self._annotations:
@@ -1458,6 +1461,7 @@ class ScreenshotOverlay(QWidget):
             editor.hide()
             editor.deleteLater()
         self._annotations.clear()
+        self._undo_stack.clear()
         self._active_annotation = None
         self._current = None
         self._element_start = None
@@ -1704,14 +1708,20 @@ class ScreenshotOverlay(QWidget):
             if annotation is not None:
                 self._select_annotation(annotation)
             else:
-                self._annotations.append(
-                    new_annotation(
-                        self._tool,
-                        self._drag_start,
-                        self._drag_start,
-                        self._color,
-                        self._width,
-                    )
+                annotation = new_annotation(
+                    self._tool,
+                    self._drag_start,
+                    self._drag_start,
+                    self._color,
+                    self._width,
+                )
+                self._annotations.append(annotation)
+                self._record_undo(
+                    {
+                        "type": "add",
+                        "annotation": annotation,
+                        "index": len(self._annotations) - 1,
+                    }
                 )
                 self._renderer.retain_annotations(self._annotations)
                 self._invalidate_annotation_layer()
@@ -1723,6 +1733,13 @@ class ScreenshotOverlay(QWidget):
                 if cached_stroke:
                     self._remember_current_pen_preview(self._current)
                 self._annotations.append(self._current)
+                self._record_undo(
+                    {
+                        "type": "add",
+                        "annotation": self._current,
+                        "index": len(self._annotations) - 1,
+                    }
+                )
                 self._renderer.retain_annotations(self._annotations)
                 if not cached_stroke:
                     self._invalidate_annotation_layer()
@@ -1730,7 +1747,17 @@ class ScreenshotOverlay(QWidget):
             self._current = None
         if self._drag_mode == "move":
             delta = self.selection.topLeft() - self._selection_start.topLeft()
-            translate_annotations(self._annotations, delta)
+            if not delta.isNull() and self._annotations:
+                self._record_undo(
+                    {
+                        "type": "move",
+                        "annotations": list(self._annotations),
+                        "delta": delta,
+                        "selection_before": QRect(self._selection_start),
+                        "selection_after": QRect(self.selection),
+                    }
+                )
+                translate_annotations(self._annotations, delta)
         force_repaint = False
         if self._drag_mode == "move_element" and self._has_drag_preview():
             annotation = self._active_annotation
@@ -1768,6 +1795,45 @@ class ScreenshotOverlay(QWidget):
                 self._invalidate_annotation_layer()
             self._clear_drag_preview()
             force_repaint = True
+        if self._drag_mode == "move_element" and self._active_annotation is not None:
+            before = self._gesture_geometry_before
+            if before.isValid():
+                after = annotation_geometry(self._active_annotation)
+                delta = after.topLeft() - before.topLeft()
+                if not delta.isNull():
+                    self._record_undo(
+                        {
+                            "type": "move",
+                            "annotations": [self._active_annotation],
+                            "delta": delta,
+                        }
+                    )
+        elif (
+            self._drag_mode == "resize_element"
+            and self._active_annotation is not None
+        ):
+            before = self._gesture_geometry_before
+            if before.isValid():
+                after = annotation_geometry(self._active_annotation)
+                if before != after:
+                    self._record_undo(
+                        {
+                            "type": "resize",
+                            "annotation": self._active_annotation,
+                            "source": before,
+                            "target": after,
+                        }
+                    )
+        elif self._drag_mode == "move_text" and self._moving_text is not None:
+            delta = self._moving_text["start"] - self._moving_text_start
+            if not delta.isNull():
+                self._record_undo(
+                    {
+                        "type": "move",
+                        "annotations": [self._moving_text],
+                        "delta": delta,
+                    }
+                )
         if self.selection.width() >= 8 and self.selection.height() >= 8:
             self._position_toolbar()
             self.toolbar.show()
@@ -2003,6 +2069,14 @@ class ScreenshotOverlay(QWidget):
         text = ""
         if annotation is not None:
             self._editing_text_index = self._annotations.index(annotation)
+            self._record_undo(
+                {
+                    "type": "text_edit",
+                    "annotation": annotation,
+                    "snapshot": copy.deepcopy(annotation),
+                    "index": self._editing_text_index,
+                }
+            )
             self._annotations.pop(self._editing_text_index)
             self._invalidate_annotation_layer()
             self._active_annotation = annotation
@@ -2078,6 +2152,7 @@ class ScreenshotOverlay(QWidget):
 
     def _begin_element_move(self, annotation):
         self._element_bounds_start = self._editable_annotation_bounds()
+        self._gesture_geometry_before = annotation_geometry(annotation)
         if annotation["kind"] not in (
             "arrow", "ellipse", "fragment", "pen", "rect"
         ):
@@ -2088,6 +2163,7 @@ class ScreenshotOverlay(QWidget):
 
     def _begin_element_resize(self, annotation):
         self._element_bounds_start = self._editable_annotation_bounds()
+        self._gesture_geometry_before = annotation_geometry(annotation)
         self._resize_preview_bounds = QRect(self._element_bounds_start)
         if annotation["kind"] not in (
             "arrow", "ellipse", "fragment", "pen", "rect"
@@ -2267,6 +2343,10 @@ class ScreenshotOverlay(QWidget):
         annotation = self._active_annotation
         if annotation not in self._annotations:
             return
+        index = self._annotations.index(annotation)
+        self._record_undo(
+            {"type": "remove", "annotation": annotation, "index": index}
+        )
         self._annotations.remove(annotation)
         self._discard_pen_preview_cache(annotation)
         self._active_annotation = None
@@ -2385,7 +2465,24 @@ class ScreenshotOverlay(QWidget):
             application.removeEventFilter(self)
         self._input_lock_installed = False
 
+    def _index_of_annotation(self, annotation):
+        for index, item in enumerate(self._annotations):
+            if item is annotation:
+                return index
+        return -1
+
+    def _record_undo(self, record):
+        """Remember an operation so _undo can reverse it (LIFO)."""
+        self._undo_stack.append(record)
+        if len(self._undo_stack) > 500:
+            del self._undo_stack[: len(self._undo_stack) - 500]
+
     def _undo(self):
+        if self._undo_stack:
+            record = self._undo_stack.pop()
+            self._apply_undo(record)
+            return
+        # Legacy fallback: with no recorded operation, drop the last annotation.
         if self._annotations:
             removed = self._annotations.pop()
             self._discard_pen_preview_cache(removed)
@@ -2394,6 +2491,55 @@ class ScreenshotOverlay(QWidget):
             self._renderer.retain_annotations(self._annotations)
             self._invalidate_annotation_layer()
             self.update()
+
+    def _apply_undo(self, record):
+        kind = record["type"]
+        if kind == "add":
+            annotation = record["annotation"]
+            index = self._index_of_annotation(annotation)
+            if index >= 0:
+                del self._annotations[index]
+            if self._active_annotation is annotation:
+                self._active_annotation = None
+            self._discard_pen_preview_cache(annotation)
+        elif kind == "remove":
+            annotation = record["annotation"]
+            if self._index_of_annotation(annotation) < 0:
+                index = min(record["index"], len(self._annotations))
+                self._annotations.insert(index, annotation)
+            self._active_annotation = None
+            self._discard_pen_preview_cache(annotation)
+        elif kind == "move":
+            delta = record["delta"]
+            if not delta.isNull():
+                translate_annotations(record["annotations"], -delta)
+            for annotation in record["annotations"]:
+                self._discard_pen_preview_cache(annotation)
+            if "selection_before" in record:
+                self.selection = QRect(record["selection_before"])
+                self._position_toolbar()
+                self._sync_selection_options()
+        elif kind == "resize":
+            annotation = record["annotation"]
+            resize_annotation(annotation, record["target"], record["source"])
+            self._discard_pen_preview_cache(annotation)
+        elif kind == "erase":
+            self._annotations = list(record["before"])
+            self._active_annotation = None
+            self._discard_pen_preview_cache()
+        elif kind == "text_edit":
+            annotation = record["annotation"]
+            annotation.clear()
+            annotation.update(copy.deepcopy(record["snapshot"]))
+            if self._index_of_annotation(annotation) < 0:
+                index = min(record["index"], len(self._annotations))
+                self._annotations.insert(index, annotation)
+            self._active_annotation = None
+            self._discard_pen_preview_cache(annotation)
+        self._clear_drag_preview()
+        self._renderer.retain_annotations(self._annotations)
+        self._invalidate_annotation_layer()
+        self.update()
 
     def _refresh_hover_cursor(self, point):
         locked = self._selection_is_locked()
