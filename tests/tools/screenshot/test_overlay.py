@@ -105,6 +105,25 @@ class ScreenshotOverlayTests(unittest.TestCase):
         self.assertEqual(self.overlay._corner_radius, 99)
         self.assertEqual(self.overlay.selection_options.radius_slider.maximum(), 100)
 
+    def test_corner_radius_accepts_manual_spinbox_input(self):
+        self.overlay.selection = QRect(20, 20, 100, 40)
+        self.overlay._sync_selection_options()
+        spinbox = self.overlay.selection_options.radius_spinbox
+
+        spinbox.setValue(42)
+
+        # Manual entry drives the corner radius and keeps the slider in sync.
+        self.assertEqual(self.overlay._corner_radius, 42)
+        self.assertEqual(
+            self.overlay.selection_options.radius_slider.value(), 42
+        )
+
+        # A slider move is reflected back into the spinbox (blocked signals,
+        # so no double emission).
+        self.overlay.selection_options.radius_slider.setValue(63)
+        self.assertEqual(spinbox.value(), 63)
+        self.assertEqual(self.overlay._corner_radius, 63)
+
     def test_shadow_expands_output_and_preserves_transparent_padding(self):
         self.overlay.resize(160, 120)
         self.overlay.selection = QRect(20, 20, 100, 80)

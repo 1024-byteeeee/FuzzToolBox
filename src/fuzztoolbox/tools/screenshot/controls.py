@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollBar,
     QSlider,
+    QSpinBox,
     QStyle,
     QStyleOptionButton,
     QStylePainter,
@@ -104,16 +105,21 @@ class SelectionOptionsBar(QFrame):
         self.radius_slider.setRange(0, 0)
         self.radius_slider.setFixedWidth(132)
         layout.addWidget(self.radius_slider)
-        self.radius_value = QLabel("0")
-        self.radius_value.setObjectName("screenshotSelectionValue")
-        self.radius_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.radius_value.setFixedWidth(34)
-        layout.addWidget(self.radius_value)
+        self.radius_spinbox = QSpinBox()
+        self.radius_spinbox.setObjectName("screenshotCornerRadius")
+        self.radius_spinbox.setRange(0, 0)
+        self.radius_spinbox.setSuffix(" px")
+        self.radius_spinbox.setFixedWidth(64)
+        self.radius_spinbox.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.radius_spinbox.setCursor(Qt.IBeamCursor)
+        self.radius_spinbox.setToolTip("圆角像素值，可直接输入")
+        layout.addWidget(self.radius_spinbox)
         self.shadow_checkbox = ShadowCheckBox()
         self.shadow_checkbox.setObjectName("screenshotShadowCheckbox")
         self.shadow_checkbox.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.shadow_checkbox)
         self.radius_slider.valueChanged.connect(self._radius_value_changed)
+        self.radius_spinbox.valueChanged.connect(self._radius_spinbox_changed)
         self.shadow_checkbox.toggled.connect(self.shadow_toggled)
         self.setFixedHeight(34)
         self.setFixedWidth(self.sizeHint().width())
@@ -123,12 +129,27 @@ class SelectionOptionsBar(QFrame):
             f"{resolution.width()} × {resolution.height()}"
         )
         self.radius_slider.setRange(0, 100)
+        self.radius_spinbox.setRange(0, 100)
         self.radius_slider.setValue(min(max(0, radius), 100))
         self.shadow_checkbox.setChecked(shadow_enabled)
 
     def _radius_value_changed(self, value):
-        self.radius_value.setText(str(value))
+        self._set_radius_spinbox(value)
         self.radius_changed.emit(value)
+
+    def _radius_spinbox_changed(self, value):
+        self._set_radius_slider(value)
+        self.radius_changed.emit(value)
+
+    def _set_radius_spinbox(self, value):
+        self.radius_spinbox.blockSignals(True)
+        self.radius_spinbox.setValue(value)
+        self.radius_spinbox.blockSignals(False)
+
+    def _set_radius_slider(self, value):
+        self.radius_slider.blockSignals(True)
+        self.radius_slider.setValue(value)
+        self.radius_slider.blockSignals(False)
 
 
 class ColorSwatchButton(QPushButton):

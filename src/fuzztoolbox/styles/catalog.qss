@@ -113,7 +113,9 @@ QFrame#screenshotSelectionOptions { color: #edf2f7; background: rgba(32, 43, 58,
 QFrame#screenshotSelectionOptions QLabel { color: #edf2f7; background: transparent; border: 0; }
 QLabel#screenshotSelectionResolution { min-width: 90px; font-weight: 700; }
 QLabel#screenshotSelectionLabel { color: #c4cedb; font-weight: 600; }
-QLabel#screenshotSelectionValue { color: #79bdff; font-weight: 700; }
+QSpinBox#screenshotCornerRadius { background: rgba(20, 30, 42, 220); color: #79bdff; font-weight: 700; border: 1px solid #526176; border-radius: 4px; padding: 1px 2px; }
+QSpinBox#screenshotCornerRadius::up-button, QSpinBox#screenshotCornerRadius::down-button { width: 14px; border: none; background: transparent; }
+QSpinBox#screenshotCornerRadius::up-arrow, QSpinBox#screenshotCornerRadius::down-arrow { width: 6px; height: 6px; }
 QSlider#screenshotCornerSlider { min-height: 20px; background: transparent; }
 QSlider#screenshotCornerSlider::groove:horizontal { height: 5px; background: #4b5b70; border: 0; border-radius: 2px; }
 QSlider#screenshotCornerSlider::sub-page:horizontal { background: #409eff; border-radius: 2px; }

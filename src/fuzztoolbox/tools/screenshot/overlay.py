@@ -349,7 +349,7 @@ class ScreenshotOverlay(QWidget):
                 else:
                     self._paint_annotation(painter, self._current)
             painter.restore()
-            painter.setPen(QPen(QColor("#55b6ff"), 1.5))
+            painter.setPen(QPen(QColor("#55b6ff"), 2))
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(selection_path)
             if not self._selection_is_locked():
