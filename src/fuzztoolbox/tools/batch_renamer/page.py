@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDragEnterEvent,
+    QDropEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,10 +22,14 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,7 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from fuzztoolbox.ui.components import configure_combo, configure_table
-from fuzztoolbox.ui.style_loader import apply_style
+from fuzztoolbox.ui.style_loader import apply_style, theme_color
 
 from .engine import (
     RenameError,
@@ -50,6 +61,117 @@ RULE_LABELS = {
 }
 
 
+class ContextMenuLineEdit(QLineEdit):
+    """QLineEdit with a localized Chinese context menu and hover highlight."""
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        cut = menu.addAction("剪切", self.cut)
+        copy = menu.addAction("复制", self.copy)
+        paste = menu.addAction("粘贴", self.paste)
+        delete = menu.addAction("删除", self.del_)
+        menu.addSeparator()
+        select_all = menu.addAction("全选", self.selectAll)
+        can_select = self.hasSelectedText()
+        cut.setEnabled(can_select and not self.isReadOnly())
+        copy.setEnabled(can_select)
+        paste.setEnabled(not self.isReadOnly())
+        delete.setEnabled(can_select and not self.isReadOnly())
+        select_all.setEnabled(bool(self.text()))
+        apply_style(menu, "ui.components:context_menu")
+        menu.exec(event.globalPos())
+
+
+class DownwardCombo(QComboBox):
+    """QComboBox whose popup always opens below the control, on-screen."""
+
+    def showPopup(self):
+        super().showPopup()
+        popup = self.view().window()
+        if popup is None or not popup.isVisible():
+            return
+        screen = self.screen()
+        screen_geo = screen.availableGeometry() if screen is not None else None
+        origin = self.mapToGlobal(QPoint(0, 0))
+        x = origin.x()
+        y = origin.y() + self.height() + 1
+        if screen_geo is not None and y + popup.height() > screen_geo.bottom():
+            popup.resize(popup.width(), max(1, screen_geo.bottom() - y + 1))
+        popup.move(x, y)
+
+
+class CenteredCheckDelegate(QStyledItemDelegate):
+    """Draw the preview selection checkbox centred within its cell."""
+
+    def editorEvent(self, event, model, option, index):
+        if index.column() != 0:
+            return super().editorEvent(event, model, option, index)
+        if (
+            event.type() == QEvent.MouseButtonRelease
+            and event.button() == Qt.LeftButton
+        ):
+            size = 18
+            rect = QRect(
+                option.rect.center().x() - size // 2,
+                option.rect.center().y() - size // 2,
+                size,
+                size,
+            )
+            if rect.contains(event.position().toPoint()):
+                state = index.data(Qt.CheckStateRole)
+                if state is None:
+                    return False
+                checked = Qt.CheckState(int(state)) == Qt.CheckState.Checked
+                new_state = (
+                    Qt.CheckState.Unchecked if checked else Qt.CheckState.Checked
+                )
+                model.setData(index, new_state, Qt.CheckStateRole)
+                return True
+            return False
+        return False
+
+    def paint(self, painter, option, index):
+        styled = QStyleOptionViewItem(option)
+        self.initStyleOption(styled, index)
+        check_state = index.data(Qt.CheckStateRole)
+        if check_state is None:
+            super().paint(painter, styled, index)
+            return
+        checked = Qt.CheckState(int(check_state)) == Qt.CheckState.Checked
+        styled.features &= ~QStyleOptionViewItem.HasCheckIndicator
+        if styled.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, QColor(theme_color("primary_soft")))
+        super().paint(painter, styled, index)
+        size = 18
+        rect = QRect(
+            option.rect.center().x() - size // 2,
+            option.rect.center().y() - size // 2,
+            size,
+            size,
+        )
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        radius = 4
+        if checked:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(theme_color("primary")))
+            painter.drawRoundedRect(rect, radius, radius)
+            pen = QPen(
+                QColor("#ffffff"), 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin
+            )
+            painter.setPen(pen)
+            path = QPainterPath()
+            path.moveTo(rect.left() + 4, rect.center().y())
+            path.lineTo(rect.center().x() - 1, rect.bottom() - 4)
+            path.lineTo(rect.right() - 3, rect.top() + 4)
+            painter.drawPath(path)
+        else:
+            painter.setPen(QPen(QColor(theme_color("border")), 1.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+        painter.restore()
+
+
 class RuleRow(QFrame):
     changed = Signal()
     remove_requested = Signal(object)
@@ -64,7 +186,7 @@ class RuleRow(QFrame):
         layout.setSpacing(8)
 
         header = QHBoxLayout()
-        self.kind = QComboBox()
+        self.kind = DownwardCombo()
         for rule_kind, label in RULE_LABELS.items():
             self.kind.addItem(label, rule_kind)
         self.kind.setCurrentIndex(self.kind.findData(kind))
@@ -82,9 +204,9 @@ class RuleRow(QFrame):
         layout.addLayout(header)
 
         fields = QHBoxLayout()
-        self.first = QLineEdit()
-        self.second = QLineEdit()
-        self.case_mode = QComboBox()
+        self.first = ContextMenuLineEdit()
+        self.second = ContextMenuLineEdit()
+        self.case_mode = DownwardCombo()
         for label, value in (
             ("大写", "upper"),
             ("小写", "lower"),
@@ -229,7 +351,7 @@ class BatchRenamerPage(QWidget):
         header = QHBoxLayout()
         title = QLabel("重命名规则")
         title.setObjectName("renameHeading")
-        self.add_rule_type = QComboBox()
+        self.add_rule_type = DownwardCombo()
         for kind, label in RULE_LABELS.items():
             self.add_rule_type.addItem(label, kind)
         configure_combo(self.add_rule_type)
@@ -288,6 +410,9 @@ class BatchRenamerPage(QWidget):
         self.preview.setHorizontalHeaderLabels(("选择", "原文件名", "新文件名", "状态"))
         self.preview.horizontalHeader().setStretchLastSection(False)
         configure_table(self.preview)
+        self.preview.setItemDelegateForColumn(
+            0, CenteredCheckDelegate(self.preview)
+        )
         header_view = self.preview.horizontalHeader()
         header_view.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header_view.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -471,7 +596,6 @@ class BatchRenamerPage(QWidget):
         self.last_receipt = receipt
         renamed = dict(receipt.mappings)
         self.sources = [renamed.get(source, source) for source in self.sources]
-        self._clear_rule_rows()
         self.undo_button.setEnabled(True)
         self._preview()
         self.status.setText(f"已安全重命名 {len(receipt.mappings)} 个文件")
@@ -491,11 +615,6 @@ class BatchRenamerPage(QWidget):
         self.undo_button.setEnabled(False)
         self._preview()
         self.status.setText("已撤销上次批量重命名")
-
-    def _clear_rule_rows(self):
-        for row in self.rule_rows:
-            row.deleteLater()
-        self.rule_rows.clear()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):

@@ -582,6 +582,17 @@ background: transparent; color: #303133;
 QFrame#comboPopupContainer { background: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; }
 @endstyle */
 
+/* @style ui.components:win_viewport
+background: #ffffff; color: #303133;
+@endstyle */
+
+/* @style ui.components:context_menu
+QMenu { background: #ffffff; color: #303133; border: 1px solid #dcdfe6; border-radius: 8px; padding: 6px; }
+QMenu::item { min-width: 96px; padding: 7px 22px; border-radius: 5px; }
+QMenu::item:selected { background: #ecf5ff; color: #1677d2; }
+QMenu::item:disabled { color: #909399; }
+@endstyle */
+
 /* @style ui.home_page:46
 font-size: 17px; font-weight: 700; color: #303133;
 @endstyle */

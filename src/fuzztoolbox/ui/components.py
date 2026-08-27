@@ -1,5 +1,9 @@
 import weakref
 
+"""Shared visual components (switches, combo styling, table delegates)."""
+
+import sys
+
 from PySide6.QtCore import (  # type: ignore[import-not-found]
     QEasingCurve,
     QObject,
@@ -144,7 +148,14 @@ class ComboListView(QListView):
         popup_palette = popup.palette()
         for role in (QPalette.Base, QPalette.Button):
             popup_palette.setColor(role, QColor(theme_color("surface")))
-        popup_palette.setColor(QPalette.Window, QColor("transparent"))
+        if sys.platform == "win32":
+            # Windows cannot composite translucent frameless popups; without an
+            # opaque background the dropdown renders transparent and only the
+            # item text stays visible.
+            popup_palette.setColor(QPalette.Window, QColor(theme_color("surface")))
+            apply_style(self.viewport(), "ui.components:win_viewport")
+        else:
+            popup_palette.setColor(QPalette.Window, QColor("transparent"))
         popup_palette.setColor(QPalette.Text, QColor(theme_color("text")))
         popup.setPalette(popup_palette)
         self.viewport().update()
@@ -157,8 +168,17 @@ class ComboListView(QListView):
         self.apply_theme_palette()
         if not popup.windowFlags() & Qt.FramelessWindowHint:
             popup.setWindowFlag(Qt.FramelessWindowHint, True)
-        popup.setAttribute(Qt.WA_TranslucentBackground, True)
-        popup.setAttribute(Qt.WA_StyledBackground, True)
+        if sys.platform == "win32":
+            popup.setAttribute(Qt.WA_TranslucentBackground, False)
+            popup.setAttribute(Qt.WA_StyledBackground, True)
+            popup_palette = popup.palette()
+            for role in (QPalette.Window, QPalette.Base, QPalette.Button):
+                popup_palette.setColor(role, QColor(theme_color("surface")))
+            popup_palette.setColor(QPalette.Text, QColor(theme_color("text")))
+            popup.setPalette(popup_palette)
+        else:
+            popup.setAttribute(Qt.WA_TranslucentBackground, True)
+            popup.setAttribute(Qt.WA_StyledBackground, True)
         popup.setAutoFillBackground(False)
         popup.setObjectName("comboPopupContainer")
         apply_style(popup, "ui.components:57")
