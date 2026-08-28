@@ -689,22 +689,23 @@ class MainWindow(QMainWindow):
         legacy_name = f"{tool_id.replace('-', '_')}_page"
         if self.__dict__.get(legacy_name) is page:
             self.__dict__.pop(legacy_name, None)
-        # Release the page-transition controller's reference before deleteLater()
-        # so it cannot keep the page's Python wrapper (and its child objects)
-        # alive after the C++ side has been destroyed.
+        # Release the page-transition controller's reference before deletion so
+        # it cannot keep the page's Python wrapper (and its child objects) alive
+        # after the C++ side has been destroyed.
         self._page_transition.clear_widget(page)
         self.pages.removeWidget(page)
         page.close()
+        # Post the deferred-delete event, then drain the event queue so the C++
+        # widget tree (and all children) is destroyed without waiting for the
+        # next natural event-loop iteration.  processEvents() dispatches events in
+        # order (unlike sendPostedEvents on a single object, which can delete a
+        # widget that still has paint/resize events pending and later segfault).
+        # prepare_close() has already stopped timers/threads and the page has been
+        # removed from every layout, so no callbacks can re-enter this method.
         page.deleteLater()
-        # Run a collection pass so Python wrapper cycles for the page tree are
-        # released as soon as possible (the C++ deleteLater() is handled by the
-        # regular event loop, where it is safe).
+        QApplication.processEvents()
+        # Now that the C++ objects are gone, collect Python wrappers immediately.
         gc.collect()
-        # Schedule a second collection pass for the next event-loop iteration.
-        # At that point deleteLater() has actually destroyed the C++ page and
-        # its children, so any remaining Python reference cycles that depended
-        # on live C++ signal/slot connections can now be broken.
-        QTimer.singleShot(0, gc.collect)
         if was_current and not self._application_quitting:
             self.show_home()
 

@@ -1261,14 +1261,7 @@ class ResultModelTests(unittest.TestCase):
                 scanner_page.prepare_close.assert_called_once()
                 lookup_page.prepare_close.assert_called_once()
                 device_page.prepare_close.assert_called_once()
-                # The quit is scheduled via singleShot; deferred gc.collect()
-                # calls for disposed pages may also be present.
-                quit_args = [
-                    call_args
-                    for call_args in single_shot.call_args_list
-                    if call_args.args and call_args.args[1] is QApplication.instance().quit
-                ]
-                self.assertEqual(len(quit_args), 1)
+                single_shot.assert_called_once()
         window.hide()
 
     def test_labels_use_transparent_background(self):
