@@ -16,7 +16,6 @@ from PySide6.QtCore import (
     QRect,
     QSize,
     Qt,
-    QTimer,
 )
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QKeySequence, QTextCursor
 from PySide6.QtTest import QTest
@@ -928,24 +927,24 @@ class ResultModelTests(unittest.TestCase):
         self.assertIsNot(window.timer_page, first_page)
         window.hide()
 
-    def test_task_manager_dialog_is_destroyed_after_each_exec(self):
+    def test_task_manager_dialog_is_destroyed_after_each_open(self):
         window = MainWindow()
         dialogs = []
 
-        def reject_dialog():
-            dialog = window.findChildren(TaskManagerDialog)[-1]
+        for _ in range(3):
+            window.open_task_manager()
+            self.app.processEvents()
+            dialog = window._task_manager_dialog
+            self.assertIsNotNone(dialog)
             dialogs.append(dialog)
             dialog.reject()
-
-        for _ in range(3):
-            QTimer.singleShot(0, reject_dialog)
-            window.open_task_manager()
+            self.app.processEvents()
+            self.assertIsNone(window._task_manager_dialog)
+            QCoreApplication.sendPostedEvents(dialog, QEvent.DeferredDelete)
+            self.app.processEvents()
 
         for dialog in dialogs:
-            if isValid(dialog):
-                QCoreApplication.sendPostedEvents(dialog, QEvent.DeferredDelete)
-        self.app.processEvents()
-        self.assertTrue(all(not isValid(dialog) for dialog in dialogs))
+            self.assertFalse(isValid(dialog))
         self.assertEqual(window.findChildren(TaskManagerDialog), [])
         window.close()
 

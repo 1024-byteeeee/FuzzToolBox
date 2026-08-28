@@ -238,6 +238,7 @@ class MainWindow(QMainWindow):
         self.resize(*DEFAULT_WINDOW_SIZE)
         self._closing_after_worker = False
         self._application_quitting = False
+        self._task_manager_dialog = None
         self._page_transition = PageTransitionController(self)
         self._theme_transition = ThemeTransitionController(self)
         self.theme_mode = self.app_state.preferences.theme_mode()
@@ -327,12 +328,26 @@ class MainWindow(QMainWindow):
         self.show_home()
 
     def open_task_manager(self):
+        if self._task_manager_dialog is not None:
+            self._task_manager_dialog.raise_()
+            self._task_manager_dialog.activateWindow()
+            return
         dialog = TaskManagerDialog(self.tool_runtime, self)
-        try:
-            dialog.open_requested.connect(self.open_tool)
-            dialog.exec()
-        finally:
-            dialog.deleteLater()
+        # Window-modal (blocks input to the main window) but shown with show()
+        # rather than exec(), so it runs in the main event loop.  This is critical:
+        # exec() starts a nested event loop where Qt postpones DeferredDelete
+        # events, so pages closed from the task manager would not release memory
+        # until the dialog was dismissed.
+        dialog.setWindowModality(Qt.WindowModal)
+        dialog.open_requested.connect(self.open_tool)
+        dialog.finished.connect(self._on_task_manager_finished)
+        self._task_manager_dialog = dialog
+        dialog.show()
+
+    def _on_task_manager_finished(self, _result):
+        if self._task_manager_dialog is not None:
+            self._task_manager_dialog.deleteLater()
+            self._task_manager_dialog = None
 
     def _refresh_task_manager_button(self):
         count = self.tool_runtime.loaded_count
@@ -695,13 +710,11 @@ class MainWindow(QMainWindow):
         self._page_transition.clear_widget(page)
         self.pages.removeWidget(page)
         page.close()
-        # Post the deferred-delete event, then drain the event queue so the C++
-        # widget tree (and all children) is destroyed without waiting for the
-        # next natural event-loop iteration.  processEvents() dispatches events in
-        # order (unlike sendPostedEvents on a single object, which can delete a
-        # widget that still has paint/resize events pending and later segfault).
-        # prepare_close() has already stopped timers/threads and the page has been
-        # removed from every layout, so no callbacks can re-enter this method.
+        # Schedule deletion and drain the event queue so the C++ widget tree is
+        # destroyed without waiting for the next natural event-loop iteration.
+        # The task manager is a modeless dialog running in the main event loop,
+        # so DeferredDelete events are processed normally (unlike modal exec()
+        # which runs a nested loop where Qt postpones deferred deletion).
         page.deleteLater()
         QApplication.processEvents()
         # Now that the C++ objects are gone, collect Python wrappers immediately.
