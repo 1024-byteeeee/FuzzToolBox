@@ -328,8 +328,11 @@ class MainWindow(QMainWindow):
 
     def open_task_manager(self):
         dialog = TaskManagerDialog(self.tool_runtime, self)
-        dialog.open_requested.connect(self.open_tool)
-        dialog.exec()
+        try:
+            dialog.open_requested.connect(self.open_tool)
+            dialog.exec()
+        finally:
+            dialog.deleteLater()
 
     def _refresh_task_manager_button(self):
         count = self.tool_runtime.loaded_count
@@ -353,6 +356,7 @@ class MainWindow(QMainWindow):
         try:
             dialog.exec()
         finally:
+            dialog.deleteLater()
             self._shortcuts_suspended = False
             self.refresh_shortcuts()
 
@@ -685,6 +689,10 @@ class MainWindow(QMainWindow):
         legacy_name = f"{tool_id.replace('-', '_')}_page"
         if self.__dict__.get(legacy_name) is page:
             self.__dict__.pop(legacy_name, None)
+        # Release the page-transition controller's reference before deleteLater()
+        # so it cannot keep the page's Python wrapper (and its child objects)
+        # alive after the C++ side has been destroyed.
+        self._page_transition.clear_widget(page)
         self.pages.removeWidget(page)
         page.close()
         page.deleteLater()
@@ -692,6 +700,11 @@ class MainWindow(QMainWindow):
         # released as soon as possible (the C++ deleteLater() is handled by the
         # regular event loop, where it is safe).
         gc.collect()
+        # Schedule a second collection pass for the next event-loop iteration.
+        # At that point deleteLater() has actually destroyed the C++ page and
+        # its children, so any remaining Python reference cycles that depended
+        # on live C++ signal/slot connections can now be broken.
+        QTimer.singleShot(0, gc.collect)
         if was_current and not self._application_quitting:
             self.show_home()
 

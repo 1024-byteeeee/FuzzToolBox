@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import (
+    QAbstractAnimation,
     QEasingCurve,
     QObject,
     QParallelAnimationGroup,
@@ -12,6 +13,7 @@ from PySide6.QtCore import (
     QVariantAnimation,
 )
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QLabel, QWidget
+from shiboken6 import isValid
 
 FAST_DURATION = 120
 PAGE_DURATION = 180
@@ -63,14 +65,29 @@ class PageTransitionController(QObject):
         group.finished.connect(lambda: self._finish(widget, group))
         self.animation = group
         self._widget = widget
-        group.start()
+        group.start(QAbstractAnimation.DeleteWhenStopped)
+
+    def clear_widget(self, widget: QWidget | None = None) -> None:
+        """Release any reference held for a page transition.
+
+        Called when a tool page is disposed so the controller cannot keep a
+        deleted page's Python wrapper (and its child objects) alive.
+        """
+        if widget is not None and self._widget is not widget:
+            return
+        if self.animation is not None:
+            self.animation.stop()
+            self.animation = None
+        if self._widget is not None and isValid(self._widget):
+            self._widget.setGraphicsEffect(None)
+        self._widget = None
 
     def _finish(
         self,
         widget: QWidget | None,
         animation: QParallelAnimationGroup,
     ) -> None:
-        if widget is not None:
+        if widget is not None and isValid(widget):
             widget.setGraphicsEffect(None)
         if self.animation is animation:
             self.animation = None

@@ -7,7 +7,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QEasingCurve, QPoint, QRect, QSize, Qt
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEasingCurve,
+    QEvent,
+    QParallelAnimationGroup,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+)
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QImage, QKeySequence, QTextCursor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -20,6 +30,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTableView,
 )
+from shiboken6 import isValid
 
 from fuzztoolbox.core.network_info import NetworkInfo
 from fuzztoolbox.tools.ip_scanner.models import ScanConfig, ScanResult
@@ -61,6 +72,7 @@ from fuzztoolbox.ui.main_window import (
 )
 from fuzztoolbox.ui.settings_dialog import ShortcutEdit
 from fuzztoolbox.ui.splash_screen import SPLASH_SIZE, create_splash_screen
+from fuzztoolbox.ui.task_manager_dialog import TaskManagerDialog
 from fuzztoolbox.ui.theme import STYLE
 from fuzztoolbox.ui.tool_registry import TOOLS, filter_tools
 
@@ -666,9 +678,34 @@ class ResultModelTests(unittest.TestCase):
 
         self.assertIsNotNone(controller.animation)
         self.assertIsNotNone(page.graphicsEffect())
-        controller.animation.setCurrentTime(controller.animation.duration())
+        animation = controller.animation
+        animation.setCurrentTime(animation.duration())
+        QCoreApplication.sendPostedEvents(animation, QEvent.DeferredDelete)
         self.app.processEvents()
         self.assertIsNone(page.graphicsEffect())
+        page.close()
+
+    def test_page_transition_releases_finished_and_interrupted_groups(self):
+        page = ToolboxHomePage()
+        page.show()
+        self.app.processEvents()
+        controller = PageTransitionController()
+
+        controller.enter(page)
+        interrupted = controller.animation
+        controller.enter(page)
+        completed = controller.animation
+        completed.setCurrentTime(completed.duration())
+        QCoreApplication.sendPostedEvents(interrupted, QEvent.DeferredDelete)
+        QCoreApplication.sendPostedEvents(completed, QEvent.DeferredDelete)
+        self.app.processEvents()
+
+        self.assertFalse(isValid(interrupted))
+        self.assertFalse(isValid(completed))
+        self.assertEqual(
+            controller.findChildren(QParallelAnimationGroup),
+            [],
+        )
         page.close()
 
     def test_theme_transition_cross_fades_a_snapshot(self):
@@ -891,6 +928,27 @@ class ResultModelTests(unittest.TestCase):
         self.assertIsNot(window.timer_page, first_page)
         window.hide()
 
+    def test_task_manager_dialog_is_destroyed_after_each_exec(self):
+        window = MainWindow()
+        dialogs = []
+
+        def reject_dialog():
+            dialog = window.findChildren(TaskManagerDialog)[-1]
+            dialogs.append(dialog)
+            dialog.reject()
+
+        for _ in range(3):
+            QTimer.singleShot(0, reject_dialog)
+            window.open_task_manager()
+
+        for dialog in dialogs:
+            if isValid(dialog):
+                QCoreApplication.sendPostedEvents(dialog, QEvent.DeferredDelete)
+        self.app.processEvents()
+        self.assertTrue(all(not isValid(dialog) for dialog in dialogs))
+        self.assertEqual(window.findChildren(TaskManagerDialog), [])
+        window.close()
+
     def test_settings_suspend_global_hotkeys_until_dialog_closes(self):
         window = Mock()
         window.settings = Mock()
@@ -919,6 +977,7 @@ class ResultModelTests(unittest.TestCase):
         window._screenshot_hotkey.unregister.assert_called_once_with()
         window._color_keep_hotkey.unregister.assert_called_once_with()
         window._screenshot_keep_hotkey.unregister.assert_called_once_with()
+        dialog.deleteLater.assert_called_once_with()
         window.refresh_shortcuts.assert_called_once_with()
         self.assertFalse(window._shortcuts_suspended)
 
@@ -1202,7 +1261,14 @@ class ResultModelTests(unittest.TestCase):
                 scanner_page.prepare_close.assert_called_once()
                 lookup_page.prepare_close.assert_called_once()
                 device_page.prepare_close.assert_called_once()
-                single_shot.assert_called_once()
+                # The quit is scheduled via singleShot; deferred gc.collect()
+                # calls for disposed pages may also be present.
+                quit_args = [
+                    call_args
+                    for call_args in single_shot.call_args_list
+                    if call_args.args and call_args.args[1] is QApplication.instance().quit
+                ]
+                self.assertEqual(len(quit_args), 1)
         window.hide()
 
     def test_labels_use_transparent_background(self):

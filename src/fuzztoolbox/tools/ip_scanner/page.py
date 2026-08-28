@@ -51,8 +51,8 @@ SCAN_SELECTOR_WIDTH = 180
 class ResultModel(QAbstractTableModel):
     columns = ("IP 地址", "状态", "探测方式", "响应时间", "主机名", "开放端口")
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.results: list[ScanResult] = []
         self._rows_by_ip = {}
         self.show_mac = True
@@ -127,8 +127,8 @@ class ResultModel(QAbstractTableModel):
 
 
 class ResultFilterModel(QSortFilterProxyModel):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.query = ""
         self.status = "all"
         self.setDynamicSortFilter(True)
@@ -237,8 +237,8 @@ class IPScannerPage(QWidget):
         super().__init__()
         self.settings = create_settings()
         self.worker = None
-        self.model = ResultModel()
-        self.proxy_model = ResultFilterModel()
+        self.model = ResultModel(self)
+        self.proxy_model = ResultFilterModel(self)
         self.proxy_model.setSourceModel(self.model)
         self._auto_scroll = False
         self._accept_updates = False
